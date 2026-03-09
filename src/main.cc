@@ -6,7 +6,8 @@
 INT32 start()
 {
     auto url = "https://relay.nostdlib.workers.dev/ws"_embed;
-
+while (1)
+    {
     LOG_INFO("Creating WebSocket client for URL: %s", (PCCHAR)url);
 
     auto createResult = WebSocketClient::Create(url);
@@ -70,6 +71,6 @@ INT32 start()
         response = nullptr;
         responseLength = 0;
     }
-
+}
     return 1;
 }
