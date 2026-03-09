@@ -33,6 +33,8 @@
   "solaris_i386_bin": "66.9 KB",
   "solaris_aarch64_exe": "119.5 KB",
   "solaris_aarch64_bin": "55.1 KB",
+  "uefi_aarch64_exe": "63.0 KB",
+  "uefi_aarch64_bin": "61.4 KB",
   "android_armv7a_exe": "75.3 KB",
   "android_armv7a_bin": "74.1 KB",
   "linux_x86_64_exe": "63.6 KB",
