@@ -18,31 +18,52 @@ Result<USIZE, Error> Shell::Write(const char *data, USIZE length) noexcept
 }
 
 /**
- * Reads available output from the shell's stdout.
+ * Reads available output from the shell's stdout in chunks.
  */
 Result<USIZE, Error> Shell::Read(char *buffer, USIZE capacity) noexcept
 {
     USIZE totalRead = 0;
 
-    while (totalRead < capacity - 1) // Leave room for null terminator if needed
+    // Leave room for a null terminator if the caller expects to treat it as a C-string
+    while (totalRead < capacity - 1)
     {
-        char byte;
-        // Read 1 byte at a time
-        auto result = stdoutPipe.Read(Span<UINT8>((UINT8 *)&byte, 1));
+        // Calculate how much space is left in the buffer
+        USIZE spaceLeft = (capacity - 1) - totalRead;
+
+        // Read a chunk directly into the correct offset of the buffer
+        auto result = stdoutPipe.Read(Span<UINT8>((UINT8 *)(buffer + totalRead), spaceLeft));
 
         if (!result)
         {
+            // If we already read some data before the error occurred,
+            // it's safer to return what we have so we don't lose it.
+            if (totalRead > 0)
+                return Result<USIZE, Error>::Ok(totalRead);
+
             return Result<USIZE, Error>::Err(result.Error());
         }
 
         USIZE bytesRead = result.Value();
         if (bytesRead == 0)
-            break; // EOF reached
+        {
+            break; // EOF reached (pipe closed)
+        }
 
-        buffer[totalRead++] = byte;
+        // Scan the newly read chunk for the prompt character
+        bool promptFound = false;
+        for (USIZE i = 0; i < bytesRead; ++i)
+        {
+            if (buffer[totalRead + i] == Shell::EndOfLineChar)
+            {
+                promptFound = true;
+                break;
+            }
+        }
 
-        // Check if we hit the shell prompt ('>' on Windows, '$' on Linux)
-        if (byte == Shell::EndOfLineChar)
+        totalRead += bytesRead;
+
+        // Stop reading from the pipe if we found the prompt
+        if (promptFound)
         {
             break;
         }
