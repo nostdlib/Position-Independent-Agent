@@ -15,7 +15,7 @@ private:
 public:
 #if defined(PLATFORM_WINDOWS)
     constexpr static char EndOfLineChar = '>';
-#elif defined(PLATFORM_LINUX)
+#else
     constexpr static char EndOfLineChar = '$';
 #endif
 

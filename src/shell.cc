@@ -104,7 +104,7 @@ Result<Shell, Error> Shell::Create() noexcept
 
 #if defined(PLATFORM_WINDOWS)
     auto path = "cmd.exe"_embed;
-#elif defined(PLATFORM_LINUX)
+#else
     auto path = "/bin/sh"_embed;
 #endif
 
