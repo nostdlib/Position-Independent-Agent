@@ -223,7 +223,7 @@ Compiles to fully position-independent, zero-dependency binaries that communicat
 
 - **WebSocket Communication** - Connects to a server and processes commands in a persistent loop
 - **Command Protocol** - Binary protocol with the following command types:
-  - `GetUUID` - Returns the agent's unique identifier
+  - `GetSystemInfo` - Returns machine UUID, hostname, CPU architecture, and OS platform
   - `GetDirectoryContent` - Lists directory entries for a given path
   - `GetFileContent` - Reads file content at a specified offset and length
   - `GetFileChunkHash` - Computes SHA-256 hash of a file chunk
