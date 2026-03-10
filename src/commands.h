@@ -4,7 +4,7 @@
 
 enum CommandType : UINT8
 {
-    GetUUID = 0,
+    GetSystemInfo = 0,
     GetDirectoryContent = 1,
     GetFileContent = 2,
     GetFileChunkHash = 3,
@@ -20,7 +20,7 @@ enum StatusCode : UINT32
 
 using CommandHandler = VOID (*)(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength);
 
-VOID Handle_GetUUIDCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength);
+VOID Handle_GetSystemInfoCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength);
 VOID Handle_GetDirectoryContentCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength);
 VOID Handle_GetFileContentCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength);
 VOID Handle_GetFileChunkHashCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength);

