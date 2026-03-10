@@ -4,10 +4,10 @@
 
 enum CommandType : UINT8
 {
-    GetSystemInfo = 0,
-    GetDirectoryContent = 1,
-    GetFileContent = 2,
-    GetFileChunkHash = 3,
+    Command_GetSystemInfo = 0,
+    Command_GetDirectoryContent = 1,
+    Command_GetFileContent = 2,
+    Command_GetFileChunkHash = 3,
     CommandTypeCount
 };
 
