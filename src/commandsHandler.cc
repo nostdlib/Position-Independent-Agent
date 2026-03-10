@@ -52,11 +52,18 @@ static VOID ToWireEntry(const DirectoryEntry &src, WireDirectoryEntry &dst)
 
 /// Decode a CHAR16 path from the wire protocol into a native WCHAR path.
 /// Normalizes path separators to the platform convention (e.g. '\' → '/' on Linux).
-static USIZE DecodeWirePath(PCHAR command, WCHAR *widePath, USIZE widePathSize)
+static USIZE DecodeWirePath(PCHAR command, USIZE commandLength, WCHAR *widePath, USIZE widePathSize)
 {
+    if (commandLength < sizeof(CHAR16))
+    {
+        widePath[0] = L'\0';
+        return 0;
+    }
+
     PCCHAR16 wirePath = (PCCHAR16)(command);
+    USIZE maxChar16 = commandLength / sizeof(CHAR16);
     USIZE wireLen = 0;
-    while (wirePath[wireLen] != 0)
+    while (wireLen < maxChar16 && wirePath[wireLen] != 0)
         wireLen++;
     USIZE len = StringUtils::Char16ToWide(
         Span<const CHAR16>(wirePath, wireLen),
@@ -86,7 +93,7 @@ static BOOL IsDotEntry(const DirectoryEntry &entry)
 VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     WCHAR directoryPath[1024];
-    DecodeWirePath(command, directoryPath, 1024);
+    DecodeWirePath(command, commandLength, directoryPath, 1024);
     LOG_INFO("Getting directory content for path: %ws", directoryPath);
 
     auto result = DirectoryIterator::Create(directoryPath);
@@ -141,8 +148,9 @@ VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused
     UINT64 readCount = *(PUINT64)(command);
     UINT64 offset = *(PUINT64)(command + sizeof(UINT64));
 
+    USIZE pathOffset = sizeof(UINT64) + sizeof(UINT64);
     WCHAR filePath[1024];
-    DecodeWirePath(command + sizeof(UINT64) + sizeof(UINT64), filePath, 1024);
+    DecodeWirePath(command + pathOffset, commandLength > pathOffset ? commandLength - pathOffset : 0, filePath, 1024);
     LOG_INFO("Getting file content for path: %ws", filePath);
 
     auto openResult = File::Open(filePath, File::ModeRead);
@@ -171,8 +179,9 @@ VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unus
     UINT64 chunkSize = *(PUINT64)(command);
     UINT64 offset = *(PUINT64)(command + sizeof(UINT64));
 
+    USIZE hashPathOffset = sizeof(UINT64) + sizeof(UINT64);
     WCHAR filePath[1024];
-    DecodeWirePath(command + sizeof(UINT64) + sizeof(UINT64), filePath, 1024);
+    DecodeWirePath(command + hashPathOffset, commandLength > hashPathOffset ? commandLength - hashPathOffset : 0, filePath, 1024);
     LOG_INFO("Getting file chunk hash for path: %ws", filePath);
 
     auto openResult = File::Open(filePath, File::ModeRead);
