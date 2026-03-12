@@ -124,9 +124,9 @@ Result<Shell, Error> Shell::Create() noexcept
     auto stderrPipe = static_cast<Pipe &&>(stderrResult.Value());
 
 #if defined(PLATFORM_WINDOWS)
-    auto path = "cmd.exe"_embed;
+    auto path = "cmd.exe";
 #else
-    auto path = "/bin/sh"_embed;
+    auto path = "/bin/sh";
 #endif
 
     auto processResult = Process::Create(

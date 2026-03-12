@@ -86,8 +86,8 @@ static VOID WriteErrorResponse(PPCHAR response, PUSIZE responseLength, StatusCod
 
 static BOOL IsDotEntry(const DirectoryEntry &entry)
 {
-    return StringUtils::Equals((PWCHAR)entry.Name, (const WCHAR *)L"."_embed) ||
-           StringUtils::Equals((PWCHAR)entry.Name, (const WCHAR *)L".."_embed);
+    return StringUtils::Equals((PWCHAR)entry.Name, (const WCHAR *)L".") ||
+           StringUtils::Equals((PWCHAR)entry.Name, (const WCHAR *)L"..");
 }
 
 VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
@@ -311,6 +311,12 @@ VOID Handle_GetDisplaysCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] 
 {
     LOG_INFO("Handling GetDisplays command");
 
+    if (context->vncContext == nullptr)
+    {
+        auto vncResult = new VNCContext();
+        context->vncContext = vncResult;
+    }
+
     auto displays = Screen::GetDevices();
     if (!displays)
     {
@@ -320,6 +326,9 @@ VOID Handle_GetDisplaysCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] 
     }
 
     ScreenDeviceList &deviceList = displays.Value();
+
+    context->vncContext->DeviceList = deviceList;
+
     *responseLength += sizeof(deviceList.Count) + (USIZE)(deviceList.Count * sizeof(ScreenDevice));
 
     *response = new CHAR[*responseLength];
@@ -328,4 +337,149 @@ VOID Handle_GetDisplaysCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] 
     Memory::Copy(*response + sizeof(UINT32) + sizeof(deviceList.Count), deviceList.Devices, (USIZE)(deviceList.Count * sizeof(ScreenDevice)));
 
     LOG_INFO("GetDisplays command handled successfully with %u display(s)", deviceList.Count);
+}
+
+VOID JspegCallback(PVOID context, PVOID data, INT32 size)
+{
+    JpegBuffer *jpegBuffer = (JpegBuffer *)context;
+
+    if (data == nullptr)
+    {
+        // allocate initial buffer if not already allocated
+        if (jpegBuffer->outputBuffer == nullptr)
+        {
+            jpegBuffer->size = (UINT32)size;
+            jpegBuffer->outputBuffer = new UINT8[jpegBuffer->size];
+        }
+    }
+
+    if (jpegBuffer->offset + size > jpegBuffer->size)
+    {
+        // allocate a new buffer with double the size
+        UINT32 newSize = Math::Max(jpegBuffer->size * 2, jpegBuffer->size + size);
+        PUINT8 newBuffer = new UINT8[newSize];
+        Memory::Copy(newBuffer, jpegBuffer->outputBuffer, jpegBuffer->offset);
+        delete[] jpegBuffer->outputBuffer;
+        jpegBuffer->outputBuffer = newBuffer;
+        jpegBuffer->size = newSize;
+    }
+
+    Memory::Copy(jpegBuffer->outputBuffer + jpegBuffer->offset, data, (USIZE)size);
+    jpegBuffer->offset += (UINT32)size;
+}
+
+VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
+{
+    LOG_INFO("Handling GetScreenshot command");
+
+    // parse the command
+    auto displayIndex = *(PUINT32)(command);
+    LOG_INFO("Requested display index: %u", displayIndex);
+    auto quality = *(PUINT32)(command + sizeof(UINT32));
+    LOG_INFO("Requested quality: %u", quality);
+    auto isFullScreen = *(PUINT32)(command + sizeof(UINT32) + sizeof(UINT32));
+    LOG_INFO("Requested full screen: %u", isFullScreen);
+
+    if (context->vncContext == nullptr)
+    {
+        auto vncResult = new VNCContext();
+        context->vncContext = vncResult;
+    }
+
+    if (context->vncContext->DeviceList.Count == 0)
+    {
+        auto displays = Screen::GetDevices();
+        if (!displays)
+        {
+            LOG_ERROR("Failed to get display devices");
+            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+            return;
+        }
+        context->vncContext->DeviceList = displays.Value();
+    }
+
+    // For simplicity, we capture the first display device. This can be extended to specify which device to capture.
+    const ScreenDevice &device = context->vncContext->DeviceList.Devices[displayIndex];
+
+    // check if graphics are initialized
+    if (context->vncContext->GraphicsList.count == 0)
+    {
+        context->vncContext->GraphicsList.graphicsArray = new Graphics[context->vncContext->DeviceList.Count];
+        context->vncContext->GraphicsList.count = context->vncContext->DeviceList.Count;
+    }
+
+    Graphics &graphics = context->vncContext->GraphicsList.graphicsArray[displayIndex];
+    if (graphics.currentScreenshot == nullptr)
+    {
+        graphics.currentScreenshot = new RGB[device.Width * device.Height];
+        isFullScreen = true;
+    }
+    if (graphics.screenshot == nullptr)
+    {
+        graphics.screenshot = new RGB[device.Width * device.Height];
+        isFullScreen = true;
+    }
+    if (graphics.bidiff == nullptr)
+    {
+        graphics.bidiff = new UINT8[device.Width * device.Height];
+        isFullScreen = true;
+    }
+
+    isFullScreen = true; // For simplicity, we always capture the full screen. This can be extended to support partial updates using bidiff.
+
+    if (isFullScreen)
+    {
+        if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height)))
+        {
+            LOG_ERROR("Failed to capture screen");
+            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+            return;
+        }
+
+        // encode jpeg and write to response
+        JpegBuffer jpegBuffer;
+        auto encodeResult = JpegEncoder::Encode(JspegCallback, &jpegBuffer, (INT32)quality, (INT32)device.Width, (INT32)device.Height, 3, Span<const UINT8>((UINT8 *)graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB)));
+        if (encodeResult.IsErr())
+        {
+            LOG_ERROR("Failed to encode JPEG");
+            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+            return;
+        }
+        // write response
+        *responseLength += sizeof(UINT32) + jpegBuffer.offset;
+        *response = new CHAR[*responseLength];
+        *(PUINT32)*response = StatusCode::StatusSuccess;
+        // write the size of the jpeg data
+        Memory::Copy(*response + sizeof(UINT32), &jpegBuffer.offset, sizeof(UINT32));
+        // write the jpeg data
+        Memory::Copy(*response + sizeof(UINT32) + sizeof(UINT32), jpegBuffer.outputBuffer, (USIZE)jpegBuffer.offset);
+    }
+    else
+    {
+
+        // this part is not finished yet
+
+        // calculate bidiff and write to response
+        ImageProcessor::CalculateBiDifference(Span<const RGB>(graphics.currentScreenshot, device.Width * device.Height),
+                                              Span<const RGB>(graphics.screenshot, device.Width * device.Height),
+                                              device.Width, device.Height,
+                                              Span<UCHAR>(graphics.bidiff, device.Width * device.Height));
+
+        // remove noises from bidiff
+        ImageProcessor::RemoveNoise(Span<UCHAR>(graphics.bidiff, device.Width * device.Height),
+                                    device.Width, device.Height);
+
+        // fidn contours in bidiff and write to response
+        auto contourResult = ImageProcessor::FindContours(Span<INT8>((INT8 *)graphics.bidiff, device.Width * device.Height),
+                                                          (INT32)device.Height, (INT32)device.Width);
+        if (contourResult.IsErr())
+        {
+            LOG_ERROR("Failed to find contours in bidiff");
+            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+            return;
+        }
+        [[maybe_unused]] auto &contours = contourResult.Value();
+    }
+
+    LOG_INFO("GetScreenshot command handled successfully with resolution %ux%u", device.Width, device.Height);
 }

