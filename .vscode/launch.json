@@ -5,8 +5,12 @@
             "name": "windows-i386-pic",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "i386", "${workspaceFolder}/build/release/windows/i386/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "i386",
+                "${workspaceFolder}/build/release/windows/i386/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "windows-i386-release"
@@ -15,8 +19,12 @@
             "name": "windows-x86_64-pic",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "x86_64", "${workspaceFolder}/build/release/windows/x86_64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "x86_64",
+                "${workspaceFolder}/build/release/windows/x86_64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "windows-x86_64-release"
@@ -25,8 +33,12 @@
             "name": "windows-aarch64-pic",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "aarch64", "${workspaceFolder}/build/release/windows/aarch64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "aarch64",
+                "${workspaceFolder}/build/release/windows/aarch64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "windows-aarch64-release"
@@ -35,8 +47,12 @@
             "name": "windows-armv7a-pic",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "armv7a", "${workspaceFolder}/build/release/windows/armv7a/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "armv7a",
+                "${workspaceFolder}/build/release/windows/armv7a/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "windows-armv7a-release"
@@ -81,8 +97,12 @@
             "name": "macos-x86_64-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "x86_64", "${workspaceFolder}/build/release/macos/x86_64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "x86_64",
+                "${workspaceFolder}/build/release/macos/x86_64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "macos-x86_64-release"
@@ -91,8 +111,12 @@
             "name": "macos-aarch64-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "aarch64", "${workspaceFolder}/build/release/macos/aarch64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "aarch64",
+                "${workspaceFolder}/build/release/macos/aarch64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "macos-aarch64-release"
@@ -119,8 +143,12 @@
             "name": "linux-i386-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "i386", "${workspaceFolder}/build/release/linux/i386/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "i386",
+                "${workspaceFolder}/build/release/linux/i386/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "linux-i386-release"
@@ -129,8 +157,12 @@
             "name": "linux-x86_64-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "x86_64", "${workspaceFolder}/build/release/linux/x86_64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "x86_64",
+                "${workspaceFolder}/build/release/linux/x86_64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "linux-x86_64-release"
@@ -139,8 +171,12 @@
             "name": "linux-armv7a-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "armv7a", "${workspaceFolder}/build/release/linux/armv7a/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "armv7a",
+                "${workspaceFolder}/build/release/linux/armv7a/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "linux-armv7a-release"
@@ -149,8 +185,12 @@
             "name": "linux-aarch64-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "aarch64", "${workspaceFolder}/build/release/linux/aarch64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "aarch64",
+                "${workspaceFolder}/build/release/linux/aarch64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "linux-aarch64-release"
@@ -159,8 +199,12 @@
             "name": "linux-riscv32-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "riscv32", "${workspaceFolder}/build/release/linux/riscv32/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "riscv32",
+                "${workspaceFolder}/build/release/linux/riscv32/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "linux-riscv32-release"
@@ -169,8 +213,12 @@
             "name": "linux-riscv64-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "riscv64", "${workspaceFolder}/build/release/linux/riscv64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "riscv64",
+                "${workspaceFolder}/build/release/linux/riscv64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "linux-riscv64-release"
@@ -179,8 +227,12 @@
             "name": "linux-mips64-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "mips64", "${workspaceFolder}/build/release/linux/mips64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "mips64",
+                "${workspaceFolder}/build/release/linux/mips64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "linux-mips64-release"
@@ -252,8 +304,12 @@
             "name": "solaris-i386-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "i386", "${workspaceFolder}/build/release/solaris/i386/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "i386",
+                "${workspaceFolder}/build/release/solaris/i386/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "solaris-i386-release"
@@ -262,8 +318,12 @@
             "name": "solaris-x86_64-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "x86_64", "${workspaceFolder}/build/release/solaris/x86_64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "x86_64",
+                "${workspaceFolder}/build/release/solaris/x86_64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "solaris-x86_64-release"
@@ -272,8 +332,12 @@
             "name": "solaris-aarch64-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "aarch64", "${workspaceFolder}/build/release/solaris/aarch64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "aarch64",
+                "${workspaceFolder}/build/release/solaris/aarch64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "solaris-aarch64-release"
@@ -309,8 +373,12 @@
             "name": "freebsd-i386-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "i386", "${workspaceFolder}/build/release/freebsd/i386/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "i386",
+                "${workspaceFolder}/build/release/freebsd/i386/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "freebsd-i386-release"
@@ -328,8 +396,12 @@
             "name": "freebsd-x86_64-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "x86_64", "${workspaceFolder}/build/release/freebsd/x86_64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "x86_64",
+                "${workspaceFolder}/build/release/freebsd/x86_64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "freebsd-x86_64-release"
@@ -347,8 +419,12 @@
             "name": "freebsd-aarch64-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "aarch64", "${workspaceFolder}/build/release/freebsd/aarch64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "aarch64",
+                "${workspaceFolder}/build/release/freebsd/aarch64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "freebsd-aarch64-release"
@@ -366,8 +442,12 @@
             "name": "freebsd-riscv64-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "riscv64", "${workspaceFolder}/build/release/freebsd/riscv64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "riscv64",
+                "${workspaceFolder}/build/release/freebsd/riscv64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "freebsd-riscv64-release"
@@ -385,8 +465,12 @@
             "name": "android-x86_64-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "x86_64", "${workspaceFolder}/build/release/android/x86_64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "x86_64",
+                "${workspaceFolder}/build/release/android/x86_64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "android-x86_64-release"
@@ -395,8 +479,12 @@
             "name": "android-armv7a-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "armv7a", "${workspaceFolder}/build/release/android/armv7a/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "armv7a",
+                "${workspaceFolder}/build/release/android/armv7a/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "android-armv7a-release"
@@ -405,8 +493,12 @@
             "name": "android-aarch64-release (PIC)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
-            "args": ["--arch", "aarch64", "${workspaceFolder}/build/release/android/aarch64/output.bin"],
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
+            "args": [
+                "--arch",
+                "aarch64",
+                "${workspaceFolder}/build/release/android/aarch64/output.bin"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "android-aarch64-release"
