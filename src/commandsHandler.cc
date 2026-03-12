@@ -256,7 +256,7 @@ VOID Handle_WriteShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] U
         context->shell = new Shell(static_cast<Shell &&>(shellResult.Value()));
     }
 
-    auto writeResult = context->shell->Write(command, commandLength);
+    auto writeResult = context->shell->Write(command, commandLength - sizeof('\0'));
     if (!writeResult)
     {
         LOG_ERROR("Failed to write to shell");
