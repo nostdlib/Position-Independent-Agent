@@ -23,10 +23,10 @@
 <tr>
 <td align="center">1</td>
 <td>Windows</td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-windows-i386.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-windows-i386.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-windows-x86_64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-windows-x86_64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-windows-armv7a.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-windows-armv7a.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-windows-aarch64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-windows-aarch64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
 <td align="center">-</td>
 <td align="center">-</td>
 <td align="center">-</td>
@@ -35,9 +35,9 @@
 <td align="center">2</td>
 <td>macOS</td>
 <td align="center">-</td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-macos-x86_64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-macos-x86_64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
 <td align="center">-</td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-macos-aarch64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-macos-aarch64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
 <td align="center">-</td>
 <td align="center">-</td>
 <td align="center">-</td>
@@ -45,21 +45,21 @@
 <tr>
 <td align="center">3</td>
 <td>Linux</td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-linux-i386.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-linux-i386.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-linux-x86_64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-linux-x86_64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-linux-armv7a.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-linux-armv7a.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-linux-aarch64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-linux-aarch64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-linux-riscv32.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-linux-riscv32.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-linux-riscv64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-linux-riscv64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-linux-mips64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-linux-mips64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
 </tr>
 <tr>
 <td align="center">4</td>
 <td>Solaris</td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-solaris-i386.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-solaris-i386.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-solaris-x86_64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-solaris-x86_64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
 <td align="center">-</td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-solaris-aarch64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-solaris-aarch64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
 <td align="center">-</td>
 <td align="center">-</td>
 <td align="center">-</td>
@@ -67,21 +67,21 @@
 <tr>
 <td align="center">5</td>
 <td>FreeBSD</td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-freebsd-i386.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-freebsd-i386.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-freebsd-x86_64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-freebsd-x86_64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
 <td align="center">-</td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-freebsd-aarch64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-freebsd-aarch64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
 <td align="center">-</td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-freebsd-riscv64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-freebsd-riscv64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
 <td align="center">-</td>
 </tr>
 <tr>
 <td align="center">6</td>
 <td>UEFI</td>
 <td align="center">-</td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-uefi-x86_64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-uefi-x86_64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
 <td align="center">-</td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-uefi-aarch64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-uefi-aarch64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
 <td align="center">-</td>
 <td align="center">-</td>
 <td align="center">-</td>
@@ -90,9 +90,9 @@
 <td align="center">7</td>
 <td>Android</td>
 <td align="center">-</td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-android-x86_64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-android-x86_64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-android-armv7a.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-android-armv7a.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-android-aarch64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-android-aarch64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
 <td align="center">-</td>
 <td align="center">-</td>
 <td align="center">-</td>
@@ -103,7 +103,7 @@
 <td align="center">-</td>
 <td align="center">-</td>
 <td align="center">-</td>
-<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build-ios-aarch64.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build-ios-aarch64.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
+<td align="center"><a href="https://github.com/mrzaxaryan/Position-Independent-Agent/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/mrzaxaryan/Position-Independent-Agent/build.yml?branch=main&label=%E2%80%8B&labelColor=orange&style=for-the-badge" alt="Build" height="28"></a></td>
 <td align="center">-</td>
 <td align="center">-</td>
 <td align="center">-</td>

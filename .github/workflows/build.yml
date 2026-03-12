@@ -1,0 +1,143 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "**"
+
+concurrency:
+  group: ci-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  LLVM_VERSION: "22.1.0"
+
+jobs:
+  # ═════════════════════════════════════════════════════════════════════════
+  # Build — all 28 targets cross-compiled on Linux x86_64
+  # ═════════════════════════════════════════════════════════════════════════
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Linux ────────────────────────────────────────────────────────
+          - { target: linux-i386,       artifact: linux-i386       }
+          - { target: linux-x86_64,     artifact: linux-x86_64     }
+          - { target: linux-armv7a,     artifact: linux-armv7a     }
+          - { target: linux-aarch64,    artifact: linux-aarch64    }
+          - { target: linux-riscv32,    artifact: linux-riscv32    }
+          - { target: linux-riscv64,    artifact: linux-riscv64    }
+          - { target: linux-mips64,     artifact: linux-mips64,     opts: "O0 O1 O2 O3 Os Oz" }
+          # ── Android ──────────────────────────────────────────────────────
+          - { target: android-armv7a,   artifact: android-armv7a   }
+          - { target: android-aarch64,  artifact: android-aarch64  }
+          - { target: android-x86_64,   artifact: android-x86_64  }
+          # ── Windows ──────────────────────────────────────────────────────
+          - { target: windows-i386,     artifact: windows-i386     }
+          - { target: windows-x86_64,   artifact: windows-x86_64  }
+          - { target: windows-armv7a,   artifact: windows-armv7a   }
+          - { target: windows-aarch64,  artifact: windows-aarch64  }
+          # ── macOS / iOS ──────────────────────────────────────────────────
+          - { target: macos-x86_64,     artifact: macos-x86_64    }
+          - { target: macos-aarch64,    artifact: macos-aarch64   }
+          - { target: ios-aarch64,      artifact: ios-aarch64     }
+          # ── FreeBSD ──────────────────────────────────────────────────────
+          - { target: freebsd-i386,     artifact: freebsd-i386     }
+          - { target: freebsd-x86_64,   artifact: freebsd-x86_64  }
+          - { target: freebsd-aarch64,  artifact: freebsd-aarch64  }
+          - { target: freebsd-riscv64,  artifact: freebsd-riscv64  }
+          # ── Solaris ──────────────────────────────────────────────────────
+          - { target: solaris-i386,     artifact: solaris-i386     }
+          - { target: solaris-x86_64,   artifact: solaris-x86_64  }
+          - { target: solaris-aarch64,  artifact: solaris-aarch64  }
+          # ── UEFI ─────────────────────────────────────────────────────────
+          - { target: uefi-x86_64,      artifact: uefi-x86_64    }
+          - { target: uefi-aarch64,     artifact: uefi-aarch64   }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache LLVM
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: /opt/llvm
+          key: llvm-${{ env.LLVM_VERSION }}-linux-x64
+
+      - name: Install LLVM
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          TARBALL="LLVM-${{ env.LLVM_VERSION }}-Linux-X64.tar.xz"
+          URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_VERSION }}/${TARBALL}"
+          wget -q "$URL"
+          sudo mkdir -p /opt/llvm
+          sudo tar xf "$TARBALL" -C /opt/llvm --strip-components=1
+          rm "$TARBALL"
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake
+
+      - name: Add LLVM to PATH
+        run: echo "/opt/llvm/bin" >> $GITHUB_PATH
+
+      - name: Build all optimization levels
+        run: |
+          OPTS="${{ matrix.opts }}"
+          : "${OPTS:=O0 O1 O2 O3 Os Oz Og}"
+          for opt in ${OPTS}; do
+            # O0 and Og build in both debug and release; others only release
+            if [ "$opt" = "O0" ] || [ "$opt" = "Og" ]; then
+              modes="debug release"
+            else
+              modes="release"
+            fi
+            for mode in ${modes}; do
+              preset="${{ matrix.target }}-${mode}"
+              build_dir="build/${mode}"
+              out_dir="${mode}/${opt}"
+              echo "=== Building -${opt} (${preset}) ==="
+              rm -rf build
+              cmake --preset "${preset}" -DOPTIMIZATION_LEVEL=${opt}
+              cmake --build --preset "${preset}"
+              mkdir -p "${out_dir}"
+              find "${build_dir}" -type f -not -path "*/cmake/*" -exec cp {} "${out_dir}/" \;
+            done
+          done
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.artifact }}
+          retention-days: 1
+          path: |
+            release/
+            debug/
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Gate — single required check for branch protection
+  # ═════════════════════════════════════════════════════════════════════════
+  all-builds:
+    if: always()
+    needs: [build]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check all build results
+        run: |
+          echo "Build: ${{ needs.build.result }}"
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            echo "Build matrix failed or was cancelled"
+            exit 1
+          fi
+          echo "All builds passed"
