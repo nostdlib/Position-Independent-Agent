@@ -34,7 +34,7 @@
     "configurations": [
         {
             "name": "windows-i386",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "windows-clang-x86",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -43,7 +43,7 @@
         },
         {
             "name": "windows-x86_64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "windows-clang-x64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -52,7 +52,7 @@
         },
         {
             "name": "windows-aarch64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "windows-clang-arm64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -61,7 +61,7 @@
         },
         {
             "name": "windows-armv7a",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "windows-clang-arm",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -70,7 +70,7 @@
         },
         {
             "name": "linux-i386",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-x86",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -79,7 +79,7 @@
         },
         {
             "name": "linux-x86_64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-x64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -88,7 +88,7 @@
         },
         {
             "name": "linux-armv7a",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-arm",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -97,7 +97,7 @@
         },
         {
             "name": "linux-aarch64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-arm64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -106,7 +106,7 @@
         },
         {
             "name": "linux-riscv32",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-x86",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -115,7 +115,7 @@
         },
         {
             "name": "linux-riscv64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-x64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -124,7 +124,7 @@
         },
         {
             "name": "linux-mips64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-x64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -133,7 +133,7 @@
         },
         {
             "name": "macos-x86_64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "macos-clang-x64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -142,7 +142,7 @@
         },
         {
             "name": "macos-aarch64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "macos-clang-arm64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -151,7 +151,7 @@
         },
         {
             "name": "uefi-x86_64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "windows-clang-x64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -160,7 +160,7 @@
         },
         {
             "name": "uefi-aarch64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "windows-clang-arm64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -169,7 +169,7 @@
         },
         {
             "name": "solaris-i386",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-x86",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -178,7 +178,7 @@
         },
         {
             "name": "solaris-x86_64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-x64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -187,7 +187,7 @@
         },
         {
             "name": "solaris-aarch64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-arm64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -196,7 +196,7 @@
         },
         {
             "name": "freebsd-i386",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-x86",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -205,7 +205,7 @@
         },
         {
             "name": "freebsd-x86_64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-x64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -214,7 +214,7 @@
         },
         {
             "name": "freebsd-aarch64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-arm64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -223,7 +223,7 @@
         },
         {
             "name": "freebsd-riscv64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-x64",
             "cStandard": "c17",
             "cppStandard": "c++23",
@@ -232,7 +232,7 @@
         },
         {
             "name": "ios-aarch64",
-            "compilerPath": "C:/Program Files/LLVM/bin/clang.exe",
+            "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "macos-clang-arm64",
             "cStandard": "c17",
             "cppStandard": "c++23",
