@@ -96,13 +96,23 @@ jobs:
           OPTS="${{ matrix.opts }}"
           : "${OPTS:=O0 O1 O2 O3 Os Oz Og}"
           for opt in ${OPTS}; do
-            preset="${{ matrix.target }}-release"
-            echo "=== Building -${opt} (${preset}) ==="
-            rm -rf build
-            cmake --preset "${preset}" -DOPTIMIZATION_LEVEL=${opt}
-            cmake --build --preset "${preset}"
-            mkdir -p "release/${opt}"
-            find build/release -type f -not -path "*/cmake/*" -exec cp {} "release/${opt}/" \;
+            # O0 and Og build in both debug and release; others only release
+            if [ "$opt" = "O0" ] || [ "$opt" = "Og" ]; then
+              modes="debug release"
+            else
+              modes="release"
+            fi
+            for mode in ${modes}; do
+              preset="${{ matrix.target }}-${mode}"
+              build_dir="build/${mode}"
+              out_dir="${mode}/${opt}"
+              echo "=== Building -${opt} (${preset}) ==="
+              rm -rf build
+              cmake --preset "${preset}" -DOPTIMIZATION_LEVEL=${opt}
+              cmake --build --preset "${preset}"
+              mkdir -p "${out_dir}"
+              find "${build_dir}" -type f -not -path "*/cmake/*" -exec cp {} "${out_dir}/" \;
+            done
           done
 
       - name: Upload artifacts
@@ -113,6 +123,7 @@ jobs:
           retention-days: 1
           path: |
             release/
+            debug/
 
   # ═════════════════════════════════════════════════════════════════════════
   # Gate — single required check for branch protection
