@@ -141,3 +141,411 @@ jobs:
             exit 1
           fi
           echo "All builds passed"
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Size Report — build -Oz and report binary sizes
+  # ═════════════════════════════════════════════════════════════════════════
+  size-build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows
+          - { platform: windows, arch: i386,    ext: exe }
+          - { platform: windows, arch: x86_64,  ext: exe }
+          - { platform: windows, arch: aarch64, ext: exe }
+          - { platform: windows, arch: armv7a,  ext: exe }
+          # Linux
+          - { platform: linux, arch: i386,    ext: elf }
+          - { platform: linux, arch: x86_64,  ext: elf }
+          - { platform: linux, arch: armv7a,  ext: elf }
+          - { platform: linux, arch: aarch64, ext: elf }
+          - { platform: linux, arch: riscv32, ext: elf }
+          - { platform: linux, arch: riscv64, ext: elf }
+          - { platform: linux, arch: mips64,  ext: elf }
+          # macOS
+          - { platform: macos, arch: x86_64,  ext: "" }
+          - { platform: macos, arch: aarch64, ext: "" }
+          # UEFI
+          - { platform: uefi, arch: x86_64,  ext: efi }
+          - { platform: uefi, arch: aarch64, ext: efi }
+          # FreeBSD
+          - { platform: freebsd, arch: i386,    ext: elf }
+          - { platform: freebsd, arch: x86_64,  ext: elf }
+          - { platform: freebsd, arch: aarch64, ext: elf }
+          - { platform: freebsd, arch: riscv64, ext: elf }
+          # Solaris
+          - { platform: solaris, arch: i386,    ext: elf }
+          - { platform: solaris, arch: x86_64,  ext: elf }
+          - { platform: solaris, arch: aarch64, ext: elf }
+          # Android
+          - { platform: android, arch: x86_64,  ext: elf }
+          - { platform: android, arch: armv7a,  ext: elf }
+          - { platform: android, arch: aarch64, ext: elf }
+          # iOS
+          - { platform: ios, arch: aarch64, ext: "" }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache LLVM
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: /opt/llvm
+          key: llvm-${{ env.LLVM_VERSION }}-linux-x64
+
+      - name: Install Ninja
+        run: sudo apt-get install -y ninja-build
+
+      - name: Install LLVM
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        run: |
+          ver="${{ env.LLVM_VERSION }}"
+          tarball="LLVM-${ver}-Linux-X64.tar.xz"
+          url="https://github.com/llvm/llvm-project/releases/download/llvmorg-${ver}/${tarball}"
+          curl -fSL "$url" -o "$tarball"
+          sudo mkdir -p /opt/llvm
+          sudo tar -xf "$tarball" --strip-components=1 -C /opt/llvm
+          rm "$tarball"
+
+      - name: Add LLVM to PATH
+        run: echo "/opt/llvm/bin" >> "$GITHUB_PATH"
+
+      - name: Build with -Oz
+        run: |
+          cmake --preset ${{ matrix.platform }}-${{ matrix.arch }}-release -DOPTIMIZATION_LEVEL=Oz
+          cmake --build --preset ${{ matrix.platform }}-${{ matrix.arch }}-release
+
+      - name: Get sizes
+        id: sizes
+        run: |
+          ext="${{ matrix.ext }}"
+          if [ -z "$ext" ]; then
+            main_file=$(find build -name "output" -type f | head -n 1)
+          else
+            main_file=$(find build -name "output.${ext}" -type f | head -n 1)
+          fi
+          bin_file=$(find build -name "output.bin" -type f | head -n 1)
+          main_size=0
+          bin_size=0
+          [ -n "$main_file" ] && main_size=$(stat -c%s "$main_file")
+          [ -n "$bin_file" ] && bin_size=$(stat -c%s "$bin_file")
+          echo "result=${{ matrix.platform }}-${{ matrix.arch }},${main_size},${bin_size}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload size data
+        uses: actions/upload-artifact@v4
+        with:
+          name: size-${{ matrix.platform }}-${{ matrix.arch }}
+          retention-days: 1
+          path: build/**/output*
+
+  update-readme:
+    if: always() && github.ref == 'refs/heads/main'
+    needs: [size-build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all size artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect sizes
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          from pathlib import Path
+          from datetime import datetime
+
+          def format_size(size):
+              if size is None or size == 0:
+                  return "-"
+              elif size < 1024:
+                  return f"{size} B"
+              else:
+                  return f"{size / 1024:.1f} KB"
+
+          # Collect current sizes
+          sizes_formatted = {}
+          sizes_raw = {}
+          artifacts_dir = Path("artifacts")
+
+          for size_dir in artifacts_dir.glob("size-*"):
+              platform_arch = size_dir.name.replace("size-", "")
+              exe_file = None
+              for ext in ["output.exe", "output.elf", "output.efi"]:
+                  files = list(size_dir.rglob(ext))
+                  if files:
+                      exe_file = files[0]
+                      break
+              # macOS/iOS Mach-O has no extension - look for "output" without extension
+              if exe_file is None and ("macos" in platform_arch or "ios" in platform_arch):
+                  for f in size_dir.rglob("output"):
+                      if f.is_file() and f.suffix == "" and f.stat().st_size > 0:
+                          exe_file = f
+                          break
+              bin_files = list(size_dir.rglob("output.bin"))
+              bin_file = bin_files[0] if bin_files else None
+
+              exe_size = exe_file.stat().st_size if exe_file else None
+              bin_size = bin_file.stat().st_size if bin_file else None
+
+              key = platform_arch.replace("-", "_")
+              sizes_formatted[f"{key}_exe"] = format_size(exe_size)
+              sizes_formatted[f"{key}_bin"] = format_size(bin_size)
+              if bin_size:
+                  sizes_raw[f"{key}_bin"] = bin_size
+
+          # Save formatted sizes for badges
+          Path("sizes.json").write_text(json.dumps(sizes_formatted, indent=2))
+
+          # Save raw sizes for PR comparison
+          Path("sizes_raw.json").write_text(json.dumps(sizes_raw, indent=2))
+
+          # Save this commit's data as individual file
+          date_str = datetime.utcnow().strftime("%Y-%m-%d")
+          commit_short = os.environ["COMMIT_SHA"][:7]
+          commit_data = {
+              "date": date_str,
+              "commit": commit_short,
+              "sizes": sizes_raw
+          }
+
+          Path("sizes").mkdir(exist_ok=True)
+          filename = f"sizes/{date_str}_{commit_short}.json"
+          Path(filename).write_text(json.dumps(commit_data, indent=2))
+
+          print(f"Saved: {filename}")
+          print(json.dumps(sizes_formatted, indent=2))
+          EOF
+
+      - name: Fetch baseline from build-sizes branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin build-sizes 2>/dev/null || true
+
+          # Extract baseline history to a separate directory to avoid mixing with PR data
+          mkdir -p /tmp/baseline
+          if git rev-parse --verify origin/build-sizes >/dev/null 2>&1; then
+            git archive origin/build-sizes -- sizes/ 2>/dev/null | tar -x -C /tmp/baseline 2>/dev/null || true
+          fi
+
+      - name: Merge history and prune (push to main only)
+        if: github.event_name == 'push'
+        run: |
+          # Merge baseline history with the new commit's data
+          cp /tmp/baseline/sizes/*.json sizes/ 2>/dev/null || true
+
+          python3 << 'EOF'
+          from pathlib import Path
+
+          sizes_dir = Path("sizes")
+          all_files = sorted(sizes_dir.glob("*.json"))
+          if len(all_files) > 50:
+              for f in all_files[:-50]:
+                  f.unlink()
+              print(f"Pruned to 50 entries (removed {len(all_files) - 50})")
+          else:
+              print(f"History has {len(all_files)} entries")
+          EOF
+
+      - name: Post size comparison on PR
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 << 'PYEOF'
+          import json, os
+          from pathlib import Path
+
+          def fmt(size):
+              if size is None or size == 0:
+                  return "-"
+              elif size < 1024:
+                  return f"{size} B"
+              else:
+                  return f"{size / 1024:.1f} KB"
+
+          def fmt_delta(old, new):
+              if old is None or new is None or old == 0 or new == 0:
+                  return ""
+              d = new - old
+              pct = (d / old) * 100
+              if d == 0:
+                  return "no change"
+              sign = "+" if d > 0 else ""
+              if abs(d) < 1024:
+                  return f"{sign}{d} B ({sign}{pct:.1f}%)"
+              else:
+                  return f"{sign}{d/1024:.1f} KB ({sign}{pct:.1f}%)"
+
+          # Load PR formatted sizes (for exe column)
+          pr_sizes = {}
+          if Path("sizes.json").exists():
+              pr_sizes = json.loads(Path("sizes.json").read_text())
+
+          # Load PR raw sizes (byte counts, saved by Collect step)
+          pr_raw = {}
+          if Path("sizes_raw.json").exists():
+              pr_raw = json.loads(Path("sizes_raw.json").read_text())
+
+          # Load baseline from build-sizes branch (latest historical entry)
+          baseline_raw = {}
+          baseline_commit = "main"
+          baseline_dir = Path("/tmp/baseline/sizes")
+          if baseline_dir.exists():
+              base_files = sorted(baseline_dir.glob("*.json"))
+              if base_files:
+                  try:
+                      bd = json.loads(base_files[-1].read_text())
+                      baseline_raw = bd.get("sizes", {})
+                      baseline_commit = bd.get("commit", "main")
+                  except:
+                      pass
+
+          # Platform layout for the table
+          platforms = [
+              ("Windows", [
+                  ("i386", "windows_i386"),
+                  ("x86_64", "windows_x86_64"),
+                  ("armv7a", "windows_armv7a"),
+                  ("aarch64", "windows_aarch64"),
+              ]),
+              ("Linux", [
+                  ("i386", "linux_i386"),
+                  ("x86_64", "linux_x86_64"),
+                  ("armv7a", "linux_armv7a"),
+                  ("aarch64", "linux_aarch64"),
+                  ("riscv32", "linux_riscv32"),
+                  ("riscv64", "linux_riscv64"),
+                  ("mips64", "linux_mips64"),
+              ]),
+              ("macOS", [
+                  ("x86_64", "macos_x86_64"),
+                  ("aarch64", "macos_aarch64"),
+              ]),
+              ("UEFI", [
+                  ("x86_64", "uefi_x86_64"),
+                  ("aarch64", "uefi_aarch64"),
+              ]),
+              ("Solaris", [
+                  ("i386", "solaris_i386"),
+                  ("x86_64", "solaris_x86_64"),
+                  ("aarch64", "solaris_aarch64"),
+              ]),
+              ("FreeBSD", [
+                  ("i386", "freebsd_i386"),
+                  ("x86_64", "freebsd_x86_64"),
+                  ("aarch64", "freebsd_aarch64"),
+                  ("riscv64", "freebsd_riscv64"),
+              ]),
+              ("Android", [
+                  ("x86_64", "android_x86_64"),
+                  ("armv7a", "android_armv7a"),
+                  ("aarch64", "android_aarch64"),
+              ]),
+              ("iOS", [
+                  ("aarch64", "ios_aarch64"),
+              ]),
+          ]
+
+          # Build markdown table
+          marker = "<!-- pia-size-report -->"
+          lines = [marker, "## Binary Size Report", ""]
+          lines.append(f"Comparison against `main` (`{baseline_commit}`).")
+          lines.append("")
+          lines.append("| Platform | Arch | Exe | .bin (main) | .bin (PR) | Delta |")
+          lines.append("|----------|------|-----|-------------|-----------|-------|")
+
+          has_baseline = bool(baseline_raw)
+
+          for plat_name, archs in platforms:
+              for arch_name, key in archs:
+                  exe_key = f"{key}_exe"
+                  bin_key = f"{key}_bin"
+
+                  exe_val = pr_sizes.get(exe_key, "-")
+                  pr_bin = pr_raw.get(bin_key)
+                  base_bin = baseline_raw.get(bin_key)
+
+                  pr_bin_str = fmt(pr_bin) if pr_bin else "-"
+                  base_bin_str = fmt(base_bin) if base_bin else "-"
+
+                  if pr_bin and base_bin:
+                      delta = fmt_delta(base_bin, pr_bin)
+                  elif pr_bin and not base_bin:
+                      delta = "new"
+                  else:
+                      delta = ""
+
+                  lines.append(f"| **{plat_name}** | {arch_name} | {exe_val} | {base_bin_str} | {pr_bin_str} | {delta} |")
+
+          if not has_baseline:
+              lines.append("")
+              lines.append("*No baseline available yet — sizes will be compared after the first merge to main.*")
+
+          comment_body = "\n".join(lines)
+          Path("/tmp/size_comment.md").write_text(comment_body)
+          print(comment_body)
+          PYEOF
+
+          # Post or update the PR comment
+          MARKER="<!-- pia-size-report -->"
+          PR="${{ github.event.pull_request.number }}"
+
+          # Find existing comment with our marker
+          COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${PR}/comments" \
+            --jq ".[] | select(.body | startswith(\"${MARKER}\")) | .id" 2>/dev/null | head -n 1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              -X PATCH -F "body=@/tmp/size_comment.md"
+            echo "Updated existing comment ${COMMENT_ID}"
+          else
+            gh pr comment "${PR}" --body-file /tmp/size_comment.md
+            echo "Created new comment on PR #${PR}"
+          fi
+
+      - name: Deploy to build-sizes branch (push to main only)
+        if: github.event_name == 'push'
+        run: |
+          # Save files before branch switch
+          cp sizes.json /tmp/deploy_sizes.json
+          cp -r sizes /tmp/deploy_sizes
+
+          # Remove files to avoid checkout conflict
+          rm -rf sizes sizes.json sizes_raw.json
+
+          # Checkout build-sizes branch, or create orphan if it doesn't exist
+          git branch -D build-sizes 2>/dev/null || true
+          if git rev-parse --verify origin/build-sizes >/dev/null 2>&1; then
+            git checkout -b build-sizes origin/build-sizes
+          else
+            git checkout --orphan build-sizes
+            git rm -rf . 2>/dev/null || true
+          fi
+
+          # Restore files
+          mv /tmp/deploy_sizes.json sizes.json
+          rm -rf sizes
+          mv /tmp/deploy_sizes sizes
+
+          # Commit and push
+          git add sizes.json sizes/
+          git diff --staged --quiet || git commit -m "Update binary sizes [$(date -u +%Y-%m-%d)]"
+          git push origin build-sizes --force
