@@ -5,7 +5,7 @@
             "name": "windows-i386-pic",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/runtime/scripts/loader.py",
+            "program": "${workspaceFolder}/runtime/tools/pyloader/loader.py",
             "args": [
                 "--arch",
                 "i386",
