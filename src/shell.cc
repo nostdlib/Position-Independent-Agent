@@ -125,13 +125,15 @@ Result<Shell, Error> Shell::Create() noexcept
 
 #if defined(PLATFORM_WINDOWS)
     auto path = "cmd.exe";
+    const CHAR *args[] = {"cmd.exe", nullptr};
 #else
     auto path = "/bin/sh";
+    const CHAR *args[] = {"/bin/sh", nullptr};
 #endif
 
     auto processResult = Process::Create(
         path,
-        nullptr,
+        args,
         stdinPipe.ReadEnd(),
         stdoutPipe.WriteEnd(),
         stderrPipe.WriteEnd());
