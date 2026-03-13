@@ -65,6 +65,32 @@ struct VNCContext
     }
 };
 
+// Structure for representing a rectangle, which consists of x and y coordinates and an array of RGB data.
+struct Rectangle
+{
+    UINT32 x;
+    UINT32 y;
+    UINT32 sizeOfData; // Size of the jpeg data in bytes
+    UINT8 *data;       // Pointer to hold the JPEG data.
+
+    Rectangle(UINT32 x, UINT32 y, UINT32 sizeOfData, UINT8 *data)
+        : x(x), y(y), sizeOfData(sizeOfData), data(data) {}
+
+    USIZE toBuffer(PUINT8 buffer) const
+    {
+        USIZE bytesWritten = 0;
+        Memory::Copy(buffer, &x, sizeof(x));
+        bytesWritten += sizeof(x);
+        Memory::Copy(buffer + bytesWritten, &y, sizeof(y));
+        bytesWritten += sizeof(y);
+        Memory::Copy(buffer + bytesWritten, &sizeOfData, sizeof(sizeOfData));
+        bytesWritten += sizeof(sizeOfData);
+        Memory::Copy(buffer + bytesWritten, data, sizeOfData);
+        bytesWritten += sizeOfData;
+        return bytesWritten;
+    }
+};
+
 struct JpegBuffer
 {
     PUINT8 outputBuffer = nullptr;
