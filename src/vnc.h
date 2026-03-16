@@ -25,6 +25,23 @@ struct Graphics
             bidiff = nullptr;
         }
     }
+
+    Graphics& Init( const ScreenDevice &device)
+    {
+        if (currentScreenshot == nullptr)
+        {
+            currentScreenshot = new RGB[device.Width * device.Height];
+        }
+        if (screenshot == nullptr)
+        {
+            screenshot = new RGB[device.Width * device.Height];
+        }
+        if (bidiff == nullptr)
+        {
+            bidiff = new UINT8[device.Width * device.Height];
+        }
+        return *this;
+    }
 };
 
 struct GraphicsList

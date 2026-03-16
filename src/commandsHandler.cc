@@ -424,22 +424,6 @@ VOID JpegCallback(PVOID context, PVOID data, INT32 size)
     jpegBuffer->offset += (UINT32)size;
 }
 
-Graphics& Init(Graphics &graphics, const ScreenDevice &device)
-{
-    if (graphics.currentScreenshot == nullptr)
-    {
-        graphics.currentScreenshot = new RGB[device.Width * device.Height];
-    }
-    if (graphics.screenshot == nullptr)
-    {
-        graphics.screenshot = new RGB[device.Width * device.Height];
-    }
-    if (graphics.bidiff == nullptr)
-    {
-        graphics.bidiff = new UINT8[device.Width * device.Height];
-    }
-    return graphics;
-}
 
 // Gets a screenshot of the specified display device
 VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
@@ -487,7 +471,7 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
 
     // Get the Graphics structure for the specified display index and initialize buffers if they are not already allocated
     Graphics &graphics = context->vncContext->GraphicsList.graphicsArray[displayIndex];
-    Init(graphics, device);
+    graphics.Init(device);
 
     // Attempt to capture the screen and validate the result
     if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height)))
