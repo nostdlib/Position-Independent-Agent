@@ -1,6 +1,7 @@
 
 #include "shell.h"
 
+// Constructor for Shell to initialize member variables with the provided Process and Pipes
 Shell::Shell(Process &&proc, Pipe &&inP, Pipe &&outP, Pipe &&errP) noexcept
     : process(static_cast<Process &&>(proc)),
       stdinPipe(static_cast<Pipe &&>(inP)),
@@ -45,9 +46,7 @@ Result<USIZE, Error> Shell::Read(char *buffer, USIZE capacity) noexcept
 
         USIZE bytesRead = result.Value();
         if (bytesRead == 0)
-        {
             break; // EOF reached (pipe closed)
-        }
 
         // Scan the newly read chunk for the prompt character
         bool promptFound = false;
@@ -64,9 +63,8 @@ Result<USIZE, Error> Shell::Read(char *buffer, USIZE capacity) noexcept
 
         // Stop reading from the pipe if we found the prompt
         if (promptFound)
-        {
             break;
-        }
+        
     }
 
     return Result<USIZE, Error>::Ok(totalRead);
@@ -75,20 +73,19 @@ Result<USIZE, Error> Shell::Read(char *buffer, USIZE capacity) noexcept
 /**
  * Reads available error messages from the shell's stderr.
  */
-Result<USIZE, Error> Shell::ReadError(char *buffer, USIZE capacity) noexcept
+Result<USIZE, Error> Shell::ReadError(CHAR *buffer, USIZE capacity) noexcept
 {
     USIZE totalRead = 0;
 
     while (totalRead < capacity - 1) // Leave room for null terminator if needed
     {
-        char byte;
+        CHAR byte;
         // Read 1 byte at a time
         auto result = stderrPipe.Read(Span<UINT8>((UINT8 *)&byte, 1));
 
         if (!result)
-        {
             return Result<USIZE, Error>::Err(result.Error());
-        }
+    
 
         USIZE bytesRead = result.Value();
         if (bytesRead == 0)
@@ -98,9 +95,8 @@ Result<USIZE, Error> Shell::ReadError(char *buffer, USIZE capacity) noexcept
 
         // Check if we hit the shell prompt ('>' on Windows, '$' on Linux)
         if (byte == EndOfLineChar)
-        {
             break;
-        }
+        
     }
 
     return Result<USIZE, Error>::Ok(totalRead);
@@ -115,9 +111,7 @@ Result<Shell, Error> Shell::Create() noexcept
     auto stderrResult = Pipe::Create();
 
     if (!stdinResult || !stdoutResult || !stderrResult)
-    {
         return Result<Shell, Error>::Err(Error::Pipe_CreateFailed);
-    }
 
     auto stdinPipe = static_cast<Pipe &&>(stdinResult.Value());
     auto stdoutPipe = static_cast<Pipe &&>(stdoutResult.Value());
@@ -139,9 +133,7 @@ Result<Shell, Error> Shell::Create() noexcept
         stderrPipe.WriteEnd());
 
     if (!processResult)
-    {
         return Result<Shell, Error>::Err(Error::Process_CreateFailed);
-    }
 
     // // Close parent's access to the child's ends of the pipes
     // stdinPipe.CloseReadEnd();
