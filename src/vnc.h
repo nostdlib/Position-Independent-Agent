@@ -7,6 +7,8 @@ struct Graphics
     PRGB screenshot;        // Pointer to the screenshot of the display
     PUCHAR bidiff;          // Pointer to the binary difference data
 
+    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), bidiff(nullptr) {}
+
     ~Graphics()
     {
         if (currentScreenshot)
@@ -31,7 +33,7 @@ struct Graphics
         return currentScreenshot != nullptr && screenshot != nullptr && bidiff != nullptr;
     }
 
-    Graphics& Init( const ScreenDevice &device)
+    Graphics& Init(const ScreenDevice &device)
     {
         if (currentScreenshot == nullptr)
         {
@@ -54,6 +56,8 @@ struct GraphicsList
     Graphics *graphicsArray; // Array of Graphics structures
     UINT32 count;            // Number of Graphics structures in the array
 
+    GraphicsList() : graphicsArray(nullptr), count(0) {}
+
     ~GraphicsList()
     {
         if (graphicsArray)
@@ -70,10 +74,18 @@ struct GraphicsList
 
     VOID Init(UINT32 Count)
     {
+        if(graphicsArray != nullptr){
+            if(count == Count)
+                return;
+                
+            delete[] graphicsArray;
+            graphicsArray = nullptr;
+            count = 0;
+        }
+
         graphicsArray = new Graphics[Count];
         count = Count;
     }
-
 };
 
 struct VNCContext
