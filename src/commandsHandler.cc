@@ -589,12 +589,12 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
                 countOfContour++;
 
                 LOG_INFO("Rectangle: x: %d, y: %d, width: %d, height: %d.", minX, minY, rectWidth, rectHeight);
-                LOG_INFO("Allocating memory for rectangle rgb data.");
+                // LOG_INFO("Allocating memory for rectangle rgb data.");
 
                 // Allocate memory for the rectangle rgb data
                 // rectScan0 = new RGB[rectHeight * rectWidth];
 
-                LOG_INFO("Memory allocated.");
+                // LOG_INFO("Memory allocated.");
 
                 // Copy the rectangle rgb data to buffer
                 rectScan0 = CopyRGBData((UINT32)rectHeight, (UINT32)rectWidth, graphics, device, (UINT32)minX, (UINT32)minY);
