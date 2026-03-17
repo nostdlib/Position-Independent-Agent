@@ -19,7 +19,6 @@ Usage:
 
 import argparse
 import ctypes
-import json
 import mmap
 import os
 import platform
