@@ -374,24 +374,43 @@
       "binaryDir": "${sourceDir}/build/release/ios/aarch64/cmake"
     },
 
-    {
-      "name": "test-windows-x86_64-debug",
-      "displayName": "Test Windows x86_64 (Debug)",
-      "inherits": ["base", "app-tests", "platform-windows", "arch-x86_64", "type-debug"],
-      "binaryDir": "${sourceDir}/build/test/debug/windows/x86_64/cmake"
-    },
-    {
-      "name": "test-linux-x86_64-debug",
-      "displayName": "Test Linux x86_64 (Debug)",
-      "inherits": ["base", "app-tests", "platform-linux", "arch-x86_64", "type-debug"],
-      "binaryDir": "${sourceDir}/build/test/debug/linux/x86_64/cmake"
-    },
-    {
-      "name": "test-macos-aarch64-debug",
-      "displayName": "Test macOS AArch64 (Debug)",
-      "inherits": ["base", "app-tests", "platform-macos", "arch-aarch64", "type-debug"],
-      "binaryDir": "${sourceDir}/build/test/debug/macos/aarch64/cmake"
-    }
+    { "name": "test-windows-i386-release",     "inherits": ["windows-i386-release",     "app-tests"] },
+    { "name": "test-windows-x86_64-release",  "inherits": ["windows-x86_64-release",  "app-tests"] },
+    { "name": "test-windows-armv7a-release",  "inherits": ["windows-armv7a-release",  "app-tests"] },
+    { "name": "test-windows-aarch64-release", "inherits": ["windows-aarch64-release", "app-tests"] },
+
+    { "name": "test-linux-i386-release",      "inherits": ["linux-i386-release",      "app-tests"] },
+    { "name": "test-linux-x86_64-release",    "inherits": ["linux-x86_64-release",    "app-tests"] },
+    { "name": "test-linux-armv7a-release",    "inherits": ["linux-armv7a-release",    "app-tests"] },
+    { "name": "test-linux-aarch64-release",   "inherits": ["linux-aarch64-release",   "app-tests"] },
+    { "name": "test-linux-riscv32-release",   "inherits": ["linux-riscv32-release",   "app-tests"] },
+    { "name": "test-linux-riscv64-release",   "inherits": ["linux-riscv64-release",   "app-tests"] },
+    { "name": "test-linux-mips64-release",    "inherits": ["linux-mips64-release",    "app-tests"] },
+
+    { "name": "test-macos-x86_64-release",    "inherits": ["macos-x86_64-release",    "app-tests"] },
+    { "name": "test-macos-aarch64-release",   "inherits": ["macos-aarch64-release",   "app-tests"] },
+
+    { "name": "test-uefi-x86_64-release",    "inherits": ["uefi-x86_64-release",    "app-tests"] },
+    { "name": "test-uefi-aarch64-release",   "inherits": ["uefi-aarch64-release",   "app-tests"] },
+
+    { "name": "test-solaris-i386-release",    "inherits": ["solaris-i386-release",    "app-tests"] },
+    { "name": "test-solaris-x86_64-release",  "inherits": ["solaris-x86_64-release",  "app-tests"] },
+    { "name": "test-solaris-aarch64-release", "inherits": ["solaris-aarch64-release", "app-tests"] },
+
+    { "name": "test-freebsd-i386-release",    "inherits": ["freebsd-i386-release",    "app-tests"] },
+    { "name": "test-freebsd-x86_64-release",  "inherits": ["freebsd-x86_64-release",  "app-tests"] },
+    { "name": "test-freebsd-aarch64-release", "inherits": ["freebsd-aarch64-release", "app-tests"] },
+    { "name": "test-freebsd-riscv64-release", "inherits": ["freebsd-riscv64-release", "app-tests"] },
+
+    { "name": "test-android-x86_64-release",  "inherits": ["android-x86_64-release",  "app-tests"] },
+    { "name": "test-android-armv7a-release",  "inherits": ["android-armv7a-release",  "app-tests"] },
+    { "name": "test-android-aarch64-release", "inherits": ["android-aarch64-release", "app-tests"] },
+
+    { "name": "test-ios-aarch64-release",     "inherits": ["ios-aarch64-release",     "app-tests"] },
+
+    { "name": "test-windows-x86_64-debug",  "inherits": ["windows-x86_64-debug",  "app-tests"] },
+    { "name": "test-linux-x86_64-debug",    "inherits": ["linux-x86_64-debug",    "app-tests"] },
+    { "name": "test-macos-aarch64-debug",   "inherits": ["macos-aarch64-debug",   "app-tests"] }
   ],
   "buildPresets": [
     { "name": "docs",                    "configurePreset": "docs" },
@@ -455,6 +474,40 @@
 
     { "name": "ios-aarch64-debug",       "configurePreset": "ios-aarch64-debug" },
     { "name": "ios-aarch64-release",     "configurePreset": "ios-aarch64-release" },
+
+    { "name": "test-windows-i386-release",     "configurePreset": "test-windows-i386-release" },
+    { "name": "test-windows-x86_64-release",  "configurePreset": "test-windows-x86_64-release" },
+    { "name": "test-windows-armv7a-release",  "configurePreset": "test-windows-armv7a-release" },
+    { "name": "test-windows-aarch64-release", "configurePreset": "test-windows-aarch64-release" },
+
+    { "name": "test-linux-i386-release",      "configurePreset": "test-linux-i386-release" },
+    { "name": "test-linux-x86_64-release",    "configurePreset": "test-linux-x86_64-release" },
+    { "name": "test-linux-armv7a-release",    "configurePreset": "test-linux-armv7a-release" },
+    { "name": "test-linux-aarch64-release",   "configurePreset": "test-linux-aarch64-release" },
+    { "name": "test-linux-riscv32-release",   "configurePreset": "test-linux-riscv32-release" },
+    { "name": "test-linux-riscv64-release",   "configurePreset": "test-linux-riscv64-release" },
+    { "name": "test-linux-mips64-release",    "configurePreset": "test-linux-mips64-release" },
+
+    { "name": "test-macos-x86_64-release",    "configurePreset": "test-macos-x86_64-release" },
+    { "name": "test-macos-aarch64-release",   "configurePreset": "test-macos-aarch64-release" },
+
+    { "name": "test-uefi-x86_64-release",    "configurePreset": "test-uefi-x86_64-release" },
+    { "name": "test-uefi-aarch64-release",   "configurePreset": "test-uefi-aarch64-release" },
+
+    { "name": "test-solaris-i386-release",    "configurePreset": "test-solaris-i386-release" },
+    { "name": "test-solaris-x86_64-release",  "configurePreset": "test-solaris-x86_64-release" },
+    { "name": "test-solaris-aarch64-release", "configurePreset": "test-solaris-aarch64-release" },
+
+    { "name": "test-freebsd-i386-release",    "configurePreset": "test-freebsd-i386-release" },
+    { "name": "test-freebsd-x86_64-release",  "configurePreset": "test-freebsd-x86_64-release" },
+    { "name": "test-freebsd-aarch64-release", "configurePreset": "test-freebsd-aarch64-release" },
+    { "name": "test-freebsd-riscv64-release", "configurePreset": "test-freebsd-riscv64-release" },
+
+    { "name": "test-android-x86_64-release",  "configurePreset": "test-android-x86_64-release" },
+    { "name": "test-android-armv7a-release",  "configurePreset": "test-android-armv7a-release" },
+    { "name": "test-android-aarch64-release", "configurePreset": "test-android-aarch64-release" },
+
+    { "name": "test-ios-aarch64-release",     "configurePreset": "test-ios-aarch64-release" },
 
     { "name": "test-windows-x86_64-debug",  "configurePreset": "test-windows-x86_64-debug" },
     { "name": "test-linux-x86_64-debug",    "configurePreset": "test-linux-x86_64-debug" },

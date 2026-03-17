@@ -96,12 +96,12 @@ jobs:
           OPTS="${{ matrix.opts }}"
           : "${OPTS:=O0 O1 O2 O3 Os Oz Og}"
           for opt in ${OPTS}; do
-            preset="${{ matrix.target }}-release"
+            preset="test-${{ matrix.target }}-release"
             build_dir="build/release"
             out_dir="release/${opt}"
             echo "=== Building -${opt} (${preset}) ==="
             rm -rf build
-            cmake --preset "${preset}" -DOPTIMIZATION_LEVEL=${opt} -DBUILD_TESTS=ON -DENABLE_LOGGING=ON
+            cmake --preset "${preset}" -DOPTIMIZATION_LEVEL=${opt}
             cmake --build --preset "${preset}"
             mkdir -p "${out_dir}"
             find "${build_dir}" -type f -not -path "*/cmake/*" -exec cp {} "${out_dir}/" \;
