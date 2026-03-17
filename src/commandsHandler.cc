@@ -424,6 +424,36 @@ VOID JpegCallback(PVOID context, PVOID data, INT32 size)
     jpegBuffer->offset += (UINT32)size;
 }
 
+VOID FullScreenCapture(const ScreenDevice &device, Graphics &graphics, PPCHAR response, PUSIZE responseLength, VNCContext *vncContext)
+{
+    // Encode JPEG, validate the result and write to response
+    JpegBuffer jpegBuffer;
+    auto encodeResult = JpegEncoder::Encode(JpegCallback, &jpegBuffer, (INT32)vncContext->Quality, (INT32)device.Width, (INT32)device.Height, 3, Span<const UINT8>((UINT8 *)graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB)));
+    if (encodeResult.IsErr())
+    {
+        LOG_ERROR("Failed to encode JPEG image (error code: %e).", encodeResult.Error());
+        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        return;
+    }
+    LOG_INFO("JPEG encoding successful, size: %u bytes", jpegBuffer.size);
+
+    // Copy into screenshot buffer for next comparison
+    Memory::Copy(graphics.screenshot, graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB));
+
+    Rectangle rect(0, 0, jpegBuffer.offset, jpegBuffer.outputBuffer);
+
+    // We are sending the full JPEG data in one segment, so the segment count is 1
+    UINT32 countOfSegments = 1;
+
+    // Write response
+    *responseLength += sizeof(countOfSegments) + sizeof(rect.x) + sizeof(rect.y) + sizeof(rect.sizeOfData) + jpegBuffer.offset;
+    *response = new CHAR[*responseLength];
+    *(PUINT32)*response = StatusCode::StatusSuccess;
+
+    // Write the size of the JPEG data
+    Memory::Copy(*response + sizeof(UINT32), &countOfSegments, sizeof(UINT32));
+    rect.toBuffer((UINT8 *)*response + sizeof(UINT32) + sizeof(UINT32));
+}
 
 // Gets a screenshot of the specified display device
 VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
@@ -498,34 +528,8 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
     // In case of full screen request, encode the whole screenshot as JPEG and send it back
     if (isFullScreen)
     {
-        // Encode JPEG, validate the result and write to response
-        JpegBuffer jpegBuffer;
-        auto encodeResult = JpegEncoder::Encode(JpegCallback, &jpegBuffer, (INT32)quality, (INT32)device.Width, (INT32)device.Height, 3, Span<const UINT8>((UINT8 *)graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB)));
-        if (encodeResult.IsErr())
-        {
-            LOG_ERROR("Failed to encode JPEG image (error code: %e).", encodeResult.Error());
-            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
-            return;
-        }
-        LOG_INFO("JPEG encoding successful, size: %u bytes", jpegBuffer.size);
-
-        // Copy into screenshot buffer for next comparison
-        Memory::Copy(graphics.screenshot, graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB));
-
-        Rectangle rect(0, 0, jpegBuffer.offset, jpegBuffer.outputBuffer);
-
-        // We are sending the full JPEG data in one segment, so the segment count is 1
-        UINT32 countOfSegments = 1;
-
-        // Write response
-        *responseLength += sizeof(countOfSegments) + sizeof(rect.x) + sizeof(rect.y) + sizeof(rect.sizeOfData) + jpegBuffer.offset;
-        *response = new CHAR[*responseLength];
-        *(PUINT32)*response = StatusCode::StatusSuccess;
-
-        // Write the size of the JPEG data
-        Memory::Copy(*response + sizeof(UINT32), &countOfSegments, sizeof(UINT32));
-        rect.toBuffer((UINT8 *)*response + sizeof(UINT32) + sizeof(UINT32));
-
+        LOG_INFO("Full screen capture requested, proceeding with full screen capture.");
+        FullScreenCapture(device, graphics, response, responseLength, context->vncContext);
         return;
     }
     else

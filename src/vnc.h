@@ -3,9 +3,9 @@
 
 struct Graphics
 {
-    PRGB currentScreenshot; // Pointer to the current screenshot
-    PRGB screenshot;        // Pointer to the screenshot of the display
-    PUCHAR bidiff;          // Pointer to the binary difference data
+    PRGB currentScreenshot = nullptr; // Pointer to the current screenshot
+    PRGB screenshot = nullptr;        // Pointer to the screenshot of the display
+    PUCHAR bidiff = nullptr;          // Pointer to the binary difference data
 
     ~Graphics()
     {
@@ -24,6 +24,28 @@ struct Graphics
             delete[] bidiff;
             bidiff = nullptr;
         }
+    }
+
+    BOOL IsInitialized() const
+    {
+        return currentScreenshot != nullptr && screenshot != nullptr && bidiff != nullptr;
+    }
+
+    Graphics& Init( const ScreenDevice &device)
+    {
+        if (currentScreenshot == nullptr)
+        {
+            currentScreenshot = new RGB[device.Width * device.Height];
+        }
+        if (screenshot == nullptr)
+        {
+            screenshot = new RGB[device.Width * device.Height];
+        }
+        if (bidiff == nullptr)
+        {
+            bidiff = new UINT8[device.Width * device.Height];
+        }
+        return *this;
     }
 };
 
