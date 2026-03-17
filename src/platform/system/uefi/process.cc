@@ -19,17 +19,17 @@ Result<Process, Error> Process::Create(
 	(void)stdinFd;
 	(void)stdoutFd;
 	(void)stderrFd;
-	return Result<Process, Error>::Err(Error::Process_NotSupported);
+	return Result<Process, Error>::Err(Error::Process_CreateFailed);
 }
 
 Result<SSIZE, Error> Process::Wait() noexcept
 {
-	return Result<SSIZE, Error>::Err(Error::Process_NotSupported);
+	return Result<SSIZE, Error>::Err(Error::Process_WaitFailed);
 }
 
 Result<void, Error> Process::Terminate() noexcept
 {
-	return Result<void, Error>::Err(Error::Process_NotSupported);
+	return Result<void, Error>::Err(Error::Process_TerminateFailed);
 }
 
 BOOL Process::IsRunning() const noexcept
