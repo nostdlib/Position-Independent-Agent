@@ -74,10 +74,11 @@ private:
 				passed = false;
 			}
 
-			// Verify the error code is Process_CreateFailed
-			if (passed && result.Error().Code != Error::Process_CreateFailed)
+			// Verify the error code is Process_CreateFailed or Process_NotSupported (UEFI)
+			if (passed && result.Error().Code != Error::Process_CreateFailed
+				&& result.Error().Code != Error::Process_NotSupported)
 			{
-				LOG_ERROR("Expected Process_CreateFailed error code");
+				LOG_ERROR("Expected Process_CreateFailed or Process_NotSupported error code");
 				passed = false;
 			}
 
