@@ -4,6 +4,7 @@
 #include "shell.h"
 #include "vnc.h"
 
+// Enum to represent the different command types that can be handled by the agent
 enum CommandType : UINT8
 {
     Command_GetSystemInfo = 0,
@@ -17,6 +18,7 @@ enum CommandType : UINT8
     CommandTypeCount
 };
 
+// Status codes for command handling results
 enum StatusCode : UINT32
 {
     StatusSuccess = 0,
@@ -24,6 +26,7 @@ enum StatusCode : UINT32
     StatusUnknownCommand = 2
 };
 
+// Context structure to hold state information for command handlers, such as shell and VNC context instances
 struct Context
 {
     Shell *shell = nullptr;
@@ -44,8 +47,10 @@ struct Context
     }
 };
 
+// Type definition for command handler function pointers
 using CommandHandler = VOID (*)(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context);
 
+// Command handler function declarations
 VOID Handle_GetSystemInfoCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context);
 VOID Handle_GetDirectoryContentCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context);
 VOID Handle_GetFileContentCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context);

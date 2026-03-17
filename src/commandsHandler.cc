@@ -72,12 +72,14 @@ static USIZE DecodeWirePath(PCHAR command, USIZE commandLength, WCHAR *widePath,
     return len;
 }
 
+// Writes a simple error response with the given status code
 static VOID WriteErrorResponse(PPCHAR response, PUSIZE responseLength, StatusCode code)
 {
     *response = new CHAR[*responseLength];
     *(PUINT32)*response = code;
 }
 
+// Checks if a directory entry is "." or ".."
 static BOOL IsDotEntry(const DirectoryEntry &entry)
 {
     return StringUtils::Equals((PWCHAR)entry.Name, (const WCHAR *)L".") ||
@@ -103,17 +105,21 @@ VOID Handle_GetSystemInfoCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
 
 VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
+    LOG_INFO("Handling GetDirectoryContentCommand.");
+    // Buffer to hold the path from command 
     WCHAR directoryPath[1024];
+    // Decoding path from command
     DecodeWirePath(command, commandLength, directoryPath, 1024);
     LOG_INFO("GetDirectoryContent: %ws", directoryPath);
 
+    // Create a DirectoryIterator for the specified path and validate it
     auto result = DirectoryIterator::Create(directoryPath);
     if (!result.IsOk())
     {
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
     }
-
+    // Iterator successfully created, so we can now read entries
     DirectoryIterator &iter = result.Value();
     Vector<DirectoryEntry> entries;
     if (!entries.Init())
@@ -121,7 +127,7 @@ VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_u
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
     }
-
+    // Iterate through the directory entries, skipping "." and "..", and add them to the vector
     while (iter.Next())
     {
         const DirectoryEntry &entry = iter.Get();
@@ -132,11 +138,13 @@ VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_u
             WriteErrorResponse(response, responseLength, StatusCode::StatusError);
             return;
         }
+        LOG_INFO("Directory entry added: %ws", entry.Name);
     }
 
+    // Prepare the response buffer - writing entry count, status code and array of WireDirectoryEntry structures
     UINT64 entryCount = (UINT64)entries.Count;
     *responseLength = sizeof(UINT32) + sizeof(UINT64) + (USIZE)(entryCount * sizeof(WireDirectoryEntry));
-    *response = new CHAR[*responseLength];
+    *response = new CHAR[*responseLength]; 
 
     *(PUINT32)*response = StatusCode::StatusSuccess;
     Memory::Copy(*response + sizeof(UINT32), &entryCount, sizeof(UINT64));
@@ -147,13 +155,20 @@ VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_u
         Memory::Zero(&wireEntries[i], sizeof(WireDirectoryEntry));
         ToWireEntry(entries.Data[i], wireEntries[i]);
     }
+    LOG_INFO("Directory content retrieved successfully with %llu entries", entryCount);
 }
 
+
+// Reads a chunk of file content
 VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
+    LOG_INFO("Handling GetFileContentCommand.");
+    // Getting parameters from command buffer: read count, offset and file path
     UINT64 readCount = *(PUINT64)(command);
     UINT64 offset = *(PUINT64)(command + sizeof(UINT64));
+    LOG_INFO("Reading file content with offset: %llu and count: %llu.", offset, readCount);
 
+    // Decoding file path from command buffer
     USIZE pathOffset = sizeof(UINT64) + sizeof(UINT64);
     WCHAR filePath[1024];
     DecodeWirePath(command + pathOffset, commandLength > pathOffset ? commandLength - pathOffset : 0, filePath, 1024);
@@ -164,8 +179,10 @@ VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused
     {
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
-    }
+    }   
+    LOG_INFO("File opened successfully: %ws", filePath);
 
+    // Prepare the response buffer - writing status code, bytes read and file content chunk
     File &file = openResult.Value();
     *responseLength = sizeof(UINT32) + sizeof(UINT64) + (USIZE)readCount;
     *response = new CHAR[*responseLength];
@@ -176,35 +193,47 @@ VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused
 
     *(PUINT32)*response = StatusCode::StatusSuccess;
     *(PUINT64)(*response + sizeof(UINT32)) = bytesRead;
+
+    LOG_INFO("File content read successfully for %llu bytes requested, %llu bytes read", readCount, bytesRead);
 }
 
+// Computes the SHA-256 hash of a file chunk
 VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
+    LOG_INFO("Handling GetFileChunkHashCommand.");
+    // Getting parameters from command buffer: chunk size, offset and file path
     UINT64 chunkSize = *(PUINT64)(command);
     UINT64 offset = *(PUINT64)(command + sizeof(UINT64));
 
+    LOG_INFO("Computing file chunk hash with offset: %llu and chunk size: %llu.", offset, chunkSize);
+
+    // Decoding file path from command buffer
     USIZE hashPathOffset = sizeof(UINT64) + sizeof(UINT64);
     WCHAR filePath[1024];
     DecodeWirePath(command + hashPathOffset, commandLength > hashPathOffset ? commandLength - hashPathOffset : 0, filePath, 1024);
     LOG_INFO("GetFileChunkHash: %ws chunkSize=%llu offset=%llu", filePath, chunkSize, offset);
 
+    // Attempt to open the file and validate the result
     auto openResult = File::Open(filePath, File::ModeRead);
     if (!openResult)
     {
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
     }
+    LOG_INFO("File opened successfully: %ws", filePath);
 
     File &file = openResult.Value();
+    // Allocating a buffer for reading file chunks.
     UINT64 bufferSize = Math::Min((UINT64)chunkSize, (UINT64)0xffff);
     PUINT8 buffer = new UINT8[bufferSize];
 
     SHA256 sha256;
     USIZE totalRead = 0;
-
+    // Read file in small chanks and update the hash untill we read the requested count or reach the end of file
     while (totalRead < chunkSize)
     {
         UINT64 bytesToRead = Math::Min(bufferSize, chunkSize - totalRead);
+        LOG_INFO("Reading file chunk with offset: %llu and count: %llu.", offset + totalRead, bytesToRead);
         (void)file.SetOffset((USIZE)(offset + totalRead));
         auto readResult = file.Read(Span<UINT8>(buffer, (USIZE)bytesToRead));
         UINT32 bytesRead = readResult ? readResult.Value() : 0;
@@ -214,7 +243,7 @@ VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unus
         totalRead += bytesRead;
     }
     delete[] buffer;
-
+    // Prepare the response buffer - writing status code and SHA-256 digest of the file chunk
     *responseLength += SHA256_DIGEST_SIZE;
     *response = new CHAR[*responseLength];
 
@@ -226,6 +255,7 @@ VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unus
     LOG_INFO("GetFileChunkHash: hashed %llu bytes", (UINT64)totalRead);
 }
 
+// Writes a command to the shell
 VOID Handle_WriteShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     if (context->shell == nullptr)
@@ -248,11 +278,14 @@ VOID Handle_WriteShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] U
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
     }
+    LOG_INFO("Command written to shell successfully, bytes written: %llu", writeResult.Value());
 
+    // Prepare the response buffer - writing status code
     *response = new CHAR[*responseLength];
     *(PUINT32)*response = StatusCode::StatusSuccess;
 }
 
+// Reads a chunk of data from the shell's stdout
 VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     if (context->shell == nullptr)
@@ -264,8 +297,10 @@ VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] US
             return;
         }
         context->shell = new Shell(static_cast<Shell &&>(shellResult.Value()));
+        LOG_INFO("Shell instance created successfully");
     }
 
+    // Buffer to hold the data read from the shell
     CHAR buffer[4096];
     auto readResult = context->shell->Read(buffer, sizeof(buffer));
     if (!readResult)
@@ -281,21 +316,24 @@ VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] US
     StringUtils::Copy(Span<CHAR>(*response + sizeof(UINT32), bytesRead), Span<const CHAR>(buffer, bytesRead));
 }
 
+// Gets the list of display devices and their information
 VOID Handle_GetDisplaysCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     if (context->vncContext == nullptr)
         context->vncContext = new VNCContext();
 
+    // Getting the list of display devices and validating the result
     auto displays = Screen::GetDevices();
     if (!displays)
     {
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
-    }
+    }  
+    LOG_INFO("Display devices enumerated successfully with %u display(s)", displays.Value().Count);
 
     ScreenDeviceList &deviceList = displays.Value();
     context->vncContext->DeviceList = deviceList;
-
+    // Prepare the response buffer - writing status code, device count and array of ScreenDevice structures
     *responseLength += sizeof(deviceList.Count) + (USIZE)(deviceList.Count * sizeof(ScreenDevice));
     *response = new CHAR[*responseLength];
     *(PUINT32)*response = StatusCode::StatusSuccess;
@@ -305,7 +343,8 @@ VOID Handle_GetDisplaysCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] 
     LOG_INFO("GetDisplays: %u display(s)", deviceList.Count);
 }
 
-VOID JspegCallback(PVOID context, PVOID data, INT32 size)
+// Callback function for JPEG encoding - called by the encoder to write encoded data chunks
+VOID JpegCallback(PVOID context, PVOID data, INT32 size)
 {
     JpegBuffer *jpegBuffer = (JpegBuffer *)context;
 
@@ -327,20 +366,36 @@ VOID JspegCallback(PVOID context, PVOID data, INT32 size)
         jpegBuffer->outputBuffer = newBuffer;
         jpegBuffer->size = newSize;
     }
-
+    // Copy the encoded data chunk into the buffer and update the offset
     Memory::Copy(jpegBuffer->outputBuffer + jpegBuffer->offset, data, (USIZE)size);
     jpegBuffer->offset += (UINT32)size;
 }
 
+VOID CopyRGBData(PRGB rect, UINT32 height, UINT32 width, Graphics &graphics, const ScreenDevice& device, UINT32 minX, UINT32 minY)
+{
+    for (UINT32 j = 0; j < height; j++)
+    {
+        for (UINT32 k = 0; k < width; k++)
+        {
+            rect[j * width + k] = graphics.currentScreenshot[(minY + j) * device.Width + minX + k]; // Copy the pixel data from the screenshot to the rectangle buffer
+        }
+    }
+}
+
+
+// Gets a screenshot of the specified display device
 VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     auto displayIndex = *(PUINT32)(command);
     auto quality = *(PUINT32)(command + sizeof(UINT32));
     auto isFullScreen = *(PUINT32)(command + sizeof(UINT32) + sizeof(UINT32));
 
+    // Ensure the VNC context exists - create it if it doesn't, and validate the result
     if (context->vncContext == nullptr)
         context->vncContext = new VNCContext();
+        context->vncContext = new VNCContext();
 
+    // Getting the device list
     if (context->vncContext->DeviceList.Count == 0)
     {
         auto displays = Screen::GetDevices();
@@ -350,6 +405,7 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
             return;
         }
         context->vncContext->DeviceList = displays.Value();
+        LOG_INFO("Display devices enumerated successfully with %u display(s)", context->vncContext->DeviceList.Count);
     }
 
     const ScreenDevice &device = context->vncContext->DeviceList.Devices[displayIndex];
@@ -361,32 +417,22 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
     }
 
     Graphics &graphics = context->vncContext->GraphicsList.graphicsArray[displayIndex];
-    if (graphics.currentScreenshot == nullptr)
-    {
-        graphics.currentScreenshot = new RGB[device.Width * device.Height];
-        isFullScreen = true;
-    }
-    if (graphics.screenshot == nullptr)
-    {
-        graphics.screenshot = new RGB[device.Width * device.Height];
-        isFullScreen = true;
-    }
-    if (graphics.bidiff == nullptr)
-    {
-        graphics.bidiff = new UINT8[device.Width * device.Height];
-        isFullScreen = true;
-    }
+    
+    if(!graphics.IsInitialized())
+        graphics.Init(device);
 
+    // Attempt to capture the screen and validate the result
     if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height)))
     {
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
     }
 
+    // In case of full screen request, encode the whole screenshot as JPEG and send it back
     if (isFullScreen)
     {
         JpegBuffer jpegBuffer;
-        auto encodeResult = JpegEncoder::Encode(JspegCallback, &jpegBuffer, (INT32)quality, (INT32)device.Width, (INT32)device.Height, 3, Span<const UINT8>((UINT8 *)graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB)));
+        auto encodeResult = JpegEncoder::Encode(JpegCallback, &jpegBuffer, (INT32)quality, (INT32)device.Width, (INT32)device.Height, 3, Span<const UINT8>((UINT8 *)graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB)));
         if (encodeResult.IsErr())
         {
             WriteErrorResponse(response, responseLength, StatusCode::StatusError);
@@ -396,8 +442,11 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
         Memory::Copy(graphics.screenshot, graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB));
 
         Rectangle rect(0, 0, jpegBuffer.offset, jpegBuffer.outputBuffer);
+
+        // We are sending the full JPEG data in one segment, so the segment count is 1
         UINT32 countOfSegments = 1;
 
+        // Write response
         *responseLength += sizeof(countOfSegments) + sizeof(rect.x) + sizeof(rect.y) + sizeof(rect.sizeOfData) + jpegBuffer.offset;
         *response = new CHAR[*responseLength];
         *(PUINT32)*response = StatusCode::StatusSuccess;
@@ -411,6 +460,9 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
                                           device.Width, device.Height,
                                           Span<UCHAR>(graphics.bidiff, device.Width * device.Height));
 
+        // Remove noises from bidiff
+        ImageProcessor::RemoveNoise(Span<UCHAR>(graphics.bidiff, device.Width * device.Height),
+                                    device.Width, device.Height);
     ImageProcessor::RemoveNoise(Span<UCHAR>(graphics.bidiff, device.Width * device.Height),
                                 device.Width, device.Height);
 
@@ -433,6 +485,16 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
     PContour contoursArray = contours.Contours;
     JpegBuffer jpegBuffer;
 
+        // Loop through the contours found to identify rectangles
+        for (INT32 i = 0; i < contours.ContourCount; i++)
+        {
+            // if it is not inner contour
+            // find its size
+            if (hierarchy[i].Parent == 1)
+            {
+                INT32 minX = contoursArray[i].Points[0].Col, minY = contoursArray[i].Points[0].Row, maxX = 0, maxY = 0;
+                // Loop through the points in the contour to find the min and max coordinates to create a rectangle
+                GetContourBounds(&contoursArray[i], minX, minY, maxX, maxY);
     for (INT32 i = 0; i < contours.ContourCount; i++)
     {
         if (hierarchy[i].Parent != 1)
@@ -450,9 +512,27 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
             if (contoursArray[i].Points[j].Row > maxY) maxY = contoursArray[i].Points[j].Row;
         }
 
+                // Calculate the width and height of the rectangle
+                INT32 rectWidth = maxX - minX + 1;
+                INT32 rectHeight = maxY - minY + 1;
         INT32 rectWidth = maxX - minX + 1;
         INT32 rectHeight = maxY - minY + 1;
 
+                // Make strid dividable by 4 (needed for GdipCreateBitmapFromScan0)
+                if (rectWidth % 4 != 0)
+                    rectWidth -= rectWidth % 4;
+            
+                // Check if the rectangle is too small to be considered
+                if (rectHeight < 32 || rectWidth < 32)
+                    continue;
+                
+                countOfContour++;
+
+                LOG_INFO("Rectangle: x: %d, y: %d, width: %d, height: %d.", minX, minY, rectWidth, rectHeight);
+                LOG_INFO("Allocating memory for rectangle rgb data.");
+
+                // Allocate memory for the rectangle rgb data
+                rectScan0 = new RGB[rectHeight * rectWidth];
         if (rectWidth % 4 != 0)
             rectWidth -= rectWidth % 4;
         if (rectHeight < 32 || rectWidth < 32)
@@ -461,6 +541,30 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
         countOfContour++;
         rectScan0 = new RGB[rectHeight * rectWidth];
 
+                LOG_INFO("Memory allocated.");
+
+                // Copy the rectangle rgb data to buffer
+                CopyRGBData(rectScan0, (UINT32)rectHeight, (UINT32)rectWidth, graphics, device, (UINT32)minX, (UINT32)minY);
+
+                LOG_INFO("Rectangle rgb data copied.");
+                LOG_INFO("Encoding rectangle.");
+
+                // Prepare the JPEG buffer for encoding
+                jpegBuffer.offset = 0;
+
+                auto encodeResult = JpegEncoder::Encode(JpegCallback, &jpegBuffer, (INT32)quality, (INT32)rectWidth, (INT32)rectHeight, 3, Span<const UINT8>((UINT8 *)rectScan0, rectWidth * rectHeight * sizeof(RGB)));
+                if (encodeResult.IsErr())
+                {
+                    LOG_ERROR("Failed to encode JPEG image (error code: %e).", encodeResult.Error());
+                    WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+                    return;
+                }
+                LOG_INFO("Rectangle encoded with size: %u.", jpegBuffer.size);
+
+                LOG_INFO("Reallocating memory for packet.");
+                Rectangle rect((UINT32)minX, (UINT32)minY, jpegBuffer.size, jpegBuffer.outputBuffer);
+                // Add packet size for the rectangle data
+                packetSize += jpegBuffer.size + sizeof(rect.x) + sizeof(rect.y) + sizeof(rect.sizeOfData);
         for (INT32 j = 0; j < rectHeight; j++)
             for (INT32 k = 0; k < rectWidth; k++)
                 rectScan0[j * rectWidth + k] = graphics.currentScreenshot[(minY + j) * device.Width + minX + k];
@@ -477,6 +581,13 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
         Rectangle rect((UINT32)minX, (UINT32)minY, jpegBuffer.size, jpegBuffer.outputBuffer);
         packetSize += jpegBuffer.size + sizeof(rect.x) + sizeof(rect.y) + sizeof(rect.sizeOfData);
 
+                // Reallocate memory for the packet to hold the new rectangle data
+                auto newPacket = new CHAR[packetSize];
+                Memory::Copy(newPacket, packet, offset);
+                delete[] packet;
+                packet = newPacket;
+
+                LOG_INFO("Memory allocated.");
         auto newPacket = new CHAR[packetSize];
         Memory::Copy(newPacket, packet, offset);
         delete[] packet;
@@ -487,6 +598,8 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
         rectScan0 = nullptr;
     }
 
+        // Copy the current screenshot to the screenshot buffer for the next comparison
+        Memory::Copy(graphics.screenshot, graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB));
     Memory::Copy(graphics.screenshot, graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB));
 
     *(PUINT32)(packet + sizeof(UINT32)) = countOfContour;
