@@ -455,6 +455,160 @@ VOID FullScreenCapture(const ScreenDevice &device, Graphics &graphics, PPCHAR re
     rect.toBuffer((UINT8 *)*response + sizeof(UINT32) + sizeof(UINT32));
 }
 
+
+VOID BidiffCapture(const ScreenDevice &device, Graphics &graphics, PPCHAR response, PUSIZE responseLength, VNCContext *vncContext)
+{
+    // Calculate bidiff and write to response
+    ImageProcessor::CalculateBiDifference(Span<const RGB>(graphics.currentScreenshot, device.Width * device.Height),
+                                          Span<const RGB>(graphics.screenshot, device.Width * device.Height),
+                                          device.Width, device.Height,
+                                          Span<UCHAR>(graphics.bidiff, device.Width * device.Height));
+
+    // Remove noises from bidiff
+    ImageProcessor::RemoveNoise(Span<UCHAR>(graphics.bidiff, device.Width * device.Height),
+                                device.Width, device.Height);
+
+    // Find contours in bidiff, validate the result and write to response
+    auto contourResult = ImageProcessor::FindContours(Span<INT8>((INT8 *)graphics.bidiff, device.Width * device.Height),
+                                                      (INT32)device.Height, (INT32)device.Width);
+    if (contourResult.IsErr())
+    {
+        LOG_ERROR("Failed to find contours in bidiff image (error code: %e).", contourResult.Error());
+        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        return;
+    }
+    LOG_INFO("Contours found successfully, count: %u", contourResult.Value().ContourCount);
+    auto &contours = contourResult.Value();
+
+    UINT32 countOfContour = 0;
+    // Use of RGB structure to hold the rectangle data - modified part of the image
+    // that will be sent to the client
+    PRGB rectScan0 = nullptr;
+    USIZE packetSize = *responseLength + sizeof(UINT32); // Initial packet size with space for count of segments
+    // Allocate memory for packet
+    PCHAR packet = new CHAR[packetSize];
+    USIZE offset = sizeof(UINT32) + sizeof(UINT32);
+
+
+    PContourNode hierarchy = contours.Hierarchy;
+    PContour contoursArray = contours.Contours;
+    JpegBuffer jpegBuffer;
+    // Loop through the contours found to identify rectangles
+    for (INT32 i = 0; i < contours.ContourCount; i++)
+        {
+            // if it is not inner contour
+            // find its size
+            if (hierarchy[i].Parent == 1)
+            {
+                // Check if the contour has points
+                INT32 minX = contoursArray[i].Points[0].Col, minY = contoursArray[i].Points[0].Row, maxX = 0, maxY = 0;
+                // Loop through the points in the contour to find the min and max coordinates to create a rectangle
+                for (INT32 j = 0; j < contoursArray[i].Count; j++)
+                {
+                    if (contoursArray[i].Points[j].Col < minX)
+                    {
+                        minX = contoursArray[i].Points[j].Col;
+                    }
+                    if (contoursArray[i].Points[j].Col > maxX)
+                    {
+                        maxX = contoursArray[i].Points[j].Col;
+                    }
+                    if (contoursArray[i].Points[j].Row < minY)
+                    {
+                        minY = contoursArray[i].Points[j].Row;
+                    }
+                    if (contoursArray[i].Points[j].Row > maxY)
+                    {
+                        maxY = contoursArray[i].Points[j].Row;
+                    }
+                }
+
+                // Calculate the width and height of the rectangle
+                INT32 rectWeight = maxX - minX + 1;
+                INT32 rectHeight = maxY - minY + 1;
+
+                // Make strid dividable by 4(needed for GdipCreateBitmapFromScan0)
+                if (rectWeight % 4 != 0)
+                {
+                    rectWeight -= rectWeight % 4;
+                }
+                // Check if the rectangle is too small to be considered
+                if (rectHeight < 32 || rectWeight < 32)
+                {
+                    continue;
+                }
+                countOfContour++;
+
+                LOG_INFO("Rectangle: x: %d, y: %d, width: %d, height: %d.", minX, minY, rectWeight, rectHeight);
+
+                LOG_INFO("Allocating memory for rectangle rgb data.");
+                // Allocate memory for the rectangle rgb data
+                rectScan0 = new RGB[rectHeight * rectWeight];
+
+                LOG_INFO("Memory allocated.");
+                // Copy the rectangle rgb data to buffer
+                for (INT32 j = 0; j < rectHeight; j++)
+                {
+                    for (INT32 k = 0; k < rectWeight; k++)
+                    {
+                        rectScan0[j * rectWeight + k] = graphics.currentScreenshot[(minY + j) * device.Width + minX + k]; // Copy the pixel data from the screenshot to the rectangle buffer
+                    }
+                }
+                LOG_INFO("Rectangle rgb data copied.");
+                LOG_INFO("Encoding rectangle.");
+
+                // Prepare the JPEG buffer for encoding
+                jpegBuffer.offset = 0;
+
+                auto encodeResult = JpegEncoder::Encode(JpegCallback, &jpegBuffer, (INT32)vncContext->Quality, (INT32)rectWeight, (INT32)rectHeight, 3, Span<const UINT8>((UINT8 *)rectScan0, rectWeight * rectHeight * sizeof(RGB)));
+                if (encodeResult.IsErr())
+                {
+                    LOG_ERROR("Failed to encode JPEG image (error code: %e).", encodeResult.Error());
+                    WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+                    return;
+                }
+                LOG_INFO("Rectangle encoded with size: %u.", jpegBuffer.size);
+
+                LOG_INFO("Reallocating memory for packet.");
+                Rectangle rect((UINT32)minX, (UINT32)minY, jpegBuffer.size, jpegBuffer.outputBuffer);
+                // Add packet size for the rectangle data
+                packetSize += jpegBuffer.size + sizeof(rect.x) + sizeof(rect.y) + sizeof(rect.sizeOfData);
+
+                // Reallocate memory for the packet to hold the new rectangle data
+                auto oldPacket = packet;
+                auto newPacket = new CHAR[packetSize];
+                Memory::Copy(newPacket, oldPacket, offset);
+                delete[] oldPacket;
+                packet = newPacket;
+
+                LOG_INFO("Memory allocated.");
+
+                offset += rect.toBuffer((UINT8 *)packet + offset);
+
+                LOG_INFO("Cleaning up.");
+
+                // Clean up the rectangle buffer for the next iteration
+                delete[] rectScan0;
+                rectScan0 = nullptr;
+            }
+        }
+
+        
+        // Copy the current screenshot to the screenshot buffer for the next comparison
+        Memory::Copy(graphics.screenshot, graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB));
+
+        // Set the count of contours in the packet
+        *(PUINT32)(packet + sizeof(UINT32)) = countOfContour;
+        // Set the size of the packet and the response
+        *response = packet;
+        *responseLength = packetSize;
+        *(PUINT32)*response = StatusCode::StatusSuccess;
+
+        // Clean up resources used for contour detection
+        contours.Free();
+    }
+
+
 // Gets a screenshot of the specified display device
 VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
@@ -534,155 +688,8 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
     }
     else
     {
-        // Calculate bidiff and write to response
-        ImageProcessor::CalculateBiDifference(Span<const RGB>(graphics.currentScreenshot, device.Width * device.Height),
-                                              Span<const RGB>(graphics.screenshot, device.Width * device.Height),
-                                              device.Width, device.Height,
-                                              Span<UCHAR>(graphics.bidiff, device.Width * device.Height));
-
-        // Remove noises from bidiff
-        ImageProcessor::RemoveNoise(Span<UCHAR>(graphics.bidiff, device.Width * device.Height),
-                                    device.Width, device.Height);
-
-        // Find contours in bidiff, validate the result and write to response
-        auto contourResult = ImageProcessor::FindContours(Span<INT8>((INT8 *)graphics.bidiff, device.Width * device.Height),
-                                                          (INT32)device.Height, (INT32)device.Width);
-        if (contourResult.IsErr())
-        {
-            LOG_ERROR("Failed to find contours in bidiff image (error code: %e).", contourResult.Error());
-            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
-            return;
-        }
-        LOG_INFO("Contours found successfully, count: %u", contourResult.Value().ContourCount);
-        auto &contours = contourResult.Value();
-
-        // Number of contours
-        UINT32 countOfContour = 0;
-
-        // Use of RGB structure to hold the rectangle data - modified part of the image
-        // that will be sent to the client
-        PRGB rectScan0 = nullptr;
-        USIZE packetSize = *responseLength + sizeof(UINT32); // Initial packet size with space for count of segments
-        // Allocate memory for packet
-        PCHAR packet = new CHAR[packetSize];
-        USIZE offset = sizeof(UINT32) + sizeof(UINT32);
-
-        PContourNode hierarchy = contours.Hierarchy;
-        PContour contoursArray = contours.Contours;
-        JpegBuffer jpegBuffer;
-
-        // Loop through the contours found to identify rectangles
-        for (INT32 i = 0; i < contours.ContourCount; i++)
-        {
-            // if it is not inner contour
-            // find its size
-            if (hierarchy[i].Parent == 1)
-            {
-                // Check if the contour has points
-                INT32 minX = contoursArray[i].Points[0].Col, minY = contoursArray[i].Points[0].Row, maxX = 0, maxY = 0;
-                // Loop through the points in the contour to find the min and max coordinates to create a rectangle
-                for (INT32 j = 0; j < contoursArray[i].Count; j++)
-                {
-                    if (contoursArray[i].Points[j].Col < minX)
-                    {
-                        minX = contoursArray[i].Points[j].Col;
-                    }
-                    if (contoursArray[i].Points[j].Col > maxX)
-                    {
-                        maxX = contoursArray[i].Points[j].Col;
-                    }
-                    if (contoursArray[i].Points[j].Row < minY)
-                    {
-                        minY = contoursArray[i].Points[j].Row;
-                    }
-                    if (contoursArray[i].Points[j].Row > maxY)
-                    {
-                        maxY = contoursArray[i].Points[j].Row;
-                    }
-                }
-
-                // Calculate the width and height of the rectangle
-                INT32 rectWeight = maxX - minX + 1;
-                INT32 rectHeight = maxY - minY + 1;
-
-                // Make strid dividable by 4(needed for GdipCreateBitmapFromScan0)
-                if (rectWeight % 4 != 0)
-                {
-                    rectWeight -= rectWeight % 4;
-                }
-                // Check if the rectangle is too small to be considered
-                if (rectHeight < 32 || rectWeight < 32)
-                {
-                    continue;
-                }
-                countOfContour++;
-
-                LOG_INFO("Rectangle: x: %d, y: %d, width: %d, height: %d.", minX, minY, rectWeight, rectHeight);
-
-                LOG_INFO("Allocating memory for rectangle rgb data.");
-                // Allocate memory for the rectangle rgb data
-                rectScan0 = new RGB[rectHeight * rectWeight];
-
-                LOG_INFO("Memory allocated.");
-                // Copy the rectangle rgb data to buffer
-                for (INT32 j = 0; j < rectHeight; j++)
-                {
-                    for (INT32 k = 0; k < rectWeight; k++)
-                    {
-                        rectScan0[j * rectWeight + k] = graphics.currentScreenshot[(minY + j) * device.Width + minX + k]; // Copy the pixel data from the screenshot to the rectangle buffer
-                    }
-                }
-                LOG_INFO("Rectangle rgb data copied.");
-                LOG_INFO("Encoding rectangle.");
-
-                // Prepare the JPEG buffer for encoding
-                jpegBuffer.offset = 0;
-
-                auto encodeResult = JpegEncoder::Encode(JpegCallback, &jpegBuffer, (INT32)quality, (INT32)rectWeight, (INT32)rectHeight, 3, Span<const UINT8>((UINT8 *)rectScan0, rectWeight * rectHeight * sizeof(RGB)));
-                if (encodeResult.IsErr())
-                {
-                    LOG_ERROR("Failed to encode JPEG image (error code: %e).", encodeResult.Error());
-                    WriteErrorResponse(response, responseLength, StatusCode::StatusError);
-                    return;
-                }
-                LOG_INFO("Rectangle encoded with size: %u.", jpegBuffer.size);
-
-                LOG_INFO("Reallocating memory for packet.");
-                Rectangle rect((UINT32)minX, (UINT32)minY, jpegBuffer.size, jpegBuffer.outputBuffer);
-                // Add packet size for the rectangle data
-                packetSize += jpegBuffer.size + sizeof(rect.x) + sizeof(rect.y) + sizeof(rect.sizeOfData);
-
-                // Reallocate memory for the packet to hold the new rectangle data
-                auto oldPacket = packet;
-                auto newPacket = new CHAR[packetSize];
-                Memory::Copy(newPacket, oldPacket, offset);
-                delete[] oldPacket;
-                packet = newPacket;
-
-                LOG_INFO("Memory allocated.");
-
-                offset += rect.toBuffer((UINT8 *)packet + offset);
-
-                LOG_INFO("Cleaning up.");
-
-                // Clean up the rectangle buffer for the next iteration
-                delete[] rectScan0;
-                rectScan0 = nullptr;
-            }
-        }
-
-        // Copy the current screenshot to the screenshot buffer for the next comparison
-        Memory::Copy(graphics.screenshot, graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB));
-
-        // Set the count of contours in the packet
-        *(PUINT32)(packet + sizeof(UINT32)) = countOfContour;
-        // Set the size of the packet and the response
-        *response = packet;
-        *responseLength = packetSize;
-        *(PUINT32)*response = StatusCode::StatusSuccess;
-
-        // Clean up resources used for contour detection
-        contours.Free();
+        LOG_INFO("Bidiff capture requested, proceeding with bidiff capture.");
+        BidiffCapture(device, graphics, response, responseLength, context->vncContext);
     }
 
     LOG_INFO("GetScreenshot command handled successfully with resolution %ux%u", device.Width, device.Height);
