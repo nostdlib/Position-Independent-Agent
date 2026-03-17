@@ -58,6 +58,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Cache LLVM
         id: cache-llvm
@@ -85,7 +86,9 @@ jobs:
 
       - name: Build with -Oz
         run: |
-          cmake --preset ${{ matrix.platform }}-${{ matrix.arch }}-release -DOPTIMIZATION_LEVEL=Oz
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+          COMMIT_HASH=$(git rev-parse --short=8 HEAD)
+          cmake --preset ${{ matrix.platform }}-${{ matrix.arch }}-release -DOPTIMIZATION_LEVEL=Oz -DBUILD_NUMBER=${BUILD_NUMBER} -DCOMMIT_HASH=${COMMIT_HASH}
           cmake --build --preset ${{ matrix.platform }}-${{ matrix.arch }}-release
 
       - name: Rename artifacts

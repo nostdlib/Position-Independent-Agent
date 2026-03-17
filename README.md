@@ -296,7 +296,7 @@ All commands use a binary protocol over WebSocket. Each message starts with a `U
 Returns system identification info for the target host.
 
 - **Request**: No payload (command type byte only)
-- **Response**: `UINT32 status` + `SystemInfo`
+- **Response**: `UINT32 status` + `SystemInfo` + `AgentBuildInfo`
 
 `SystemInfo` layout (packed):
 
@@ -306,6 +306,13 @@ Returns system identification info for the target host.
 | `Hostname`     | `CHAR[256]` | Machine hostname (from env or `/etc/hostname`)    |
 | `Architecture` | `CHAR[32]`  | CPU architecture (`x86_64`, `aarch64`, etc.)      |
 | `Platform`     | `CHAR[32]`  | OS platform (`windows`, `linux`, `macos`, etc.)   |
+
+`AgentBuildInfo` layout (packed):
+
+| Field          | Type        | Description                                      |
+|----------------|-------------|--------------------------------------------------|
+| `BuildNumber`  | `UINT32`    | Auto-incrementing build number (git commit count) |
+| `CommitHash`   | `CHAR[9]`   | Short git commit hash (8 hex chars + null)        |
 
 ### `GetDirectoryContent` (0x01)
 

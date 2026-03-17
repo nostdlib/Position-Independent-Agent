@@ -95,12 +95,19 @@ VOID Handle_GetSystemInfoCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
     SystemInfo info;
     GetSystemInfo(&info);
 
-    *responseLength = sizeof(UINT32) + sizeof(SystemInfo);
+    AgentBuildInfo buildInfo;
+    buildInfo.BuildNumber = AGENT_BUILD_NUMBER;
+    const CHAR commitHash[] = AGENT_COMMIT_HASH;
+    Memory::Copy(buildInfo.CommitHash, commitHash, sizeof(commitHash));
+
+    *responseLength = sizeof(UINT32) + sizeof(SystemInfo) + sizeof(AgentBuildInfo);
     *response = new CHAR[*responseLength];
     *(PUINT32)*response = StatusCode::StatusSuccess;
     Memory::Copy(*response + sizeof(UINT32), &info, sizeof(SystemInfo));
+    Memory::Copy(*response + sizeof(UINT32) + sizeof(SystemInfo), &buildInfo, sizeof(AgentBuildInfo));
 
-    LOG_INFO("GetSystemInfo: hostname=%s, arch=%s, platform=%s", info.Hostname, info.Architecture, info.Platform);
+    LOG_INFO("GetSystemInfo: hostname=%s, arch=%s, platform=%s, build=%u, commit=%s",
+             info.Hostname, info.Architecture, info.Platform, buildInfo.BuildNumber, buildInfo.CommitHash);
 }
 
 VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)

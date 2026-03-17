@@ -18,6 +18,22 @@ enum CommandType : UINT8
     CommandTypeCount
 };
 
+#ifndef AGENT_BUILD_NUMBER
+#define AGENT_BUILD_NUMBER 0
+#endif
+#ifndef AGENT_COMMIT_HASH
+#define AGENT_COMMIT_HASH "00000000"
+#endif
+
+// Build metadata appended to GetSystemInfo response
+#pragma pack(push, 1)
+struct AgentBuildInfo
+{
+    UINT32 BuildNumber;
+    CHAR CommitHash[9]; // 8 hex chars + null
+};
+#pragma pack(pop)
+
 // Status codes for command handling results
 enum StatusCode : UINT32
 {

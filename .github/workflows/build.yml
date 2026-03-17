@@ -64,6 +64,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Cache LLVM
         id: cache-llvm
@@ -93,6 +94,8 @@ jobs:
 
       - name: Build all optimization levels
         run: |
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+          COMMIT_HASH=$(git rev-parse --short=8 HEAD)
           OPTS="${{ matrix.opts }}"
           : "${OPTS:=O0 O1 O2 O3 Os Oz Og}"
           for opt in ${OPTS}; do
@@ -101,7 +104,7 @@ jobs:
             out_dir="release/${opt}"
             echo "=== Building -${opt} (${preset}) ==="
             rm -rf build
-            cmake --preset "${preset}" -DOPTIMIZATION_LEVEL=${opt}
+            cmake --preset "${preset}" -DOPTIMIZATION_LEVEL=${opt} -DBUILD_NUMBER=${BUILD_NUMBER} -DCOMMIT_HASH=${COMMIT_HASH}
             cmake --build --preset "${preset}"
             mkdir -p "${out_dir}"
             find "${build_dir}" -type f -not -path "*/cmake/*" -exec cp {} "${out_dir}/" \;
@@ -181,6 +184,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Cache LLVM
         id: cache-llvm
@@ -208,7 +212,9 @@ jobs:
 
       - name: Build with -Oz
         run: |
-          cmake --preset ${{ matrix.platform }}-${{ matrix.arch }}-release -DOPTIMIZATION_LEVEL=Oz
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+          COMMIT_HASH=$(git rev-parse --short=8 HEAD)
+          cmake --preset ${{ matrix.platform }}-${{ matrix.arch }}-release -DOPTIMIZATION_LEVEL=Oz -DBUILD_NUMBER=${BUILD_NUMBER} -DCOMMIT_HASH=${COMMIT_HASH}
           cmake --build --preset ${{ matrix.platform }}-${{ matrix.arch }}-release
 
       - name: Get sizes
