@@ -470,7 +470,6 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
     auto &contours = contourResult.Value();
 
     UINT32 countOfContour = 0;
-    PRGB rectScan0 = nullptr;
     USIZE packetSize = *responseLength + sizeof(UINT32);
     PCHAR packet = new CHAR[packetSize];
     USIZE offset = sizeof(UINT32) + sizeof(UINT32);
@@ -478,6 +477,10 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
     PContourNode hierarchy = contours.Hierarchy;
     PContour contoursArray = contours.Contours;
     JpegBuffer jpegBuffer;
+
+    // Pre-allocate a reusable rectangle buffer (sized to full screen as upper bound)
+    USIZE rectBufCapacity = (USIZE)device.Width * device.Height;
+    PRGB rectScan0 = new RGB[rectBufCapacity];
 
     // Loop through the contours found to identify rectangles
     for (INT32 i = 0; i < contours.ContourCount; i++)
@@ -506,11 +509,10 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
             continue;
 
         countOfContour++;
-        rectScan0 = new RGB[rectHeight * rectWidth];
 
+        // Copy rectangle region row-by-row using memcpy instead of per-pixel
         for (INT32 j = 0; j < rectHeight; j++)
-            for (INT32 k = 0; k < rectWidth; k++)
-                rectScan0[j * rectWidth + k] = graphics.currentScreenshot[(minY + j) * device.Width + minX + k];
+            Memory::Copy(rectScan0 + j * rectWidth, graphics.currentScreenshot + (minY + j) * device.Width + minX, (USIZE)rectWidth * sizeof(RGB));
 
         jpegBuffer.offset = 0;
         auto encodeResult = JpegEncoder::Encode(JpegCallback, &jpegBuffer, (INT32)quality, rectWidth, rectHeight, 3, Span<const UINT8>((UINT8 *)rectScan0, rectWidth * rectHeight * sizeof(RGB)));
@@ -530,9 +532,9 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
         packet = newPacket;
 
         offset += rect.toBuffer((UINT8 *)packet + offset);
-        delete[] rectScan0;
-        rectScan0 = nullptr;
     }
+
+    delete[] rectScan0;
 
     // Copy the current screenshot to the screenshot buffer for the next comparison
     Memory::Copy(graphics.screenshot, graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB));
