@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
 PIC Shellcode Loader
 
@@ -17,6 +18,8 @@ Usage:
     python loader.py --arch aarch64 --tag v1.0.0
 """
 
+from __future__ import print_function
+
 import argparse
 import ctypes
 import mmap
@@ -25,8 +28,15 @@ import platform
 import ssl
 import struct
 import sys
-import urllib.error
-import urllib.request
+
+# Python 2/3 urllib compatibility
+try:
+    from urllib.request import Request, urlopen
+    from urllib.error import HTTPError
+    _PY3 = True
+except ImportError:
+    from urllib2 import Request, urlopen, HTTPError
+    _PY3 = False
 
 REPO = "mrzaxaryan/Position-Independent-Agent"
 
@@ -129,7 +139,12 @@ def get_host():
 # =============================================================================
 
 def _ssl_context():
-    """Return an SSL context, falling back to unverified if CA certs are unavailable."""
+    """Return an SSL context, falling back to unverified if CA certs are unavailable.
+
+    Returns None on Python 2 where urllib2 does not accept a context argument.
+    """
+    if not _PY3:
+        return None
     try:
         ctx = ssl.create_default_context()
         # Trigger cert loading to detect missing CA bundle early
@@ -145,9 +160,16 @@ def _ssl_context():
 
 
 def _http_get(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "PIA-Loader/1.0"})
-    with urllib.request.urlopen(req, context=_ssl_context()) as resp:
+    req = Request(url, headers={"User-Agent": "PIA-Loader/1.0"})
+    ctx = _ssl_context()
+    if ctx is not None:
+        resp = urlopen(req, context=ctx)
+    else:
+        resp = urlopen(req)
+    try:
         return resp.read()
+    finally:
+        resp.close()
 
 
 DEFAULT_TAG = "preview"
@@ -165,14 +187,14 @@ def download(platform_name, arch, tag):
     print("[*] URL: %s" % url)
     try:
         return _http_get(url)
-    except urllib.error.HTTPError as e:
+    except HTTPError as e:
         if e.code == 404:
             sys.exit("[-] Asset '%s' not found in release %s.\n    URL: %s" % (asset, tag, url))
         raise
 
 
 # =============================================================================
-# Execution — POSIX (mmap + mprotect)
+# Execution -- POSIX (mmap + mprotect)
 # =============================================================================
 
 def _flush_icache(addr, size):
