@@ -113,7 +113,7 @@ VOID Handle_GetSystemInfoCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
 VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     LOG_INFO("Handling GetDirectoryContentCommand.");
-    // Buffer to hold the path from command 
+    // Buffer to hold the path from command
     WCHAR directoryPath[1024];
     // Decoding path from command
     DecodeWirePath(command, commandLength, directoryPath, 1024);
@@ -151,7 +151,7 @@ VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_u
     // Prepare the response buffer - writing entry count, status code and array of WireDirectoryEntry structures
     UINT64 entryCount = (UINT64)entries.Count;
     *responseLength = sizeof(UINT32) + sizeof(UINT64) + (USIZE)(entryCount * sizeof(WireDirectoryEntry));
-    *response = new CHAR[*responseLength]; 
+    *response = new CHAR[*responseLength];
 
     *(PUINT32)*response = StatusCode::StatusSuccess;
     Memory::Copy(*response + sizeof(UINT32), &entryCount, sizeof(UINT64));
@@ -164,7 +164,6 @@ VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_u
     }
     LOG_INFO("Directory content retrieved successfully with %llu entries", entryCount);
 }
-
 
 // Reads a chunk of file content
 VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
@@ -186,7 +185,7 @@ VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused
     {
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
-    }   
+    }
     LOG_INFO("File opened successfully: %ws", filePath);
 
     // Prepare the response buffer - writing status code, bytes read and file content chunk
@@ -270,6 +269,7 @@ VOID Handle_WriteShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] U
         auto shellResult = Shell::Create();
         if (!shellResult)
         {
+            LOG_ERROR("Failed to create shell instance");
             WriteErrorResponse(response, responseLength, StatusCode::StatusError);
             return;
         }
@@ -282,6 +282,7 @@ VOID Handle_WriteShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] U
     auto writeResult = context->shell->Write(command, commandLength);
     if (!writeResult)
     {
+        LOG_ERROR("Failed to write command to shell");
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
     }
@@ -300,6 +301,7 @@ VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] US
         auto shellResult = Shell::Create();
         if (!shellResult)
         {
+            LOG_ERROR("Failed to create shell instance");
             WriteErrorResponse(response, responseLength, StatusCode::StatusError);
             return;
         }
@@ -312,6 +314,7 @@ VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] US
     auto readResult = context->shell->Read(buffer, sizeof(buffer));
     if (!readResult)
     {
+        LOG_ERROR("Failed to read from shell");
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
     }
@@ -333,9 +336,10 @@ VOID Handle_GetDisplaysCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] 
     auto displays = Screen::GetDevices();
     if (!displays)
     {
+        LOG_ERROR("Failed to enumerate display devices");
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
-    }  
+    }
     LOG_INFO("Display devices enumerated successfully with %u display(s)", displays.Value().Count);
 
     ScreenDeviceList &deviceList = displays.Value();
@@ -378,8 +382,6 @@ VOID JpegCallback(PVOID context, PVOID data, INT32 size)
     jpegBuffer->offset += (UINT32)size;
 }
 
-
-
 // Gets a screenshot of the specified display device
 VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
@@ -398,6 +400,7 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
         auto displays = Screen::GetDevices();
         if (!displays)
         {
+            LOG_ERROR("Failed to enumerate display devices");
             WriteErrorResponse(response, responseLength, StatusCode::StatusError);
             return;
         }
@@ -411,13 +414,14 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
         context->vncContext->GraphicsList.Init(context->vncContext->DeviceList.Count);
 
     Graphics &graphics = context->vncContext->GraphicsList.graphicsArray[displayIndex];
-    
-    if(!graphics.IsInitialized())
+
+    if (!graphics.IsInitialized())
         graphics.Init(device);
 
     // Attempt to capture the screen and validate the result
     if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height)))
     {
+        LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
     }
@@ -429,6 +433,7 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
         auto encodeResult = JpegEncoder::Encode(JpegCallback, &graphics.jpegBuffer, (INT32)quality, (INT32)device.Width, (INT32)device.Height, 3, Span<const UINT8>((UINT8 *)graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB)));
         if (encodeResult.IsErr())
         {
+            LOG_ERROR("Failed to encode the screenshot for display index: %u", displayIndex);
             WriteErrorResponse(response, responseLength, StatusCode::StatusError);
             return;
         }
@@ -462,6 +467,7 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
         device.Width, device.Height, 64);
     if (dirtyResult.IsErr())
     {
+        LOG_ERROR("Failed to find dirty rectangles for display index: %u", displayIndex);
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
     }
@@ -492,6 +498,7 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
         {
             delete[] packet;
             dirtyRects.Free();
+            LOG_ERROR("Failed to encode the screenshot for display index: %u", displayIndex);
             WriteErrorResponse(response, responseLength, StatusCode::StatusError);
             return;
         }
