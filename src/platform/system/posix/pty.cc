@@ -2,14 +2,14 @@
  * @file pty.cc
  * @brief Shared POSIX pseudo-terminal implementation
  *
- * @details Cross-platform PTY creation via /dev/ptmx with platform-specific
- * unlock and slave path discovery. Platform differences:
- * - Linux/Android: TIOCSPTLCK unlock + TIOCGPTN for slave number, /dev/pts/<N>
+ * @details Cross-platform PTY creation with platform-specific master opening,
+ * unlock, and slave path discovery. Platform differences:
+ * - Linux/Android: open /dev/ptmx, TIOCSPTLCK unlock + TIOCGPTN for slave number, /dev/pts/<N>
  * - Linux/Android MIPS64: O_NOCTTY value differs (0x800 vs 0x100)
  * - Linux/Android aarch64/riscv: SYS_OPENAT instead of SYS_OPEN
- * - FreeBSD: SYS_OPENAT, TIOCPTUNLK unlock + TIOCGPTN for slave number, /dev/pts/<N>
- * - macOS/iOS: TIOCPTYGRANT + TIOCPTYUNLK unlock + TIOCPTYGNAME for slave path
- * - Solaris: SYS_OPENAT, I_STR+UNLKPT unlock + SYS_FSTAT minor for slave number, /dev/pts/<N>
+ * - FreeBSD: SYS_POSIX_OPENPT (504), TIOCPTUNLK unlock + TIOCGPTN for slave number, /dev/pts/<N>
+ * - macOS/iOS: open /dev/ptmx, TIOCPTYGRANT + TIOCPTYUNLK unlock + TIOCPTYGNAME for slave path
+ * - Solaris: open /dev/ptmx, I_STR+UNLKPT unlock + SYS_FSTATAT minor for slave number, /dev/pts/<N>
  * - Poll: SYS_PPOLL (Linux/Android), SYS_POLLSYS (Solaris), SYS_POLL (others)
  */
 
@@ -47,8 +47,8 @@ constexpr USIZE TIOCPTYGRANT = 0x20007454; // _IO('t', 0x54) -- grantpt()
 constexpr USIZE TIOCPTYUNLK  = 0x20007452; // _IO('t', 0x52) -- unlockpt()
 constexpr USIZE TIOCPTYGNAME = 0x40807453; // _IOC(OUT,'t',0x53,128) -- ptsname()
 #elif defined(PLATFORM_FREEBSD)
-constexpr USIZE TIOCPTUNLK = 0x20007410;
-constexpr USIZE TIOCGPTN = 0x4004740f;
+constexpr USIZE TIOCPTUNLK = 0x20007412; // _IO('t', 18) -- unlockpt()
+constexpr USIZE TIOCGPTN = 0x40047409;   // _IOR('t', 9, int) -- get pts number
 #elif defined(PLATFORM_SOLARIS)
 // Solaris uses STREAMS ioctls, not Linux TIOCSPTLCK/TIOCGPTN
 constexpr USIZE I_STR   = 0x5308;  // ('S' << 8) | 010
@@ -78,15 +78,15 @@ static SSIZE PtyOpen(const char *path, INT32 flags)
 
 static BOOL PtyOpenPair(SSIZE &masterFd, SSIZE &slaveFd)
 {
-	masterFd = PtyOpen("/dev/ptmx", O_RDWR | O_NOCTTY | O_CLOEXEC);
 #if defined(PLATFORM_FREEBSD)
-	// FreeBSD: /dev/ptmx may not exist; try /dev/pts/ptmx as fallback
-	if (masterFd < 0)
-		masterFd = PtyOpen("/dev/pts/ptmx", O_RDWR | O_NOCTTY | O_CLOEXEC);
+	// FreeBSD: use posix_openpt() syscall (504) — does not depend on /dev/ptmx existing
+	masterFd = System::Call(SYS_POSIX_OPENPT, (USIZE)(O_RDWR | O_NOCTTY | O_CLOEXEC));
+#else
+	masterFd = PtyOpen("/dev/ptmx", O_RDWR | O_NOCTTY | O_CLOEXEC);
 #endif
 	if (masterFd < 0)
 	{
-		LOG_ERROR("PTY: open /dev/ptmx failed (errno: %d)", (INT32)(-masterFd));
+		LOG_ERROR("PTY: open master failed (errno: %d)", (INT32)(-masterFd));
 		return false;
 	}
 
@@ -141,13 +141,40 @@ static BOOL PtyOpenPair(SSIZE &masterFd, SSIZE &slaveFd)
 		System::Call(SYS_CLOSE, (USIZE)masterFd);
 		return false;
 	}
-	// Get slave PTY number via fstat + minor(st_rdev)
+	// Get slave PTY number via fstatat("/dev/fd/<N>") + minor(st_rdev).
+	// SYS_FSTAT (28) is removed/repurposed on Solaris 11.4 and segfaults on
+	// ILP32 — use SYS_FSTATAT (66) with a /dev/fd/<N> path instead.
 	UINT8 statBuf[STAT_BUF_SIZE] = {};
 	{
-		SSIZE statRet = System::Call(SYS_FSTAT, (USIZE)masterFd, (USIZE)statBuf);
+		// Build "/dev/fd/<masterFd>" path
+		char fdPath[24];
+		const char fdPrefix[] = "/dev/fd/";
+		USIZE k = 0;
+		for (; fdPrefix[k]; k++)
+			fdPath[k] = fdPrefix[k];
+		INT32 fdVal = (INT32)masterFd;
+		if (fdVal == 0)
+		{
+			fdPath[k++] = '0';
+		}
+		else
+		{
+			char d[16];
+			USIZE dn = 0;
+			while (fdVal > 0)
+			{
+				d[dn++] = '0' + (fdVal % 10);
+				fdVal /= 10;
+			}
+			while (dn > 0)
+				fdPath[k++] = d[--dn];
+		}
+		fdPath[k] = '\0';
+
+		SSIZE statRet = System::Call(SYS_FSTATAT, (USIZE)AT_FDCWD, (USIZE)fdPath, (USIZE)statBuf, 0);
 		if (statRet < 0)
 		{
-			LOG_ERROR("PTY: fstat failed (errno: %d)", (INT32)(-statRet));
+			LOG_ERROR("PTY: fstatat failed (errno: %d)", (INT32)(-statRet));
 			System::Call(SYS_CLOSE, (USIZE)masterFd);
 			return false;
 		}

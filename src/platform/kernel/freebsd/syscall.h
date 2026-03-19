@@ -74,6 +74,9 @@ constexpr USIZE SYS_WAIT4      = 7;
 constexpr USIZE SYS_KILL       = 37;
 constexpr USIZE SYS_PIPE       = 42;
 
+// PTY operations
+constexpr USIZE SYS_POSIX_OPENPT = 504;
+
 // =============================================================================
 // POSIX/BSD Constants
 // =============================================================================
