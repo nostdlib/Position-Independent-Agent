@@ -472,6 +472,11 @@ def main():
     host_os, host_family, host_bits = get_host()
     python_bits = struct.calcsize("P") * 8
 
+    # run_mmap executes shellcode in-process, so it must match the Python
+    # interpreter's bitness — not the CPU's.  run_injected (Windows) spawns
+    # a native-arch process, so it can use the true OS bitness.
+    exec_bits = python_bits if host_os != 'windows' else host_bits
+
     print("[*] Host: %s/%s/%dbit" % (host_os, host_family, host_bits))
     print("[*] Python: %dbit" % python_bits)
 
@@ -490,15 +495,17 @@ def main():
         if host_os == 'windows':
             cross_family = host_family != target['family']
             code = run_injected(shellcode, args.arch, cross_family=cross_family)
-        elif target['family'] != host_family or target['bits'] != host_bits:
-            sys.exit("[-] Cannot load %s shellcode on %s/%dbit host" % (args.arch, host_family, host_bits))
+        elif target['family'] != host_family or target['bits'] != exec_bits:
+            sys.exit("[-] Cannot load %s shellcode in %dbit Python on %s/%dbit host"
+                     % (args.arch, python_bits, host_family, host_bits))
         else:
             code = run_mmap(shellcode)
     else:
         # --- Remote mode: download from GitHub ---
-        key = (host_os, host_family, host_bits)
+        key = (host_os, host_family, exec_bits)
         if key not in _ARTIFACT_MAP:
-            print("[-] Unsupported host: %s/%s/%dbit" % (host_os, host_family, host_bits))
+            print("[-] Unsupported host: %s/%s/%dbit (Python %dbit)"
+                  % (host_os, host_family, host_bits, python_bits))
             sys.exit(1)
 
         plat, arch = _ARTIFACT_MAP[key]
