@@ -9,7 +9,7 @@
  * - Linux/Android aarch64/riscv: SYS_OPENAT instead of SYS_OPEN
  * - FreeBSD: SYS_OPENAT instead of SYS_OPEN
  * - macOS/iOS: TIOCPTYUNLK unlock + TIOCPTYGNAME for slave path
- * - FreeBSD: TIOCGPTN for slave number, /dev/pts/<N> (no unlock needed)
+ * - FreeBSD: TIOCPTUNLK unlock + TIOCGPTN for slave number, /dev/pts/<N>
  * - Solaris: TIOCSPTLCK unlock + TIOCGPTN, /dev/pts/<N>
  * - Poll: SYS_PPOLL (Linux/Android), SYS_POLLSYS (Solaris), SYS_POLL (others)
  */
@@ -46,6 +46,7 @@ constexpr USIZE TIOCGPTN   = 0x80045430;
 constexpr USIZE TIOCPTYUNLK  = 0x20007452;
 constexpr USIZE TIOCPTYGNAME = 0x40807453;
 #elif defined(PLATFORM_FREEBSD)
+constexpr USIZE TIOCPTUNLK = 0x20007402;
 constexpr USIZE TIOCGPTN = 0x4004740f;
 #elif defined(PLATFORM_SOLARIS)
 constexpr USIZE TIOCSPTLCK = 0x40045431;
@@ -103,6 +104,7 @@ static BOOL PtyOpenPair(SSIZE &masterFd, SSIZE &slaveFd)
 	}
 
 #elif defined(PLATFORM_FREEBSD)
+	(void)System::Call(SYS_IOCTL, (USIZE)masterFd, TIOCPTUNLK, 0);
 	INT32 ptyNum = 0;
 	if (System::Call(SYS_IOCTL, (USIZE)masterFd, TIOCGPTN, (USIZE)&ptyNum) < 0)
 	{
