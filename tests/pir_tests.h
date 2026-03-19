@@ -138,5 +138,5 @@ static BOOL RunPIRTests()
 	else
 		LOG_ERROR("SOME TESTS FAILED!");
 
-	return allPassed;
+	return allPassed ? 0 : 1;
 }
