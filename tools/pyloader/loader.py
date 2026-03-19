@@ -66,7 +66,11 @@ def _log(level, msg):
         return
     elapsed = time.time() - _log_start
     prefix = _LOG_PREFIXES.get(level, '[*]')
-    print("%s %8.3fs  %s" % (prefix, elapsed, msg))
+    line = "%s %8.3fs  %s" % (prefix, elapsed, msg)
+    try:
+        print(line)
+    except UnicodeEncodeError:
+        print(line.encode('ascii', 'replace').decode('ascii'))
     sys.stdout.flush()
 
 
@@ -176,10 +180,40 @@ def get_host():
 # Download from GitHub Releases
 # =============================================================================
 
+def _win_ensure_tls12():
+    """Enable TLS 1.2 for WinINet/urlmon on Windows 7 (user-level, no admin)."""
+    try:
+        import winreg
+    except ImportError:
+        import _winreg as winreg
+
+    key_path = r'Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+    TLS12_FLAG = 0x800
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0,
+                             winreg.KEY_READ | winreg.KEY_WRITE)
+        try:
+            val, _ = winreg.QueryValueEx(key, 'SecureProtocols')
+        except OSError:
+            val = 0xA0  # default: SSL3 + TLS1.0
+        if val & TLS12_FLAG:
+            _log('dbg', "TLS 1.2 already enabled (SecureProtocols=0x%x)" % val)
+            winreg.CloseKey(key)
+            return
+        new_val = val | TLS12_FLAG
+        winreg.SetValueEx(key, 'SecureProtocols', 0, winreg.REG_DWORD, new_val)
+        _log('ok', "Enabled TLS 1.2 for WinINet (SecureProtocols: 0x%x -> 0x%x)" % (val, new_val))
+        winreg.CloseKey(key)
+    except Exception as e:
+        _log('wrn', "Could not enable TLS 1.2: %s" % e)
+
+
 def _http_get_urlmon(url):
     """Download via urlmon.dll URLDownloadToFileW (Windows native TLS)."""
     import tempfile
     from ctypes import wintypes
+
+    _win_ensure_tls12()
 
     urlmon = ctypes.windll.urlmon
     urlmon.URLDownloadToFileW.argtypes = [
@@ -260,7 +294,7 @@ def _http_get(url):
             _log('inf', "Using urlmon (Windows native TLS)")
             return _http_get_urlmon(url)
         except Exception as e:
-            _log('wrn', "urlmon failed: %s — falling back to urllib" % e)
+            _log('wrn', "urlmon failed: %s -- falling back to urllib" % e)
     return _http_get_urllib(url)
 
 
