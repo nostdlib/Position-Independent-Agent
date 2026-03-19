@@ -183,14 +183,18 @@ def _make_ssl_context():
         proto = getattr(ssl, 'PROTOCOL_TLS', None) or ssl.PROTOCOL_SSLv23
         proto_name = 'PROTOCOL_TLS' if hasattr(ssl, 'PROTOCOL_TLS') else 'PROTOCOL_SSLv23'
         _log('dbg', "SSL protocol: %s (0x%x)" % (proto_name, proto))
+        _log('dbg', "Creating SSLContext ...")
         ctx = ssl.SSLContext(proto)
+        _log('dbg', "SSLContext created")
         ctx.check_hostname = False
+        _log('dbg', "check_hostname = False")
         ctx.verify_mode = ssl.CERT_NONE
+        _log('dbg', "verify_mode = CERT_NONE")
         try:
-            ctx.set_ciphers('DEFAULT:@SECLEVEL=0')
-            _log('dbg', "SSL cipher security level: relaxed")
-        except ssl.SSLError:
-            _log('dbg', "SSL cipher security level: default (SECLEVEL=0 unsupported)")
+            ctx.set_ciphers('DEFAULT')
+            _log('dbg', "Ciphers set to DEFAULT")
+        except ssl.SSLError as e:
+            _log('dbg', "set_ciphers failed: %s" % e)
         return ctx
     except Exception as e:
         _log('wrn', "SSL context creation failed: %s" % e)
@@ -205,6 +209,7 @@ def _http_get(url):
     else:
         _log('wrn', "SSL context unavailable, using system defaults")
     _log('inf', "Connecting to %s ..." % url.split('/')[2])
+    _log('dbg', "Calling urlopen ...")
     try:
         resp = urlopen(req, context=ctx) if ctx else urlopen(req)
     except TypeError:
