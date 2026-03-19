@@ -6,6 +6,8 @@ PIC Shellcode Loader
 Cross-platform loader for position-independent code.
 Loads shellcode from a local file or downloads from GitHub Releases.
 
+Requires Python 2.7+ or 3.2+ (no third-party dependencies).
+
 Usage:
     # Local file (requires --arch):
     python loader.py --arch x86_64 output.bin
