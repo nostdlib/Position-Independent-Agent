@@ -176,32 +176,61 @@ def get_host():
 # Download from GitHub Releases
 # =============================================================================
 
+def _http_get_urlmon(url):
+    """Download via urlmon.dll URLDownloadToFileW (Windows native TLS)."""
+    import tempfile
+    from ctypes import wintypes
+
+    urlmon = ctypes.windll.urlmon
+    urlmon.URLDownloadToFileW.argtypes = [
+        wintypes.LPVOID, wintypes.LPCWSTR, wintypes.LPCWSTR,
+        wintypes.DWORD, wintypes.LPVOID]
+    urlmon.URLDownloadToFileW.restype = ctypes.HRESULT
+
+    fd, tmp = tempfile.mkstemp(suffix='.bin')
+    os.close(fd)
+
+    _log('inf', "urlmon: URLDownloadToFileW -> %s" % tmp)
+    hr = urlmon.URLDownloadToFileW(None, url, tmp, 0, None)
+    if hr != 0:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise OSError("URLDownloadToFileW failed (HRESULT=0x%08x)" % (hr & 0xFFFFFFFF))
+
+    try:
+        with open(tmp, 'rb') as f:
+            data = f.read()
+        _log('ok', "urlmon: downloaded %d bytes" % len(data))
+        return data
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
 def _make_ssl_context():
     """Create a permissive SSL context for maximum compatibility."""
     _log('dbg', "OpenSSL: %s" % getattr(ssl, 'OPENSSL_VERSION', 'unknown'))
     try:
         proto = getattr(ssl, 'PROTOCOL_TLS', None) or ssl.PROTOCOL_SSLv23
-        proto_name = 'PROTOCOL_TLS' if hasattr(ssl, 'PROTOCOL_TLS') else 'PROTOCOL_SSLv23'
-        _log('dbg', "SSL protocol: %s (0x%x)" % (proto_name, proto))
-        _log('dbg', "Creating SSLContext ...")
         ctx = ssl.SSLContext(proto)
-        _log('dbg', "SSLContext created")
         ctx.check_hostname = False
-        _log('dbg', "check_hostname = False")
         ctx.verify_mode = ssl.CERT_NONE
-        _log('dbg', "verify_mode = CERT_NONE")
         try:
             ctx.set_ciphers('DEFAULT')
-            _log('dbg', "Ciphers set to DEFAULT")
-        except ssl.SSLError as e:
-            _log('dbg', "set_ciphers failed: %s" % e)
+        except ssl.SSLError:
+            pass
         return ctx
     except Exception as e:
         _log('wrn', "SSL context creation failed: %s" % e)
         return None
 
 
-def _http_get(url):
+def _http_get_urllib(url):
+    """Download via Python's urllib (requires working SSL)."""
     req = Request(url, headers={"User-Agent": "PIA-Loader/1.0"})
     ctx = _make_ssl_context()
     if ctx:
@@ -209,7 +238,6 @@ def _http_get(url):
     else:
         _log('wrn', "SSL context unavailable, using system defaults")
     _log('inf', "Connecting to %s ..." % url.split('/')[2])
-    _log('dbg', "Calling urlopen ...")
     try:
         resp = urlopen(req, context=ctx) if ctx else urlopen(req)
     except TypeError:
@@ -223,6 +251,17 @@ def _http_get(url):
         return data
     finally:
         resp.close()
+
+
+def _http_get(url):
+    # On Windows, try urlmon first (native SChannel TLS, avoids Python SSL bugs)
+    if sys.platform == 'win32':
+        try:
+            _log('inf', "Using urlmon (Windows native TLS)")
+            return _http_get_urlmon(url)
+        except Exception as e:
+            _log('wrn', "urlmon failed: %s — falling back to urllib" % e)
+    return _http_get_urllib(url)
 
 
 DEFAULT_TAG = "preview"
