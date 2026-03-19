@@ -57,7 +57,7 @@ constexpr USIZE TIOCGPTN = 0x80045430;
 
 static SSIZE PtyOpen(const char *path, INT32 flags)
 {
-#if (defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)) && (defined(ARCHITECTURE_AARCH64) || defined(ARCHITECTURE_RISCV64) || defined(ARCHITECTURE_RISCV32))
+#if (defined(PLATFORM_FREEBSD) || (defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)) && (defined(ARCHITECTURE_AARCH64) || defined(ARCHITECTURE_RISCV64) || defined(ARCHITECTURE_RISCV32)))
 	return System::Call(SYS_OPENAT, (USIZE)AT_FDCWD, (USIZE)path, (USIZE)flags, 0);
 #else
 	return System::Call(SYS_OPEN, (USIZE)path, (USIZE)flags, 0);
