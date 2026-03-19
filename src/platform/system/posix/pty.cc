@@ -14,6 +14,7 @@
  */
 
 #include "platform/system/pty.h"
+#include "logger.h"
 #if defined(PLATFORM_LINUX)
 #include "platform/kernel/linux/syscall.h"
 #include "platform/kernel/linux/system.h"
@@ -78,7 +79,10 @@ static BOOL PtyOpenPair(SSIZE &masterFd, SSIZE &slaveFd)
 {
 	masterFd = PtyOpen("/dev/ptmx", O_RDWR | O_NOCTTY | O_CLOEXEC);
 	if (masterFd < 0)
+	{
+		LOG_ERROR("PTY: open /dev/ptmx failed (errno: %d)", (INT32)(-masterFd));
 		return false;
+	}
 
 	char slavePath[128];
 
@@ -131,9 +135,20 @@ static BOOL PtyOpenPair(SSIZE &masterFd, SSIZE &slaveFd)
 		System::Call(SYS_CLOSE, (USIZE)masterFd);
 		return false;
 	}
-	// Get slave PTY number via fstat + minor(st_rdev)
+	// Get slave PTY number via fstatat("/dev/fd/<N>") + minor(st_rdev)
+	// Note: SYS_FSTAT is removed/repurposed on Oracle Solaris 11.4, use SYS_FSTATAT
+	char fdPath[32];
+	{
+		const char fdPrefix[] = "/dev/fd/";
+		USIZE j = 0;
+		for (; fdPrefix[j]; j++) fdPath[j] = fdPrefix[j];
+		SSIZE fd = masterFd;
+		if (fd == 0) { fdPath[j++] = '0'; }
+		else { char dd[16]; USIZE nn = 0; while (fd > 0) { dd[nn++] = '0' + (fd % 10); fd /= 10; } while (nn > 0) fdPath[j++] = dd[--nn]; }
+		fdPath[j] = '\0';
+	}
 	UINT8 statBuf[STAT_BUF_SIZE] = {};
-	if (System::Call(SYS_FSTAT, (USIZE)masterFd, (USIZE)statBuf) < 0)
+	if (System::Call(SYS_FSTATAT, (USIZE)AT_FDCWD, (USIZE)fdPath, (USIZE)statBuf, 0) < 0)
 	{
 		System::Call(SYS_CLOSE, (USIZE)masterFd);
 		return false;
@@ -170,28 +185,44 @@ static BOOL PtyOpenPair(SSIZE &masterFd, SSIZE &slaveFd)
 	slavePath[i] = '\0';
 
 #elif defined(PLATFORM_MACOS) || defined(PLATFORM_IOS)
-	if (System::Call(SYS_IOCTL, (USIZE)masterFd, TIOCPTYUNLK, 0) < 0)
 	{
-		System::Call(SYS_CLOSE, (USIZE)masterFd);
-		return false;
+		SSIZE unlkRet = System::Call(SYS_IOCTL, (USIZE)masterFd, TIOCPTYUNLK, 0);
+		if (unlkRet < 0)
+		{
+			LOG_ERROR("PTY: TIOCPTYUNLK failed (errno: %d)", (INT32)(-unlkRet));
+			System::Call(SYS_CLOSE, (USIZE)masterFd);
+			return false;
+		}
 	}
-	if (System::Call(SYS_IOCTL, (USIZE)masterFd, TIOCPTYGNAME, (USIZE)slavePath) < 0)
 	{
-		System::Call(SYS_CLOSE, (USIZE)masterFd);
-		return false;
+		SSIZE nameRet = System::Call(SYS_IOCTL, (USIZE)masterFd, TIOCPTYGNAME, (USIZE)slavePath);
+		if (nameRet < 0)
+		{
+			LOG_ERROR("PTY: TIOCPTYGNAME failed (errno: %d)", (INT32)(-nameRet));
+			System::Call(SYS_CLOSE, (USIZE)masterFd);
+			return false;
+		}
 	}
 
 #elif defined(PLATFORM_FREEBSD)
-	if (System::Call(SYS_IOCTL, (USIZE)masterFd, TIOCPTUNLK, 0) < 0)
 	{
-		System::Call(SYS_CLOSE, (USIZE)masterFd);
-		return false;
+		SSIZE unlkRet = System::Call(SYS_IOCTL, (USIZE)masterFd, TIOCPTUNLK, 0);
+		if (unlkRet < 0)
+		{
+			LOG_ERROR("PTY: TIOCPTUNLK failed (errno: %d)", (INT32)(-unlkRet));
+			System::Call(SYS_CLOSE, (USIZE)masterFd);
+			return false;
+		}
 	}
 	INT32 ptyNum = 0;
-	if (System::Call(SYS_IOCTL, (USIZE)masterFd, TIOCGPTN, (USIZE)&ptyNum) < 0)
 	{
-		System::Call(SYS_CLOSE, (USIZE)masterFd);
-		return false;
+		SSIZE gptnRet = System::Call(SYS_IOCTL, (USIZE)masterFd, TIOCGPTN, (USIZE)&ptyNum);
+		if (gptnRet < 0)
+		{
+			LOG_ERROR("PTY: TIOCGPTN failed (errno: %d)", (INT32)(-gptnRet));
+			System::Call(SYS_CLOSE, (USIZE)masterFd);
+			return false;
+		}
 	}
 	const char prefix[] = "/dev/pts/";
 	USIZE i = 0;
@@ -220,6 +251,7 @@ static BOOL PtyOpenPair(SSIZE &masterFd, SSIZE &slaveFd)
 	slaveFd = PtyOpen(slavePath, O_RDWR | O_NOCTTY);
 	if (slaveFd < 0)
 	{
+		LOG_ERROR("PTY: open slave failed (errno: %d)", (INT32)(-slaveFd));
 		System::Call(SYS_CLOSE, (USIZE)masterFd);
 		return false;
 	}
