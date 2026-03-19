@@ -176,39 +176,39 @@ def get_host():
 # Download from GitHub Releases
 # =============================================================================
 
-def _test_ssl():
-    """Test whether ssl.SSLContext works without crashing the process.
+def _http_get_urlmon(url):
+    """Download via urlmon.dll URLDownloadToFileW (Windows native TLS)."""
+    import tempfile
+    from ctypes import wintypes
 
-    Spawns a short-lived child process that attempts to create an SSLContext.
-    If the child segfaults (exit code != 0), SSL is broken on this Python build.
-    Returns True if SSL is usable, False if broken.
-    """
-    import subprocess
-    _log('inf', "Testing SSL support (child process) ...")
-    try:
-        code = subprocess.call(
-            [sys.executable, '-c',
-             'import ssl; ssl.SSLContext(ssl.PROTOCOL_SSLv23)'],
-            stdout=open(os.devnull, 'w'),
-            stderr=open(os.devnull, 'w'),
-            timeout=10
-        )
-    except (OSError, TypeError):
-        # TypeError: Python 2 subprocess has no timeout param
+    urlmon = ctypes.windll.urlmon
+    urlmon.URLDownloadToFileW.argtypes = [
+        wintypes.LPVOID, wintypes.LPCWSTR, wintypes.LPCWSTR,
+        wintypes.DWORD, wintypes.LPVOID]
+    urlmon.URLDownloadToFileW.restype = ctypes.HRESULT
+
+    fd, tmp = tempfile.mkstemp(suffix='.bin')
+    os.close(fd)
+
+    _log('inf', "urlmon: URLDownloadToFileW -> %s" % tmp)
+    hr = urlmon.URLDownloadToFileW(None, url, tmp, 0, None)
+    if hr != 0:
         try:
-            code = subprocess.call(
-                [sys.executable, '-c',
-                 'import ssl; ssl.SSLContext(ssl.PROTOCOL_SSLv23)'],
-                stdout=open(os.devnull, 'w'),
-                stderr=open(os.devnull, 'w')
-            )
+            os.remove(tmp)
         except OSError:
-            code = -1
-    if code == 0:
-        _log('ok', "SSL test passed")
-        return True
-    _log('err', "SSL test failed (exit code %d) — SSLContext crashes on this Python build" % code)
-    return False
+            pass
+        raise OSError("URLDownloadToFileW failed (HRESULT=0x%08x)" % (hr & 0xFFFFFFFF))
+
+    try:
+        with open(tmp, 'rb') as f:
+            data = f.read()
+        _log('ok', "urlmon: downloaded %d bytes" % len(data))
+        return data
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 def _make_ssl_context():
@@ -229,7 +229,8 @@ def _make_ssl_context():
         return None
 
 
-def _http_get(url):
+def _http_get_urllib(url):
+    """Download via Python's urllib (requires working SSL)."""
     req = Request(url, headers={"User-Agent": "PIA-Loader/1.0"})
     ctx = _make_ssl_context()
     if ctx:
@@ -252,20 +253,18 @@ def _http_get(url):
         resp.close()
 
 
+def _http_get(url):
+    # On Windows, try urlmon first (native SChannel TLS, avoids Python SSL bugs)
+    if sys.platform == 'win32':
+        try:
+            _log('inf', "Using urlmon (Windows native TLS)")
+            return _http_get_urlmon(url)
+        except Exception as e:
+            _log('wrn', "urlmon failed: %s — falling back to urllib" % e)
+    return _http_get_urllib(url)
+
+
 DEFAULT_TAG = "preview"
-
-
-def _ssl_broken_bail(url, asset, arch):
-    """Print manual download instructions and exit."""
-    _log('err', "Python's SSL module is broken on this build — HTTPS downloads are impossible")
-    _log('err', "")
-    _log('err', "Download the file manually and re-run with the local path:")
-    _log('err', "")
-    _log('err', "  1. Download: %s" % url)
-    _log('err', "  2. Run:      python loader.py --arch %s %s" % (arch, asset))
-    _log('err', "")
-    _log('err', "Or upgrade Python to 3.5+ which ships a working SSL library.")
-    sys.exit(2)
 
 
 def download(platform_name, arch, tag):
@@ -278,10 +277,6 @@ def download(platform_name, arch, tag):
 
     _log('inf', "Asset: %s" % asset)
     _log('inf', "URL:   %s" % url)
-
-    if not _test_ssl():
-        _ssl_broken_bail(url, asset, arch)
-
     _log('inf', "Downloading ...")
     try:
         data = _http_get(url)
