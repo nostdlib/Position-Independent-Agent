@@ -137,25 +137,15 @@ def get_host():
 # =============================================================================
 
 def _ssl_context():
-    """Return an SSL context, falling back to unverified if CA certs are unavailable.
-
-    Returns None on Python < 2.7.9 where urllib2 does not accept a context argument.
-    """
-    # ssl.create_default_context was added in Python 2.7.9 / 3.4
+    """Return an unverified SSL context, or None on Python < 2.7.9."""
+    # ssl.create_default_context was added in Python 2.7.9 / 3.4;
+    # older urllib2 does not accept a context argument at all.
     if not hasattr(ssl, 'create_default_context'):
         return None
-    try:
-        ctx = ssl.create_default_context()
-        # Trigger cert loading to detect missing CA bundle early
-        if not ctx.get_ca_certs():
-            raise ssl.SSLError("no CA certs")
-        return ctx
-    except (ssl.SSLError, OSError, IOError):
-        print("[!] Warning: SSL certificate verification disabled (no CA bundle found)")
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 def _http_get(url):
