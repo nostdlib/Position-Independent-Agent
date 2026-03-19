@@ -38,6 +38,14 @@ try:
 except ImportError:
     from urllib2 import Request, urlopen, HTTPError
 
+# Disable SSL verification globally — we download unsigned shellcode from
+# public GitHub Releases, so cert checks add no security and break on hosts
+# with outdated CA stores (Windows 7, Solaris, etc.).
+try:
+    ssl._create_default_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass  # Python < 2.7.9 / 3.4.3: verification not enabled anyway
+
 REPO = "mrzaxaryan/Position-Independent-Agent"
 
 # =============================================================================
@@ -138,25 +146,9 @@ def get_host():
 # Download from GitHub Releases
 # =============================================================================
 
-def _ssl_context():
-    """Return an unverified SSL context, or None on Python < 2.7.9."""
-    # ssl.create_default_context was added in Python 2.7.9 / 3.4;
-    # older urllib2 does not accept a context argument at all.
-    if not hasattr(ssl, 'create_default_context'):
-        return None
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
-
-
 def _http_get(url):
     req = Request(url, headers={"User-Agent": "PIA-Loader/1.0"})
-    ctx = _ssl_context()
-    if ctx is not None:
-        resp = urlopen(req, context=ctx)
-    else:
-        resp = urlopen(req)
+    resp = urlopen(req)
     try:
         return resp.read()
     finally:
