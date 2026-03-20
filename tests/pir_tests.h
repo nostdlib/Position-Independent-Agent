@@ -81,6 +81,7 @@
 #include "uuid_tests.h"
 #include "vector_tests.h"
 #include "websocket_tests.h"
+#include "shell_platform_test.h"
 
 static BOOL RunPIRTests()
 {
@@ -106,10 +107,11 @@ static BOOL RunPIRTests()
 	RunTestSuite<StringFormatterTests>(allPassed);
 	RunTestSuite<StringTests>(allPassed);
 
-	// PLATFORM - Memory, System, File I/O, and Display
+	// PLATFORM - Memory, System, File I/O, Shell process, and Display
 	RunTestSuite<FileSystemTests>(allPassed);
 	RunTestSuite<MemoryTests>(allPassed);
 	RunTestSuite<ProcessTests>(allPassed);
+	RunTestSuite<ShellProcessTests>(allPassed);
 	RunTestSuite<RandomTests>(allPassed);
 	RunTestSuite<ScreenTests>(allPassed);
 
@@ -136,5 +138,5 @@ static BOOL RunPIRTests()
 	else
 		LOG_ERROR("SOME TESTS FAILED!");
 
-	return allPassed;
+	return allPassed ? 0 : 1;
 }

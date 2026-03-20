@@ -28,6 +28,6 @@ ENTRYPOINT INT32 entry_point(VOID)
 	SystemTable->BootServices->SetWatchdogTimer(0, 0, 0, nullptr);
 #endif
 	// Run runtime and unit tests
-	BOOL allPassed = start();
-	ExitProcess(allPassed ? 0 : 1);
+	INT32 exitCode = start();
+	ExitProcess(exitCode);
 }
