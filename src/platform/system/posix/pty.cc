@@ -64,7 +64,7 @@ constexpr USIZE UNLKPT   = 0x5002;  // ('P' << 8) | 2 -- unlockpt()
 constexpr USIZE STAT_RDEV_OFFSET = 32;  // LP64: dev(8)+ino(8)+mode(4)+nlink(4)+uid(4)+gid(4)
 constexpr USIZE STAT_BUF_SIZE    = 128;
 #elif defined(ARCHITECTURE_I386)
-constexpr USIZE STAT_RDEV_OFFSET = 40;  // ILP32 stat64: dev(4)+pad(12)+ino64(8)+mode(4)+nlink(4)+uid(4)+gid(4)
+constexpr USIZE STAT_RDEV_OFFSET = 36;  // ILP32 stat: dev(4)+pad(12)+ino(4)+mode(4)+nlink(4)+uid(4)+gid(4)
 constexpr USIZE STAT_BUF_SIZE    = 128;
 #endif
 #endif
