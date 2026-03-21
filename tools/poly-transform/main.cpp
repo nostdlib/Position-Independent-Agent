@@ -84,30 +84,30 @@ struct ArchDef {
 // clang-format off
 
 static ArchDef defX86_64() {
-	return {"x86_64", {"syscall"}, {
-		{"data_move",    {"mov", "lea", "push", "pop", "movzx", "movsx", "xchg"},          2},
+	return {"x86_64", {"syscall", "mov", "call"}, {
+		{"data_move",    {"lea", "push", "pop", "movzx", "movsx", "xchg"},                 1},
 		{"arithmetic",   {"add", "sub", "imul", "mul", "div", "inc", "dec", "neg", "not",
 		                  "adc", "sbb"},                                                    2},
 		{"logic",        {"xor", "and", "or"},                                              1},
 		{"shift",        {"shl", "shr", "sar", "rol", "shld", "shrd"},                      0},
 		{"compare",      {"cmp", "test", "bt"},                                             1},
 		{"branch",       {"jcc", "jmp"},                                                    1},
-		{"control",      {"call", "ret"},                                                   1},
+		{"control",      {"ret"},                                                           0},
 		{"conditional",  {"cmov", "set"},                                                   0},
 		{"float",        {"fadd", "fsub", "fmul", "fdiv", "fcvt", "fcmp", "fmov", "flogic"},0},
 	}};
 }
 
 static ArchDef defI386() {
-	return {"i386", {"int3"}, { // int 0x80 mapped as "int" base
-		{"data_move",    {"mov", "lea", "push", "pop", "movzx", "movsx", "xchg"},          2},
+	return {"i386", {"mov", "call"}, { // mov+call mandatory (40%+6% of code)
+		{"data_move",    {"lea", "push", "pop", "movzx", "movsx", "xchg"},                 1},
 		{"arithmetic",   {"add", "sub", "imul", "mul", "div", "inc", "dec", "neg", "not",
 		                  "adc", "sbb"},                                                    2},
 		{"logic",        {"xor", "and", "or"},                                              1},
 		{"shift",        {"shl", "shr", "sar", "rol", "shld", "shrd"},                      0},
 		{"compare",      {"cmp", "test", "bt"},                                             1},
 		{"branch",       {"jcc", "jmp"},                                                    1},
-		{"control",      {"call", "ret"},                                                   1},
+		{"control",      {"ret"},                                                           0},
 		{"conditional",  {"cmov", "set"},                                                   0},
 		{"float",        {"fadd", "fsub", "fmul", "fdiv", "fcvt", "fcmp", "fmov", "flogic"},0},
 	}};
@@ -427,13 +427,30 @@ static std::string getBaseX86(const std::string &m) {
 		return "cltd";
 
 	// Bit manipulation
-	if (m == "bsrl" || m == "bsrq" || m == "bsfl" || m == "bsfq")
+	if (m == "bsrl" || m == "bsrq" || m == "bsfl" || m == "bsfq" ||
+	    m == "tzcntl" || m == "tzcntq" || m == "lzcntl" || m == "lzcntq")
 		return "bsr";
 	if (m == "bswapl" || m == "bswapq")
 		return "bswap";
 
+	// SSE integer
+	if (m == "punpckldq" || m == "punpcklwd" || m == "punpcklbw" ||
+	    m == "punpckhdq" || m == "punpckhwd" || m == "punpckhbw" ||
+	    m == "pshufd" || m == "pshufb" || m == "pshufw")
+		return "flogic";
+
+	// x87 FPU (i386 uses x87 for some float ops)
+	if (m == "fldl" || m == "flds" || m == "fldt" || m == "fld" ||
+	    m == "fstpl" || m == "fstps" || m == "fstpt" || m == "fstp" ||
+	    m == "fstl" || m == "fsts" || m == "fst" ||
+	    m == "fildll" || m == "fildl" || m == "filds" || m == "fild" ||
+	    m == "fistpll" || m == "fistpl" || m == "fistps" || m == "fistp" ||
+	    m == "fldcw" || m == "fnstcw" || m == "fnstsw" || m == "fstsw" ||
+	    m == "fwait" || m == "wait")
+		return "fmov";
+
 	// Misc
-	if (m == "rep")
+	if (m == "rep" || m == "repne")
 		return "rep";
 	if (m == "rdtsc")
 		return "rdtsc";
@@ -621,8 +638,10 @@ static VerifyResult verify(const InstructionSet &iset,
 	VerifyResult result;
 	result.totalInsns = analysis.totalInsns;
 
-	// Mnemonics that are always allowed (nop, int3, etc.)
-	std::set<std::string> alwaysAllowed = {"nop", "int3"};
+	// Mnemonics that are always allowed (padding, rare intrinsics)
+	std::set<std::string> alwaysAllowed = {
+	    "nop", "int3", "rdtsc", "cltd", "bswap", "bsr", "rep",
+	};
 
 	for (auto &[base, count] : analysis.baseFreq) {
 		if (iset.isAllowed(base) || alwaysAllowed.count(base)) {
