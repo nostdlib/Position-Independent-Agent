@@ -1,8 +1,8 @@
 # pyloader
 
-Cross-platform shellcode loader for position-independent code. Downloads pre-built agents from GitHub Releases (or loads from a local file) and executes them.
+Cross-platform shellcode loader for position-independent code. Downloads pre-built agents from GitHub Releases (or loads a local file) and executes them in-process (POSIX) or via remote thread injection (Windows).
 
-Requires **Python 2.6+** or **3.0+** with no third-party dependencies.
+**Python 2.6+** or **3.0+**, no third-party dependencies.
 
 ## Usage
 
@@ -45,4 +45,4 @@ Auto-detection covers every platform/architecture the agent builds for:
 
 ## SSL
 
-SSL certificate verification is disabled. The loader downloads unsigned shellcode from public GitHub Releases — verification adds no security value and breaks on hosts with outdated CA stores (e.g. Windows 7, Solaris).
+SSL certificate verification is disabled — the loader downloads unsigned shellcode from public GitHub Releases, so verification adds no security value and breaks on hosts with outdated CA stores (e.g., Windows 7, Solaris).

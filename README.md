@@ -226,6 +226,7 @@ Compiles to fully position-independent, zero-dependency binaries that communicat
 - [Introduction](#introduction)
 - [Features](#features)
 - [Architecture](#architecture)
+- [Documentation](#documentation)
 - [Common Problems and Solutions](#common-problems-and-solutions)
 - [Build System](#build-system)
 - [Building](#building)
@@ -240,20 +241,18 @@ Compiles to fully position-independent, zero-dependency binaries that communicat
 
 ## Introduction
 
-Shellcode is a small, self-contained sequence of machine instructions that can be injected into memory and executed from an arbitrary location. It must operate without relying on external components such as DLLs, runtime initialization routines, or fixed stack layouts. Because of these strict constraints, shellcode is traditionally written in assembly language, which provides precise control over instructions, registers, and memory access.
+Shellcode is a self-contained sequence of machine instructions that executes from an arbitrary memory location without relying on DLLs, runtime initialization, or fixed stack layouts. These constraints traditionally restrict shellcode to hand-written assembly — precise but impractical at scale.
 
-While assembly ensures fully dependency-free and position-independent execution, it quickly becomes impractical as complexity grows due to its low-level nature and limited expressiveness. High-level languages like C offer improved readability, maintainability, and development speed, but standard C and C++ compilation models introduce significant challenges for shellcode development. Modern compilers typically generate binaries that depend on runtime libraries, import tables, relocation information, and read-only data sections. These dependencies violate the core requirement of shellcode - execution independent of any fixed memory layout or external support - and these problems do not admit simple or universally effective solutions.
+C and C++ offer better expressiveness, but standard compilation models depend on runtime libraries, import tables, relocation entries, and read-only data sections. These dependencies violate the core requirement — execution independent of any fixed memory layout or external support — and no universally effective workaround exists in conventional toolchains.
 
-As a result, code produced by conventional toolchains cannot be used as standalone shellcode without substantial modification or manual restructuring.
+This project solves that: a full C++23 codebase that compiles to position-independent, zero-dependency shellcode through a custom LLVM pass and direct syscall interfaces across 8 platforms and 7 architectures.
 
 ---
 
 ## Features
 
 - **Zero Dependencies** - No libc, no C++ standard library, no external libraries. Crypto (SHA-256, ChaCha20-Poly1305, ECC P-256), TLS 1.3, WebSocket, HTTP, DNS, and JPEG encoding are all implemented from scratch
-- **Position-Independent** - A custom LLVM pass ([pic-transform](tools/pic-transform/)) eliminates `.data`/`.rodata`/`.bss` sections at compile time, producing binaries with only a `.text` section
-- - fully relocatable as raw shellcode
-- - can run in RX-only memory — no data sections means no writable code page is ever needed
+- **Position-Independent** - A custom LLVM pass ([pic-transform](tools/pic-transform/)) eliminates `.data`/`.rodata`/`.bss` sections at compile time, producing binaries with only a `.text` section — fully relocatable as raw shellcode, executable in RX-only memory with no writable pages required
 - **Cross-Platform** - 8 platforms (Windows, Linux, macOS, FreeBSD, Solaris, UEFI, Android, iOS) across 7 architectures (i386, x86_64, armv7a, aarch64, riscv32, riscv64, mips64) via direct syscalls
 - **TLS 1.3 + WebSocket** - Encrypted command-and-control over `wss://` using ChaCha20-Poly1305 AEAD (RFC 8446, RFC 6455)
 - **Binary Command Protocol** - 8 command types over WebSocket:
@@ -354,26 +353,80 @@ See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for the full project structure an
 ├── cmake/                   # Build system (toolchain, cross-compilation, PIC verification)
 ├── src/
 │   ├── core/               # Platform-independent primitives
-│   ├── platform/            # OS and architecture-specific implementations
-│   ├── lib/                 # High-level libraries (crypto, networking, image)
-│   ├── beacon/              # Agent command handlers and WebSocket loop
+│   ├── platform/            # OS abstraction: syscalls, allocator, console, file system, sockets, screen, processes
+│   ├── lib/                 # Crypto (SHA-2, ChaCha20, ECC), TLS 1.3, HTTP, DNS, WebSocket, JPEG encoder
+│   ├── beacon/              # Agent: command dispatcher, shell, screen capture
 │   └── entry_point.cc       # Platform entry point
 ├── tests/                   # Test suite (31 test suites across all layers)
 └── tools/
     ├── pic-transform/       # Custom LLVM pass for PIC enforcement
-    ├── poly-engine/         # Polymorphic engine
     └── pyloader/            # Cross-platform shellcode loader (Python)
 ```
 
 ---
 
+## Documentation
+
+Each document below explains the techniques and internals — how PEB walking traverses loader data structures, how indirect syscalls find gadgets in ntdll, how the LLVM pass eliminates data sections, and so on.
+
+> **[Source Architecture Overview](src/README.md)** — Layer diagram, full documentation index, how position independence is achieved
+
+### Core (Layer 1) — [src/core/](src/core/README.md)
+
+Zero-dependency foundations. The [core documentation](src/core/README.md) covers build-unique DJB2 seeding via FNV-1a hashing of `__DATE__`, lookup-table-free Base64 encoding, UTF-8/UTF-16 conversion with surrogate pair handling, word-at-a-time optimized `memset`/`memcpy` implementations, the xorshift64 PRNG with hardware seed sources (`RDTSC`, `CNTVCT_EL0`, `RDTIME`), and the zero-cost `Result<T,E>` tagged union.
+
+### Platform (Layer 2) — [src/platform/](src/platform/README.md)
+
+OS abstraction layer with [full platform support matrix](src/platform/README.md). Each module has its own documentation:
+
+- **[Console I/O](src/platform/console/README.md)** — Streaming UTF-16 to UTF-8 codepoint-by-codepoint conversion with 256-byte buffer amortization; Windows dual-path output (`ZwWriteFile` for narrow, `WriteConsoleW` for wide); UEFI `EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL`; ANSI-colored structured logging with compile-time elimination
+- **[Filesystem](src/platform/fs/README.md)** — The 14-variant `struct stat` offset problem across platforms and architectures; Solaris's missing `d_type` field requiring per-entry `fstatat`; Windows drive enumeration via process device map bitmask; UEFI `NOINLINE` GUID construction to prevent `.rdata` constant folding; RISC-V QEMU `O_DIRECTORY` translation bug workaround
+- **[Memory Allocation](src/platform/memory/README.md)** — The size-header trick (prepending `USIZE` to `mmap` allocations so `munmap` works without caller-supplied size); `mmap2` page-shift on 32-bit Linux; FreeBSD i386 inline assembly hack for 64-bit `off_t` stack parameter
+- **[Screen Capture](src/platform/screen/README.md)** — Linux three-tier fallback chain (X11 protocol → DRM dumb buffers → fbdev); GPU-composited scanout detection via all-black buffer check; macOS `fork()`-based crash isolation for CoreGraphics on headless systems; Retina display scaling; Solaris `/dev/fb` framebuffer
+- **[TCP Sockets](src/platform/socket/README.md)** — Windows AFD driver networking (bypassing Winsock via `\\Device\\Afd\\Endpoint` with IOCTL encoding `(DeviceType << 12) | (FunctionCode << 2) | Method`); Linux i386 `socketcall` multiplexer packing arguments into arrays; UEFI busy-poll pseudo-async with `Stall(1ms)` loops; BSD `sin_len` sockaddr divergence; per-platform `AF_INET6` values (10/23/26/28/30)
+- **[System Utilities](src/platform/system/README.md)** — Five different PTY creation flows across POSIX platforms (Linux `TIOCSPTLCK`/`TIOCGPTN`, macOS `TIOCPTYGRANT`/`TIOCPTYGNAME`, FreeBSD `FIODGNAME`, Solaris STREAMS `I_STR` ioctls with device minor extraction); Windows PEB environment block walking with manual case-insensitive comparison; SMBIOS Type 1 UUID extraction via `NtQuerySystemInformation`
+
+### Kernel Interfaces (Layer 2) — [src/platform/kernel/](src/platform/README.md)
+
+Direct syscall dispatch for each operating system kernel:
+
+- **[Windows NT](src/platform/kernel/windows/README.md)** — PEB-based module resolution, PE export parsing, indirect syscall dispatch. Five deep-dive documents:
+  - [PEB Walking](src/platform/kernel/windows/PEB_WALKING.md) — TEB register access per architecture (`GS:[0x60]`, `FS:[0x30]`, `X18+0x60`, `R9+0x30`), `InMemoryOrderModuleList` traversal, `CONTAINING_RECORD` macro, DJB2 hash matching, fast/slow path resolution with `LdrLoadDll` fallback
+  - [PE Parsing](src/platform/kernel/windows/PE_PARSING.md) — DOS header → NT headers → export directory three-array system, name-to-ordinal-to-RVA resolution, forwarded export handling with recursive module resolution
+  - [Indirect Syscalls](src/platform/kernel/windows/INDIRECT_SYSCALLS.md) — SSN resolution by counting `Zw*` exports with lower RVA, ntdll stub scanning for `syscall;ret` gadget (`0F 05 C3`), i386 old/new stub format handling (Win11 WoW64), ARM64 `SVC+RET` pair discovery, ARM32 Thumb-2 `SVC #1` with interworking bit
+  - [NTDLL Wrappers](src/platform/kernel/windows/NTDLL_WRAPPERS.md) — 23 `Zw*` syscall wrappers with dual-path dispatch (indirect syscall primary, direct call fallback), 5 `Rtl*` runtime library functions, NTSTATUS error conversion
+  - [Win32 Wrappers](src/platform/kernel/windows/WIN32_WRAPPERS.md) — Kernel32 process creation with pipe plumbing, User32 display enumeration, GDI32 screen capture pipeline, dynamic resolution via `ResolveExportAddress`
+- **[Linux](src/platform/kernel/linux/README.md)** — 7 architectures with per-architecture syscall tables; MIPS64 `$a3` error flag with mandatory branch delay slot `nop`; i386 EBP frame pointer save/restore for 6-argument syscalls; `"rm"` constraint workaround at `-O0`; `NOINLINE` for LTO miscompilation prevention
+- **[FreeBSD](src/platform/kernel/freebsd/README.md)** — BSD carry-flag error handling (`jnc/neg` pattern); RDX clobbering by `rval[1]` requiring `"+r"` output constraint; RISC-V T0 dual-purpose register (syscall number AND error indicator) with early-clobber `&` constraints; i386 stack-based argument passing with dummy return address
+- **[macOS/XNU](src/platform/kernel/macos/README.md)** — `svc #0x80` (not `#0`) with syscall number in `X16` (not `X8`); class 2 prefix (`0x2000000`); Mach traps with negative syscall numbers; custom 7-argument `mach_msg` assembly; dyld framework resolution via Mach IPC `TASK_DYLD_INFO` → Mach-O symbol table parsing → ASLR slide calculation
+- **[Solaris](src/platform/kernel/solaris/README.md)** — `int $0x91` SVR4 trap gate; multiplexed `forksys`/`pgrpsys` syscalls; `SOCK_STREAM`/`SOCK_DGRAM` swapped values; `AT_FDCWD = 0xffd19553`; `getdents` SIGSYS on 64-bit (must use 32-bit variant); legacy syscall removal in Solaris 11.4
+- **[UEFI](src/platform/kernel/uefi/README.md)** — Protocol function tables instead of syscalls; `WRMSR` to `IA32_GS_BASE` MSR for context storage (can't use `WRGSBASE` — firmware may not set `CR4.FSGSBASE`); `NOINLINE` GUID construction; Microsoft x64 ABI on x86_64; busy-poll pseudo-async networking; 11-step network initialization sequence
+- **[iOS](src/platform/kernel/ios/README.md)** — Same XNU kernel as macOS, re-exports all definitions
+- **[Android](src/platform/kernel/android/README.md)** — Same Linux kernel, documents SELinux/Seccomp-BPF behavioral differences
+- **[NetBSD](src/platform/kernel/netbsd/README.md)** — Not yet implemented, requirements documented
+
+### Libraries (Layer 3) — [src/lib/](src/lib/README.md)
+
+The [library documentation](src/lib/README.md) covers traits-based SHA-2 template design (single `SHABase<Traits>` for SHA-256 and SHA-384); fully branchless ChaCha20-Poly1305 with 26-bit limb Poly1305 accumulator; constant-time ECC Montgomery ladder with Jacobian coordinates and curve-specific fast reduction for NIST primes; complete TLS 1.3 handshake with HKDF key schedule; DNS-over-HTTPS over the TLS client; WebSocket RFC 6455 with client masking and continuation frame reassembly; and Arai-Agui-Nakajima fast DCT for JPEG encoding with streaming callback output.
+
+### Beacon (Layer 4) — [src/beacon/](src/beacon/README.md)
+
+The [beacon documentation](src/beacon/README.md) covers the full connection pipeline (DNS-over-HTTPS → TCP → TLS 1.3 → HTTP upgrade → WebSocket), command dispatch via function pointer table, per-platform entry point initialization (`force_align_arg_pointer` on x86_64 POSIX, UEFI watchdog disable, context register storage), and streaming JPEG screenshots over WebSocket.
+
+### Tools
+
+- **[PIC Transform](tools/pic-transform/README.md)** — Custom LLVM Module pass that converts string literals into stack `alloca` + word-packed immediate stores with register barriers (`asm("": "+r"(val))`) to defeat optimizer re-coalescing; floating-point constants into integer bitcasts; function pointers into PC-relative assembly
+- **[Python Loader](tools/pyloader/README.md)** — Cross-platform shellcode loader for testing
+
+---
+
 ## Common Problems and Solutions
 
-When writing shellcode in C/C++, developers face several fundamental challenges. This section examines each problem, outlines traditional approaches, explains their limitations, and demonstrates how this project provides a robust solution.
+Fundamental challenges when compiling C/C++ to position-independent shellcode, and how this project solves each one.
 
 ### Problem 1: String Literals in .rdata and Relocation Dependencies
 
-C-generated shellcode relies on loader-handled relocations that are not applied in a loaderless execution environment, preventing reliable execution from arbitrary memory.
+String literals land in `.rdata` with loader-handled relocations that don't exist in a loaderless execution environment.
 
 <details>
 <summary>Traditional approaches and why they fail</summary>
@@ -394,20 +447,20 @@ PCHAR startAddress = ReversePatternSearch(currentAddress, (PCHAR)&functionProlog
 CHAR *relocatedString = string + (SSIZE)startAddress;
 ```
 
-**Why they fail:** Modern compilers are sophisticated enough to recognize stack string patterns; with optimizations enabled, the compiler may consolidate individual character assignments, place the string data in `.rdata`, and replace the code with a `memcpy` call. This defeats the technique and reintroduces the `.rdata` dependency. Manual relocation approaches are fragile, increase binary size, and rely on compiler-specific behavior.
+**Why they fail:** Modern compilers recognize stack string patterns and consolidate character assignments into a `memcpy` from `.rdata`, reintroducing the dependency. Manual relocation is fragile, inflates binary size, and depends on compiler-specific behavior.
 </details>
 
 **Solution: Automatic Data Section Elimination via LLVM Pass**
 
-The project integrates [pic-transform](tools/pic-transform), a custom LLVM pass that automatically eliminates all `.rdata`/`.rodata`/`.data`/`.bss` sections during compilation. The pass converts global constants (strings, floats, arrays) into stack-local immediate stores -- the same transformation that was previously done manually with `_embed` helpers, but now fully automated.
+The [pic-transform](tools/pic-transform) LLVM pass automatically eliminates all `.rdata`/`.rodata`/`.data`/`.bss` sections during compilation, converting global constants into stack-local immediate stores.
 
-Developers write standard C++:
+Standard C++:
 
 ```cpp
 const char *msg = "Hello, World!"; // Normal string literal - no special syntax needed
 ```
 
-The LLVM pass transforms this during compilation so that string characters are packed into 64-bit words and written as immediate values in the instruction stream:
+Becomes packed 64-bit immediate stores in `.text`:
 ```asm
 movabsq $0x57202C6F6C6C6548, (%rsp)   ; "Hello, W" packed into a single immediate
 movabsq $0x00000021646C726F, 8(%rsp)   ; "orld!\0"
@@ -417,24 +470,9 @@ The same applies to constant arrays and floating-point constants - no special ma
 
 ### Problem 2: Floating-Point Constants
 
-Floating-point constants are emitted into `.rdata` sections, making them inaccessible in loaderless environments.
+Floating-point constants are emitted into `.rdata` constant pools, inaccessible without a loader. Manual IEEE-754 hex casting works but inflates code size.
 
-<details>
-<summary>Traditional approaches and why they fail</summary>
-
-Represent values using IEEE-754 hex and cast at runtime:
-
-```cpp
-UINT64 f = 0x3426328629;
-double d = *((double*)&f);
-```
-
-This avoids embedding float literals but increases code size and complexity.
-</details>
-
-**Solution: Automatic Floating-Point Transformation**
-
-The pic-transform LLVM pass handles floating-point constants automatically. Developers write standard C++ float/double literals, and the pass converts them into immediate operands during compilation:
+**Solution:** The pic-transform pass converts float/double literals into integer immediates automatically:
 
 ```cpp
 double pi = 3.14159; // Normal literal - transformed automatically
@@ -444,19 +482,17 @@ double pi = 3.14159; // Normal literal - transformed automatically
 movabsq $0x400921f9f01b866e, %rax ; Pi as 64-bit immediate
 ```
 
-The [pic-transform](tools/pic-transform) LLVM pass automatically converts floating-point literals from `.rdata` into stack-local immediate stores, so native `double` can be used directly.
-
 ### Problem 3: Function Pointers
 
-Function pointer addresses are resolved by the loader. Without the loader, indirect calls reference invalid addresses.
+Function pointer addresses are resolved by the loader. Without it, indirect calls reference invalid addresses.
 
-**Solution:** The [pic-transform](tools/pic-transform) LLVM pass automatically detects function pointer values (where a function is used as a callback or stored, rather than called directly) and replaces them with PC-relative inline assembly, eliminating relocation dependencies entirely.
+**Solution:** The pic-transform pass detects function pointer values (callbacks, stored function references) and replaces them with PC-relative inline assembly, eliminating relocation dependencies.
 
 ### Problem 4: CRT and Runtime Dependencies
 
 Standard programs depend on the CRT for initialization, memory management, and helper functions.
 
-**Solution:** Complete independence from the CRT by providing custom implementations for memory management, string manipulation, formatted output, and runtime initialization. A custom entry point eliminates loader-managed startup. On Windows, the PEB is traversed to locate modules and PE export tables are parsed using hash-based lookup - no import tables, no `GetProcAddress`.
+**Solution:** Custom implementations of `memset`/`memcpy`/`memmove`, string operations, formatted output, and `operator new`/`delete`. A custom entry point eliminates loader-managed startup. On Windows, the PEB is traversed to locate modules and PE export tables are parsed via DJB2 hash-based lookup — no import tables, no `GetProcAddress`.
 
 ---
 
@@ -464,9 +500,9 @@ Standard programs depend on the CRT for initialization, memory management, and h
 
 ### Build Pipeline
 
-The project uses a two-stage approach to guarantee position-independence:
+A multi-stage pipeline guarantees position-independence:
 
-**1. LLVM Pass (pic-transform):** The [pic-transform](tools/pic-transform) tool runs as part of the build pipeline, transforming LLVM bitcode to eliminate all data sections. It converts global constants, string literals, and floating-point values into stack-local immediate stores. The tool is built from in-tree source during the CMake configure step if LLVM dev files are available, or downloaded from GitHub releases as a fallback.
+**1. LLVM Pass (pic-transform):** The [pic-transform](tools/pic-transform) tool transforms LLVM bitcode to eliminate all data sections — global constants, string literals, and floating-point values become stack-local immediate stores. Built from in-tree source if LLVM dev files are available, or downloaded from GitHub releases as a fallback.
 
 **2. Critical Compiler Flags:**
 
@@ -480,11 +516,11 @@ The project uses a two-stage approach to guarantee position-independence:
 -fdata-sections       # Each data item in own section (garbage collection)
 ```
 
-The `-fno-jump-tables` flag is particularly critical - without it, `switch` statements generate jump tables stored in `.rdata`, breaking position-independence.
+`-fno-jump-tables` is critical — without it, `switch` statements generate jump tables in `.rdata`, breaking position-independence.
 
-**3. Post-Build Verification:** The build system automatically verifies that the final binary contains no data sections (`.rdata`, `.rodata`, `.data`, `.bss`, `.got`, `.plt`). This check runs after every build via `cmake/VerifyPICMode.cmake`.
+**3. Post-Build Verification:** The build system verifies the final binary contains no data sections (`.rdata`, `.rodata`, `.data`, `.bss`, `.got`, `.plt`) via `cmake/VerifyPICMode.cmake`.
 
-> **Note on debug builds:** Debug optimization levels (`-O0`, `-Og`) do not pass PIC verification because the compiler preserves data sections that are normally eliminated at higher optimization levels. Supporting fully position-independent debug builds is technically feasible but would require significant additional work in the pic-transform LLVM pass to handle unoptimized IR patterns. Debug presets are available for local development and debugging with standard tooling, but the output binaries are not suitable for PIC/shellcode execution. PIC verification is automatically skipped for `-O0` and `-Og` builds.
+> **Debug builds:** `-O0`/`-Og` do not pass PIC verification — the compiler preserves data sections that higher optimization levels eliminate. Debug presets work for local development with standard tooling but produce non-PIC binaries. Verification is automatically skipped for debug builds.
 
 ### Prerequisites
 
@@ -492,7 +528,7 @@ The `-fno-jump-tables` flag is particularly critical - without it, `switch` stat
 - [CMake](https://cmake.org/) 3.20+
 - [Ninja](https://ninja-build.org/) 1.10+
 
-> **Windows users:** Build under WSL. See [CONTRIBUTING.md](.github/CONTRIBUTING.md#toolchain-installation) for detailed setup instructions.
+> **Windows users:** Build under WSL. See [CONTRIBUTING.md](CONTRIBUTING.md#toolchain-installation) for detailed setup instructions.
 
 ---
 
@@ -500,11 +536,7 @@ The `-fno-jump-tables` flag is particularly critical - without it, `switch` stat
 
 ### Runtime Architecture
 
-The project interacts with operating systems through **low-level native system interfaces** instead of standard runtime libraries. The runtime does not depend on libc, glibc, MSVCRT, or other OS-provided runtime layers.
-
-Core functionality is implemented using **direct system calls or native kernel APIs**, depending on the platform. Required system interfaces are resolved internally using **hash-based symbol resolution**, avoiding static import tables and dynamic symbol lookup mechanisms.
-
-This approach removes dependencies on runtime initialization, dynamic linking, and standard library implementations.
+All OS interaction is through **direct system calls or native kernel APIs** — no libc, glibc, MSVCRT, or other runtime layers. System interfaces are resolved at runtime via **DJB2 hash-based symbol resolution**, avoiding static import tables entirely.
 
 ### Capabilities
 - **File system:** File creation, reading, writing, deletion; directory operations; path management
@@ -514,23 +546,17 @@ This approach removes dependencies on runtime initialization, dynamic linking, a
 - **Screen capture:** Display enumeration, JPEG-encoded screenshot capture with dirty-rectangle diffing
 - **Shell:** Interactive shell sessions (PTY on POSIX, `cmd.exe` on Windows)
 
-### Platform-Specific Behavior
+### Platform-Specific Kernel Interfaces
 
-Each platform provides its own implementation using its native kernel interface:
-
-**Windows:** Uses the **NT Native API and system calls**
-
-**Linux:** Uses **direct Linux system calls**
-
-**macOS/iOS:** Uses **BSD system calls** (shared XNU kernel)
-
-**FreeBSD:** Uses **direct BSD system calls**
-
-**Solaris:** Uses **direct Solaris system calls**
-
-**Android:** Uses **direct Linux kernel syscall interface** (no Bionic)
-
-**UEFI:** Uses **Boot Services and Runtime Services**
+| Platform | Interface | Notes |
+|----------|-----------|-------|
+| **Windows** | NT Native API (indirect syscalls) | PEB walking, PE export parsing |
+| **Linux** | Direct syscalls (7 architectures) | Per-arch syscall tables, no libc |
+| **macOS/iOS** | BSD syscalls (XNU kernel) | Class 2 prefix, Mach traps |
+| **FreeBSD** | Direct BSD syscalls | Carry-flag error model |
+| **Solaris** | Direct SVR4 syscalls | `int $0x91`, multiplexed calls |
+| **Android** | Linux kernel syscalls | No Bionic, SELinux constraints |
+| **UEFI** | Boot/Runtime Services | Protocol function tables, ring 0 |
 
 ---
 
@@ -635,47 +661,39 @@ Captures a JPEG-encoded screenshot of a specified display.
 
 ## Use Cases
 
-This project is designed for execution environments where traditional runtime assumptions do not apply:
+Designed for execution environments where traditional runtime assumptions do not apply:
 
 - Authorized penetration testing with written scope and client approval
 - Security research with proper disclosure practices
-- Shellcode and loaderless code execution
-- Embedded and low-level system programming
-- Cross-architecture C++ development
-- Environments without standard C runtime support
+- Shellcode and loaderless code execution research
+- Embedded and bare-metal system programming
+- Cross-architecture C++ development without CRT
+- UEFI pre-boot environments
 
- **Disclaimer:** Any unauthorized or malicious use of this software is strictly prohibited and falls outside the scope of the project's design goals.
+**Disclaimer:** Any unauthorized or malicious use of this software is strictly prohibited and falls outside the scope of the project's design goals.
 
 ---
 
 ## Roadmap
 
-This project is a work in progress. Contributions are welcome - see [CONTRIBUTING.md](.github/CONTRIBUTING.md).
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-### Planned Platforms
-- NetBSD, OpenBSD, HaikuOS, QNX
-
-### Planned Architectures
-- PowerPC64 (ppc64/ppc64le), LoongArch64, s390x
-
-### Other
-- Additional Windows direct syscall implementations
-- Polymorphic engine
+| Category | Planned |
+|----------|---------|
+| **Platforms** | NetBSD, OpenBSD, HaikuOS, QNX |
+| **Architectures** | PowerPC64 (ppc64/ppc64le), LoongArch64, s390x |
+| **Other** | Additional Windows direct syscall implementations, polymorphic engine |
 
 ---
 
 ## Contributing
 
-We welcome contributions of all kinds. Please read:
-
-- [Contributing Guide](.github/CONTRIBUTING.md) - build instructions, code style, project structure
-- [Code of Conduct](.github/CODE_OF_CONDUCT.md) - community standards
-- [Security Policy](.github/SECURITY.md) - reporting vulnerabilities
+- [Contributing Guide](CONTRIBUTING.md) — build instructions, code style, project structure
+- [Code of Conduct](CODE_OF_CONDUCT.md) — community standards
+- [Security Policy](SECURITY.md) — reporting vulnerabilities
 
 ---
 
 ## License
 
-This project is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0). See [LICENSE](LICENSE) for full terms.
-
-You are free to use, modify, and distribute this software, provided that any derivative work - including network services, is also made available under the AGPL-3.0. For proprietary/closed-source licensing, contact [mrzaxaryan](https://github.com/mrzaxaryan).
+**GNU Affero General Public License v3.0** (AGPL-3.0) — see [LICENSE](LICENSE). All derivative works, including network services, must be released under the same license. For proprietary licensing, contact [mrzaxaryan](https://github.com/mrzaxaryan).

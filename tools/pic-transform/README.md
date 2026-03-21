@@ -1,8 +1,8 @@
 # pic-transform
 
-LLVM pass that eliminates data sections (`.rodata`, `.rdata`, `.data`, `.bss`) from compiled code. Transforms string literals, floating-point constants, and constant arrays into stack-local allocations with immediate-value stores, producing binaries with only a `.text` section.
+LLVM pass that eliminates data sections (`.rodata`, `.rdata`, `.data`, `.bss`) from compiled code by transforming string literals, floating-point constants, and constant arrays into stack-local allocations with immediate-value stores. Produces binaries with only a `.text` section.
 
-Designed for position-independent shellcode, but useful anywhere you need pure-code binaries.
+Designed for position-independent shellcode — also useful anywhere pure-code binaries are required.
 
 ## What it does
 
@@ -85,15 +85,15 @@ Or download a prebuilt binary from [Releases](https://github.com/mrzaxaryan/pic-
 
 ## How it works
 
-The pass operates on LLVM IR (intermediate representation) and performs three transformations:
+Operates on LLVM IR with three transformation passes:
 
-1. **Global constant elimination**: Finds `@.str = private constant [N x i8] c"..."` globals, extracts their raw bytes, and replaces all uses with stack allocations initialized via word-packed immediate stores behind inline asm register barriers.
+1. **Global constant elimination** — Finds `@.str = private constant [N x i8] c"..."` globals, extracts raw bytes, replaces all uses with stack allocations initialized via word-packed immediate stores behind inline asm register barriers.
 
-2. **Floating-point constant elimination**: Replaces `ConstantFP` operands (which backends emit as constant pool loads from `.rodata`) with integer immediates bitcast to float, preventing constant pool generation.
+2. **Floating-point constant elimination** — Replaces `ConstantFP` operands (emitted as `.rodata` constant pool loads) with integer immediates bitcast to float, preventing constant pool generation.
 
-3. **Remaining global diagnostics**: Warns about globals that couldn't be eliminated.
+3. **Remaining global diagnostics** — Warns about globals that could not be eliminated.
 
-The register barriers (`asm sideeffect "", "=r,0"`) prevent the optimizer from recognizing the immediate store pattern and coalescing it back into a `memcpy` from `.rodata`.
+Register barriers (`asm sideeffect "", "=r,0"`) prevent the optimizer from recognizing immediate store patterns and coalescing them back into a `memcpy` from `.rodata`.
 
 ## License
 
