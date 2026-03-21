@@ -41,8 +41,7 @@ $Script:DefaultTag = 'preview'
 # Win32 P/Invoke Definitions
 # =============================================================================
 
-if (-not ('Win32' -as [type])) {
-    Add-Type -TypeDefinition @'
+Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 
@@ -69,7 +68,6 @@ public static class Win32 {
         IntPtr lpAddress, UIntPtr dwSize, uint flNewProtect, out uint lpflOldProtect);
 }
 '@
-}
 
 # =============================================================================
 # Logging
