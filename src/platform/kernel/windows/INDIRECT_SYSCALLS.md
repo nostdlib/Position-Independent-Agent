@@ -1,8 +1,8 @@
 # Indirect Syscall Dispatch
 
-[< Back to Windows Kernel README](../README.md)
+[< Back to Windows Kernel README](README.md)
 
-**Files:** [`system.h`](../system.h), [`system.cc`](../system.cc), [`system.x86_64.h`](../system.x86_64.h), [`system.i386.h`](../system.i386.h), [`system.aarch64.h`](../system.aarch64.h), [`system.armv7a.h`](../system.armv7a.h)
+**Files:** [`system.h`](system.h), [`system.cc`](system.cc), [`system.x86_64.h`](system.x86_64.h), [`system.i386.h`](system.i386.h), [`system.aarch64.h`](system.aarch64.h), [`system.armv7a.h`](system.armv7a.h)
 
 Runtime System Service Number (SSN) resolution and architecture-specific indirect syscall dispatch. System calls are routed through instruction gadgets found within ntdll.dll, so the `syscall`/`svc` instruction executes from ntdll's address range rather than from our code.
 
@@ -370,4 +370,4 @@ typedef struct SYSCALL_ENTRY {
 
 ---
 
-[< Back to Windows Kernel README](../README.md) | [Previous: PE Parsing](PE_PARSING.md) | [Next: NTDLL Wrappers >](NTDLL_WRAPPERS.md)
+[< Back to Windows Kernel README](README.md) | [Previous: PE Parsing](PE_PARSING.md) | [Next: NTDLL Wrappers >](NTDLL_WRAPPERS.md)

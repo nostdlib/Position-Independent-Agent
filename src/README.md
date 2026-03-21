@@ -47,7 +47,7 @@ The codebase is organized in four layers, each building on the one below. No lay
 ### Layer 2: Kernel Interfaces
 | Platform | README | Key Techniques |
 |---|---|---|
-| [Windows](platform/kernel/windows/) | [README.md](platform/kernel/windows/README.md) + [docs/](platform/kernel/windows/docs/) | PEB walking, PE parsing, indirect syscalls, SSN resolution |
+| [Windows](platform/kernel/windows/) | [README.md](platform/kernel/windows/README.md) + [5 deep-dives](platform/kernel/windows/) | PEB walking, PE parsing, indirect syscalls, SSN resolution |
 | [Linux](platform/kernel/linux/) | [README.md](platform/kernel/linux/README.md) | MIPS branch delay slot, i386 EBP save/restore, 7-arch syscall tables |
 | [FreeBSD](platform/kernel/freebsd/) | [README.md](platform/kernel/freebsd/README.md) | RDX rval[1] clobbering, RISC-V T0 error indicator, early-clobber constraints |
 | [macOS](platform/kernel/macos/) | [README.md](platform/kernel/macos/README.md) | svc #0x80 + X16, Mach traps, dyld ASLR slide calculation |

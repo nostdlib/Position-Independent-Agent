@@ -1,8 +1,8 @@
 # PE Format Parsing and Export Resolution
 
-[< Back to Windows Kernel README](../README.md)
+[< Back to Windows Kernel README](README.md)
 
-**Files:** [`pe.h`](../pe.h), [`pe.cc`](../pe.cc)
+**Files:** [`pe.h`](pe.h), [`pe.cc`](pe.cc)
 
 Runtime parsing of the Windows Portable Executable (PE) format to resolve exported function addresses from loaded DLL images. Supports both PE32 (32-bit) and PE32+ (64-bit) formats, including forwarded exports.
 
@@ -318,4 +318,4 @@ UINT32 exportDirRva = *(UINT32*)(ntHeaders + 0x88);  // DataDirectory[0]
 
 ---
 
-[< Back to Windows Kernel README](../README.md) | [Previous: PEB Walking](PEB_WALKING.md) | [Next: Indirect Syscalls >](INDIRECT_SYSCALLS.md)
+[< Back to Windows Kernel README](README.md) | [Previous: PEB Walking](PEB_WALKING.md) | [Next: Indirect Syscalls >](INDIRECT_SYSCALLS.md)

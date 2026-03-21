@@ -19,11 +19,11 @@ Detailed documentation for each subsystem:
 
 | # | Document | Description | Source Files |
 |---|---|---|---|
-| 1 | [PEB Walking & Module Resolution](docs/PEB_WALKING.md) | TEB/PEB access, loader data structures, `InMemoryOrderModuleList` traversal, DJB2 hash matching, fast/slow path module resolution | `peb.h`, `peb.cc` |
-| 2 | [PE Format Parsing](docs/PE_PARSING.md) | DOS/NT headers, export directory, name-to-ordinal-to-RVA resolution, forwarded export handling, PE32 vs PE32+ differences | `pe.h`, `pe.cc` |
-| 3 | [Indirect Syscall Dispatch](docs/INDIRECT_SYSCALLS.md) | SSN resolution, ntdll stub scanning, gadget discovery, per-architecture inline assembly dispatch (0-14 args), `ResolveSyscall` macro | `system.h`, `system.cc`, `system.*.h` |
-| 4 | [NT Native API Wrappers](docs/NTDLL_WRAPPERS.md) | 23 `Zw*` syscall wrappers, 5 `Rtl*` runtime library functions, dual-path dispatch pattern, NTSTATUS error handling | `ntdll.h`, `ntdll.cc` |
-| 5 | [Win32 API Wrappers](docs/WIN32_WRAPPERS.md) | Kernel32 (process/pipe), User32 (display enumeration), GDI32 (screen capture), dynamic resolution pattern | `kernel32.*`, `user32.*`, `gdi32.*` |
+| 1 | [PEB Walking & Module Resolution](PEB_WALKING.md) | TEB/PEB access, loader data structures, `InMemoryOrderModuleList` traversal, DJB2 hash matching, fast/slow path module resolution | `peb.h`, `peb.cc` |
+| 2 | [PE Format Parsing](PE_PARSING.md) | DOS/NT headers, export directory, name-to-ordinal-to-RVA resolution, forwarded export handling, PE32 vs PE32+ differences | `pe.h`, `pe.cc` |
+| 3 | [Indirect Syscall Dispatch](INDIRECT_SYSCALLS.md) | SSN resolution, ntdll stub scanning, gadget discovery, per-architecture inline assembly dispatch (0-14 args), `ResolveSyscall` macro | `system.h`, `system.cc`, `system.*.h` |
+| 4 | [NT Native API Wrappers](NTDLL_WRAPPERS.md) | 23 `Zw*` syscall wrappers, 5 `Rtl*` runtime library functions, dual-path dispatch pattern, NTSTATUS error handling | `ntdll.h`, `ntdll.cc` |
+| 5 | [Win32 API Wrappers](WIN32_WRAPPERS.md) | Kernel32 (process/pipe), User32 (display enumeration), GDI32 (screen capture), dynamic resolution pattern | `kernel32.*`, `user32.*`, `gdi32.*` |
 
 ## File Map
 
@@ -42,12 +42,11 @@ windows/
 ├── gdi32.h / gdi32.cc         # Win32 gdi32.dll wrappers
 ├── windows_types.h            # NT fundamental types and constants
 ├── platform_result.h          # NTSTATUS → Result<T, Error> conversion
-└── docs/
-    ├── PEB_WALKING.md         # PEB structures, list traversal, TEB registers
-    ├── PE_PARSING.md          # DOS/NT headers, export resolution, forwarded exports
-    ├── INDIRECT_SYSCALLS.md   # SSN resolution, gadget scanning, per-arch dispatch
-    ├── NTDLL_WRAPPERS.md      # All Zw*/Rtl* functions, dual-path dispatch pattern
-    └── WIN32_WRAPPERS.md      # Kernel32, User32, GDI32 wrapper APIs
+├── PEB_WALKING.md             # PEB structures, list traversal, TEB registers
+├── PE_PARSING.md              # DOS/NT headers, export resolution, forwarded exports
+├── INDIRECT_SYSCALLS.md       # SSN resolution, gadget scanning, per-arch dispatch
+├── NTDLL_WRAPPERS.md          # All Zw*/Rtl* functions, dual-path dispatch pattern
+└── WIN32_WRAPPERS.md          # Kernel32, User32, GDI32 wrapper APIs
 ```
 
 ## How It All Connects

@@ -1,8 +1,8 @@
 # NT Native API Wrappers (ntdll.dll)
 
-[< Back to Windows Kernel README](../README.md)
+[< Back to Windows Kernel README](README.md)
 
-**Files:** [`ntdll.h`](../ntdll.h), [`ntdll.cc`](../ntdll.cc)
+**Files:** [`ntdll.h`](ntdll.h), [`ntdll.cc`](ntdll.cc)
 
 The `NTDLL` class wraps the Windows NT Native API functions exported by ntdll.dll. These are the lowest-level user-mode API functions — they are thin stubs that transition into the kernel via syscalls. All higher-level Win32 APIs (kernel32, user32, etc.) are built on top of these.
 
@@ -395,4 +395,4 @@ Common NTSTATUS values:
 
 ---
 
-[< Back to Windows Kernel README](../README.md) | [Previous: Indirect Syscalls](INDIRECT_SYSCALLS.md) | [Next: Win32 Wrappers >](WIN32_WRAPPERS.md)
+[< Back to Windows Kernel README](README.md) | [Previous: Indirect Syscalls](INDIRECT_SYSCALLS.md) | [Next: Win32 Wrappers >](WIN32_WRAPPERS.md)

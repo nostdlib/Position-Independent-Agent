@@ -1,8 +1,8 @@
 # Win32 API Wrappers
 
-[< Back to Windows Kernel README](../README.md)
+[< Back to Windows Kernel README](README.md)
 
-**Files:** [`kernel32.h`](../kernel32.h), [`kernel32.cc`](../kernel32.cc), [`user32.h`](../user32.h), [`user32.cc`](../user32.cc), [`gdi32.h`](../gdi32.h), [`gdi32.cc`](../gdi32.cc)
+**Files:** [`kernel32.h`](kernel32.h), [`kernel32.cc`](kernel32.cc), [`user32.h`](user32.h), [`user32.cc`](user32.cc), [`gdi32.h`](gdi32.h), [`gdi32.cc`](gdi32.cc)
 
 Higher-level wrappers around Win32 DLL exports for process management, display enumeration, and graphics operations. All function addresses are resolved dynamically at call time via DJB2 hash-based [PEB module lookup](PEB_WALKING.md) and [PE export resolution](PE_PARSING.md).
 
@@ -319,4 +319,4 @@ Used with `GetDIBits` to specify desired output format:
 
 ---
 
-[< Back to Windows Kernel README](../README.md) | [Previous: NTDLL Wrappers](NTDLL_WRAPPERS.md)
+[< Back to Windows Kernel README](README.md) | [Previous: NTDLL Wrappers](NTDLL_WRAPPERS.md)

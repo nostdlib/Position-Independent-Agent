@@ -1,8 +1,8 @@
 # PEB Walking and Module Resolution
 
-[< Back to Windows Kernel README](../README.md)
+[< Back to Windows Kernel README](README.md)
 
-**Files:** [`peb.h`](../peb.h), [`peb.cc`](../peb.cc)
+**Files:** [`peb.h`](peb.h), [`peb.cc`](peb.cc)
 
 The Process Environment Block (PEB) is a user-mode structure maintained by the NT loader that contains process startup information, loaded module lists, and heap/environment pointers. This subsystem provides position-independent access to the PEB for dynamic module discovery — entirely without Win32 API imports or static import tables.
 
@@ -298,4 +298,4 @@ ResolveExportAddress(L"kernel32.dll", Djb2::HashCompileTime("CreateProcessW"))
 
 ---
 
-[< Back to Windows Kernel README](../README.md) | [Next: PE Parsing >](PE_PARSING.md)
+[< Back to Windows Kernel README](README.md) | [Next: PE Parsing >](PE_PARSING.md)
