@@ -2,6 +2,7 @@
 
 #include "platform/system/environment.h"
 #include "platform/system/system_info.h"
+#include "platform/system/machine_id.h"
 #include "core/string/string.h"
 #include "core/memory/memory.h"
 #include "tests.h"
@@ -22,6 +23,7 @@ public:
 		RunTest(allPassed, &TestGetHostname, "GetHostname returns non-empty string");
 		RunTest(allPassed, &TestGetHostnameNotUnknown, "GetHostname returns actual hostname");
 		RunTest(allPassed, &TestGetArchitecture, "GetArchitecture returns known architecture");
+		RunTest(allPassed, &TestGetMachineUUID, "GetMachineUUID returns valid UUID");
 		RunTest(allPassed, &TestSystemInfoPopulated, "SystemInfo fields are populated");
 
 		if (allPassed)
@@ -180,6 +182,47 @@ private:
 		{
 			LOG_ERROR("GetHostname returned 'unknown' on a real OS");
 			return false;
+		}
+#endif
+
+		return true;
+	}
+
+	static BOOL TestGetMachineUUID()
+	{
+		auto result = GetMachineUUID();
+
+#if !defined(PLATFORM_UEFI) && !defined(PLATFORM_SOLARIS)
+		// On real OS targets (except Solaris which lacks a UUID source),
+		// GetMachineUUID must succeed.
+		if (!result)
+		{
+			LOG_ERROR("GetMachineUUID failed on a real OS");
+			return false;
+		}
+
+		// UUID must not be nil (all zeros)
+		UUID &uuid = result.Value();
+		if (uuid.GetMostSignificantBits() == 0 && uuid.GetLeastSignificantBits() == 0)
+		{
+			LOG_ERROR("GetMachineUUID returned nil UUID");
+			return false;
+		}
+
+		CHAR uuidStr[37];
+		uuid.ToString(Span<CHAR>(uuidStr));
+		LOG_INFO("  MachineUUID: %s", uuidStr);
+#else
+		// UEFI and Solaris: UUID may not be available, just log status
+		if (result)
+		{
+			CHAR uuidStr[37];
+			result.Value().ToString(Span<CHAR>(uuidStr));
+			LOG_INFO("  MachineUUID: %s", uuidStr);
+		}
+		else
+		{
+			LOG_INFO("  MachineUUID: not available (expected on this platform)");
 		}
 #endif
 
