@@ -134,16 +134,16 @@ USIZE Environment::GetOSVersion(Span<CHAR> buffer) noexcept
 	if (buffer.Size() == 0)
 		return 0;
 
-	PPEB peb = GetCurrentPEB();
-
 	// Read OS version fields from PEB at known architecture-specific offsets.
 	// These fields (OSMajorVersion, OSMinorVersion, OSBuildNumber) are set by
 	// the NT kernel during process creation and are always present.
 #if defined(ARCHITECTURE_X86_64) || defined(ARCHITECTURE_AARCH64)
+	PPEB peb = GetCurrentPEB();
 	UINT32 major = *(PUINT32)((PUINT8)peb + 0x118);
 	UINT32 minor = *(PUINT32)((PUINT8)peb + 0x11C);
 	UINT16 build = *(PUINT16)((PUINT8)peb + 0x120);
-#elif defined(ARCHITECTURE_I386)
+#elif defined(ARCHITECTURE_I386) || defined(ARCHITECTURE_ARMV7A)
+	PPEB peb = GetCurrentPEB();
 	UINT32 major = *(PUINT32)((PUINT8)peb + 0xA4);
 	UINT32 minor = *(PUINT32)((PUINT8)peb + 0xA8);
 	UINT16 build = *(PUINT16)((PUINT8)peb + 0xAC);
