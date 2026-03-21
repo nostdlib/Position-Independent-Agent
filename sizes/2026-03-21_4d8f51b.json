@@ -1,0 +1,22 @@
+{
+  "date": "2026-03-21",
+  "commit": "4d8f51b",
+  "sizes": {
+    "linux_i386_bin": 106923,
+    "uefi_aarch64_bin": 78428,
+    "freebsd_i386_bin": 100038,
+    "solaris_x86_64_bin": 85287,
+    "macos_x86_64_bin": 87519,
+    "windows_aarch64_bin": 85832,
+    "linux_armv7a_bin": 106188,
+    "solaris_aarch64_bin": 75292,
+    "linux_x86_64_bin": 90659,
+    "macos_aarch64_bin": 76836,
+    "freebsd_riscv64_bin": 79304,
+    "windows_i386_bin": 102611,
+    "linux_aarch64_bin": 80320,
+    "windows_x86_64_bin": 99463,
+    "linux_mips64_bin": 113856,
+    "solaris_i386_bin": 94176
+  }
+}
