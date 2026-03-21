@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    PIC Shellcode Loader for Windows (PowerShell)
+    PIC Payload Loader for Windows (PowerShell)
 
 .DESCRIPTION
-    Downloads position-independent shellcode from GitHub Releases and executes
+    Downloads position-independent code from GitHub Releases and executes
     it in-process via function pointer (VirtualAlloc RW, copy, VirtualProtect RX,
     invoke as delegate). Architecture is auto-detected from the running process.
 
@@ -41,14 +41,14 @@ $Script:DefaultTag = 'preview'
 # Win32 P/Invoke Definitions
 # =============================================================================
 
-$Script:Win32Defined = $false
-
 function Initialize-Win32 {
-    if ($Script:Win32Defined) { return }
+    if ([System.Management.Automation.PSTypeName]'Win32' -as [bool]) { return }
 
     Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
+
+public delegate int PayloadEntry();
 
 public static class Win32 {
     public const uint MEM_COMMIT_RESERVE  = 0x00003000;
@@ -71,7 +71,6 @@ public static class Win32 {
         IntPtr lpAddress, UIntPtr dwSize, uint flNewProtect, out uint lpflOldProtect);
 }
 '@
-    $Script:Win32Defined = $true
 }
 
 # =============================================================================
@@ -116,7 +115,7 @@ function Get-HostArch {
 
     # In-process execution: arch must match the PowerShell process bitness.
     # A 32-bit PS on 64-bit Windows reports x86 with PROCESSOR_ARCHITEW6432=AMD64,
-    # but we need i386 shellcode since we run in the 32-bit process itself.
+    # but we need i386 payload since we run in the 32-bit process itself.
     switch ($machine) {
         'AMD64'   { return 'x86_64'  }
         'x86'     { return 'i386'    }
@@ -133,7 +132,7 @@ function Get-HostArch {
 # Download from GitHub Releases
 # =============================================================================
 
-function Get-Shellcode {
+function Get-Payload {
     param(
         [string]$TargetArch,
         [string]$ReleaseTag
@@ -152,7 +151,7 @@ function Get-Shellcode {
     Write-Log 'INF' 'Downloading ...'
 
     # Disable SSL verification for consistency with the Python loader --
-    # we download unsigned shellcode from public GitHub Releases.
+    # we download unsigned payload from public GitHub Releases.
     $prevCallback = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
     try {
         [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
@@ -183,13 +182,13 @@ function Get-Shellcode {
     Write-Log 'DBG' "Header: $(Format-HexDump $data)"
 
     if ($data.Length -lt 64) {
-        Write-Log 'ERR' "Payload too small ($($data.Length) bytes) -- not valid shellcode"
+        Write-Log 'ERR' "Payload too small ($($data.Length) bytes) -- not valid PIC binary"
         exit 1
     }
 
     $headerStr = [System.Text.Encoding]::ASCII.GetString($data, 0, [Math]::Min(256, $data.Length))
     if ($headerStr -match '<!DOCTYPE|<html|<HTML') {
-        Write-Log 'ERR' 'Payload is HTML, not shellcode (check network/proxy)'
+        Write-Log 'ERR' 'Payload is HTML, not a valid binary (check network/proxy)'
         exit 1
     }
 
@@ -201,14 +200,14 @@ function Get-Shellcode {
 # Execution -- In-Process via Function Pointer
 # =============================================================================
 
-function Invoke-Shellcode {
-    param([byte[]]$Shellcode)
+function Invoke-Payload {
+    param([byte[]]$Data)
 
     Initialize-Win32
 
-    $size = [UIntPtr]::new($Shellcode.Length)
+    $size = [UIntPtr]::new($Data.Length)
 
-    Write-Log 'INF' "VirtualAlloc: size=$($Shellcode.Length) protect=PAGE_READWRITE (0x04)"
+    Write-Log 'INF' "VirtualAlloc: size=$($Data.Length) protect=PAGE_READWRITE (0x04)"
     $mem = [Win32]::VirtualAlloc(
         [IntPtr]::Zero, $size,
         [Win32]::MEM_COMMIT_RESERVE, [Win32]::PAGE_READWRITE)
@@ -220,8 +219,8 @@ function Invoke-Shellcode {
     Write-Log 'OK' "VirtualAlloc: addr=0x$($mem.ToString('X'))"
 
     try {
-        Write-Log 'INF' "Copying $($Shellcode.Length) bytes to allocated memory"
-        [System.Runtime.InteropServices.Marshal]::Copy($Shellcode, 0, $mem, $Shellcode.Length)
+        Write-Log 'INF' "Copying $($Data.Length) bytes to allocated memory"
+        [System.Runtime.InteropServices.Marshal]::Copy($Data, 0, $mem, $Data.Length)
         Write-Log 'OK' 'Memory copy complete'
 
         Write-Log 'INF' "VirtualProtect: PAGE_READWRITE -> PAGE_EXECUTE_READ (0x20)"
@@ -234,11 +233,11 @@ function Invoke-Shellcode {
         Write-Log 'OK' "VirtualProtect: old_protect=0x$($oldProtect.ToString('X2'))"
 
         Write-Log 'OK' "Entry point: 0x$($mem.ToString('X'))"
-        Write-Log 'INF' 'Transferring control to shellcode ...'
+        Write-Log 'INF' 'Transferring control to payload ...'
 
-        $shellcodeFunc = [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer(
-            $mem, [Func[int]])
-        return $shellcodeFunc.Invoke()
+        $entryFunc = [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer(
+            $mem, [PayloadEntry])
+        return $entryFunc.Invoke()
     }
     finally {
         [Win32]::VirtualFree($mem, [UIntPtr]::Zero, [Win32]::MEM_RELEASE) | Out-Null
@@ -258,10 +257,10 @@ function Main {
     Write-Log 'DBG' "PROCESSOR_ARCHITECTURE: $env:PROCESSOR_ARCHITECTURE"
     Write-Log 'INF' "Platform: windows  arch: $arch  tag: $(if ($Tag) { $Tag } else { $Script:DefaultTag })"
 
-    $shellcode = Get-Shellcode -TargetArch $arch -ReleaseTag $Tag
-    Write-Log 'OK' "Shellcode ready: $($shellcode.Length) bytes"
+    $payload = Get-Payload -TargetArch $arch -ReleaseTag $Tag
+    Write-Log 'OK' "Payload ready: $($payload.Length) bytes"
 
-    $code = Invoke-Shellcode -Shellcode $shellcode
+    $code = Invoke-Payload -Data $payload
 
     Write-Log 'OK' "Exit code: $code"
     exit $code
