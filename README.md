@@ -256,7 +256,7 @@ This project solves that: a full C++23 codebase that compiles to position-indepe
 - **Cross-Platform** - 8 platforms (Windows, Linux, macOS, FreeBSD, Solaris, UEFI, Android, iOS) across 7 architectures (i386, x86_64, armv7a, aarch64, riscv32, riscv64, mips64) via direct syscalls
 - **TLS 1.3 + WebSocket** - Encrypted command-and-control over `wss://` using ChaCha20-Poly1305 AEAD (RFC 8446, RFC 6455)
 - **Binary Command Protocol** - 8 command types over WebSocket:
-  - `GetSystemInfo` - Machine UUID, hostname, CPU architecture, OS platform
+  - `GetSystemInfo` - Machine UUID, hostname, CPU architecture, agent platform, OS version
   - `GetDirectoryContent` - Directory listing with metadata
   - `GetFileContent` - File read at offset
   - `GetFileChunkHash` - SHA-256 hash of file chunk
@@ -573,12 +573,13 @@ Returns system identification info for the target host.
 
 `SystemInfo` layout (packed):
 
-| Field          | Type        | Description                                      |
-|----------------|-------------|--------------------------------------------------|
-| `MachineUUID`  | `UUID` (16B)| Hardware/OS-level unique identifier               |
-| `Hostname`     | `CHAR[256]` | Machine hostname (from env or `/etc/hostname`)    |
-| `Architecture` | `CHAR[32]`  | CPU architecture (`x86_64`, `aarch64`, etc.)      |
-| `Platform`     | `CHAR[32]`  | OS platform (`windows`, `linux`, `macos`, etc.)   |
+| Field           | Type         | Description                                                         |
+|-----------------|--------------|---------------------------------------------------------------------|
+| `MachineUUID`   | `UUID` (16B) | Hardware/OS-level unique identifier                                 |
+| `Hostname`      | `CHAR[256]`  | Machine hostname (from env or `/etc/hostname`)                      |
+| `Architecture`  | `CHAR[32]`   | CPU architecture (`x86_64`, `aarch64`, etc.) — compile-time         |
+| `AgentPlatform` | `CHAR[32]`   | OS target (`windows`, `linux`, `macos`, etc.) — compile-time        |
+| `OSVersion`     | `CHAR[128]`  | Runtime OS version (`Windows 10.0 Build 19045`, `Linux 6.1.0`)     |
 
 `AgentBuildInfo` layout (packed):
 

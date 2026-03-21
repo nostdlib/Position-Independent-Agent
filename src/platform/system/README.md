@@ -118,6 +118,17 @@ The name boundary is detected by checking for `=` after the matched characters.
 
 POSIX provides the `environ` pointer — a null-terminated array of `"NAME=VALUE"` C strings. The runtime walks this array directly without calling `getenv()`.
 
+## Platform Identification
+
+The `Environment` class provides compile-time and runtime system identification via `GetAgentPlatform()`, `GetOSVersion()`, `GetHostname()`, and `GetArchitecture()`.
+
+| Platform | OS Version Source | Hostname Source |
+|---|---|---|
+| **Windows** | PEB `OSMajorVersion`/`OSMinorVersion`/`OSBuildNumber` | `COMPUTERNAME` env var |
+| **Linux/Android** | `uname` syscall | `HOSTNAME` env var / `/etc/hostname` |
+| **macOS/FreeBSD/Solaris/iOS** | `/proc/version` fallback | `HOSTNAME` env var |
+| **UEFI** | `"uefi"` (static) | `"unknown"` |
+
 ## Pseudo-Terminal (PTY) Creation
 
 PTY creation is the most platform-divergent operation in the runtime, with **five different flows** across POSIX platforms:
@@ -240,7 +251,9 @@ End-of-prompt detection: `'>'` on Windows (cmd.exe), `'$'` on POSIX (sh).
 | DateTime | `NtQuerySystemTime` | `clock_gettime` | `RuntimeServices→GetTime` |
 | Random | `RDTSC` seed | `RDTSC`/`CNTVCT`/`RDTIME` seed | Same |
 | MachineID | SMBIOS UUID | `/etc/machine-id` | Stub |
-| Environment | PEB block walk | `extern environ` | Stub |
+| Environment | PEB block walk | `/proc/self/environ` | Stub |
+| Hostname | `COMPUTERNAME` env var | `HOSTNAME` env / `/etc/hostname` | Stub |
+| OSVersion | PEB version fields | `uname` syscall | `"uefi"` |
 | Pipe | `CreatePipe` | `pipe()`/`pipe2()` | Not supported |
 | Process | `CreateProcessW` | `fork()`+`execve()` | Not supported |
 | PTY | Not supported | `/dev/ptmx` (5 variants) | Not supported |

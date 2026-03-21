@@ -62,7 +62,7 @@ Cross-platform abstraction providing OS-independent interfaces for I/O, networki
 | **DateTime** | Full | Full | Full | Full | Full | Full | Full | Full |
 | **Random** | Full | Full | Full | Full | Full | Full | Full | Full |
 | **MachineID** | SMBIOS | /etc/machine-id | boot_id | /etc/machine-id | — | /etc/machine-id | — | Stub |
-| **Environment** | PEB | environ | environ | environ | environ | environ | environ | Stub |
+| **Environment** | PEB | /proc/self/environ | /proc/self/environ | Stub | Stub | Stub | Stub | Stub |
 | **Pipe** | Full | Full | Full | Full | Full | Full | Full | — |
 | **Process** | Full | Full | Full | Full | Full | Full | Full | — |
 | **PTY** | — | Full | Full | Full | Full | Full | Full | — |
