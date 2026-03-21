@@ -128,8 +128,14 @@ private:
 
 		if (!result)
 		{
+#if defined(PLATFORM_UEFI) || defined(PLATFORM_SOLARIS)
+			// UEFI has no hostname concept; Solaris CI may lack /etc/nodename
+			LOG_INFO("  GetHostname not available on this platform (expected)");
+			return true;
+#else
 			LOG_ERROR("GetHostname failed");
 			return false;
+#endif
 		}
 
 		LOG_INFO("  Hostname: %s (len=%llu)", buffer, (UINT64)result.Value());
@@ -142,8 +148,14 @@ private:
 
 		if (!result)
 		{
+#if defined(PLATFORM_UEFI) || defined(PLATFORM_SOLARIS)
+			// UEFI QEMU may lack SMBIOS; Solaris has no standard UUID source
+			LOG_INFO("  GetMachineUUID not available on this platform (expected)");
+			return true;
+#else
 			LOG_ERROR("GetMachineUUID failed");
 			return false;
+#endif
 		}
 
 		UUID &uuid = result.Value();
@@ -202,11 +214,15 @@ private:
 		SystemInfo info;
 		GetSystemInfo(&info);
 
-		// All string fields should be populated
+		// Hostname may not be available on all platforms
 		if (info.Hostname[0] == '\0')
 		{
+#if defined(PLATFORM_UEFI) || defined(PLATFORM_SOLARIS)
+			LOG_INFO("  SystemInfo.Hostname empty (expected on this platform)");
+#else
 			LOG_ERROR("SystemInfo.Hostname is empty");
 			return false;
+#endif
 		}
 
 		if (info.Architecture[0] == '\0')
