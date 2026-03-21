@@ -1,10 +1,15 @@
 /**
  * @file environment.cc
- * @brief Shared POSIX environment variable implementation
+ * @brief Shared POSIX environment variable and platform implementation
  *
  * @details Linux reads environment variables from /proc/self/environ.
  * macOS, FreeBSD, and Solaris return 0 (not found) as they lack a simple
  * procfs-based mechanism in freestanding mode.
+ *
+ * Platform identification:
+ * - GetAgentPlatform(): compile-time OS target from PLATFORM_* defines
+ * - GetOSVersion(): runtime OS version via uname syscall (Linux/Android)
+ *   or /proc/version fallback (other POSIX platforms)
  *
  * Future enhancements:
  * - macOS: use sysctl(kern.procargs2) to read process environment
@@ -13,6 +18,7 @@
  */
 
 #include "platform/system/environment.h"
+#include "core/string/string.h"
 
 #if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
 
@@ -144,3 +150,85 @@ USIZE Environment::GetVariable(const CHAR *name, Span<CHAR> buffer) noexcept
 }
 
 #endif
+
+// =============================================================================
+// Platform identification (shared across all POSIX platforms)
+// =============================================================================
+
+USIZE Environment::GetAgentPlatform(Span<CHAR> buffer) noexcept
+{
+#if defined(PLATFORM_LINUX)
+	StringUtils::Copy(buffer, Span<const CHAR>("linux"));
+#elif defined(PLATFORM_MACOS)
+	StringUtils::Copy(buffer, Span<const CHAR>("macos"));
+#elif defined(PLATFORM_ANDROID)
+	StringUtils::Copy(buffer, Span<const CHAR>("android"));
+#elif defined(PLATFORM_IOS)
+	StringUtils::Copy(buffer, Span<const CHAR>("ios"));
+#elif defined(PLATFORM_FREEBSD)
+	StringUtils::Copy(buffer, Span<const CHAR>("freebsd"));
+#elif defined(PLATFORM_SOLARIS)
+	StringUtils::Copy(buffer, Span<const CHAR>("solaris"));
+#else
+	StringUtils::Copy(buffer, Span<const CHAR>("unknown"));
+#endif
+	return StringUtils::Length(buffer.Data());
+}
+
+USIZE Environment::GetOSVersion(Span<CHAR> buffer) noexcept
+{
+	if (buffer.Size() == 0)
+		return 0;
+
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+	// Use the uname syscall to get kernel release info
+	Utsname uts;
+	Memory::Zero(&uts, sizeof(Utsname));
+	SSIZE ret = System::Call(SYS_UNAME, (USIZE)&uts);
+	if (ret == 0)
+	{
+		// Format: "{sysname} {release}" e.g. "Linux 6.1.0"
+		USIZE sysLen = StringUtils::Length(uts.Sysname);
+		USIZE relLen = StringUtils::Length(uts.Release);
+		USIZE pos = 0;
+
+		StringUtils::Copy(Span<CHAR>(buffer.Data() + pos, buffer.Size() - pos), Span<const CHAR>(uts.Sysname, sysLen + 1));
+		pos += sysLen;
+
+		buffer.Data()[pos++] = ' ';
+
+		StringUtils::Copy(Span<CHAR>(buffer.Data() + pos, buffer.Size() - pos), Span<const CHAR>(uts.Release, relLen + 1));
+		pos += relLen;
+		return pos;
+	}
+#endif
+
+	// Fallback: try reading /proc/version via raw syscalls (Linux/Android only)
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+	{
+		const CHAR *path = "/proc/version";
+#if defined(ARCHITECTURE_AARCH64) || defined(ARCHITECTURE_RISCV64) || defined(ARCHITECTURE_RISCV32)
+		SSIZE fd = System::Call(SYS_OPENAT, (USIZE)-100, (USIZE)path, 0, 0);
+#else
+		SSIZE fd = System::Call(SYS_OPEN, (USIZE)path, 0, 0);
+#endif
+		if (fd >= 0)
+		{
+			SSIZE bytesRead = System::Call(SYS_READ, (USIZE)fd, (USIZE)buffer.Data(), buffer.Size() - 1);
+			System::Call(SYS_CLOSE, (USIZE)fd);
+			if (bytesRead > 0)
+			{
+				// Trim trailing newline
+				if (buffer.Data()[bytesRead - 1] == '\n')
+					buffer.Data()[bytesRead - 1] = '\0';
+				else
+					buffer.Data()[bytesRead] = '\0';
+				return StringUtils::Length(buffer.Data());
+			}
+		}
+	}
+#endif
+
+	StringUtils::Copy(buffer, Span<const CHAR>("unknown"));
+	return StringUtils::Length(buffer.Data());
+}

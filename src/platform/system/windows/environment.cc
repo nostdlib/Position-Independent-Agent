@@ -1,13 +1,15 @@
 /**
- * environment.cc - Windows Environment Variable Implementation
+ * environment.cc - Windows Environment Variable and Platform Implementation
  *
  * Accesses environment variables directly from the PEB environment block.
+ * OS version is read from PEB OS version fields.
  * Position-independent, no .rdata dependencies.
  */
 
 #include "platform/system/environment.h"
 #include "platform/kernel/windows/peb.h"
 #include "core/memory/memory.h"
+#include "core/string/string.h"
 
 // Extended RTL_USER_PROCESS_PARAMETERS with Environment field
 // The standard definition in peb.h doesn't include all fields
@@ -119,4 +121,61 @@ USIZE Environment::GetVariable(const CHAR *name, Span<CHAR> buffer) noexcept
 	// Variable not found
 	buffer[0] = '\0';
 	return 0;
+}
+
+USIZE Environment::GetAgentPlatform(Span<CHAR> buffer) noexcept
+{
+	StringUtils::Copy(buffer, Span<const CHAR>("windows"));
+	return StringUtils::Length(buffer.Data());
+}
+
+USIZE Environment::GetOSVersion(Span<CHAR> buffer) noexcept
+{
+	if (buffer.Size() == 0)
+		return 0;
+
+	PPEB peb = GetCurrentPEB();
+
+	// Read OS version fields from PEB at known architecture-specific offsets.
+	// These fields (OSMajorVersion, OSMinorVersion, OSBuildNumber) are set by
+	// the NT kernel during process creation and are always present.
+#if defined(ARCHITECTURE_X86_64) || defined(ARCHITECTURE_AARCH64)
+	UINT32 major = *(PUINT32)((PUINT8)peb + 0x118);
+	UINT32 minor = *(PUINT32)((PUINT8)peb + 0x11C);
+	UINT16 build = *(PUINT16)((PUINT8)peb + 0x120);
+#elif defined(ARCHITECTURE_I386)
+	UINT32 major = *(PUINT32)((PUINT8)peb + 0xA4);
+	UINT32 minor = *(PUINT32)((PUINT8)peb + 0xA8);
+	UINT16 build = *(PUINT16)((PUINT8)peb + 0xAC);
+#else
+	UINT32 major = 0;
+	UINT32 minor = 0;
+	UINT16 build = 0;
+#endif
+
+	// Format: "Windows {Major}.{Minor} Build {Build}"
+	CHAR numBuf[16];
+	USIZE pos = 0;
+
+	StringUtils::Copy(Span<CHAR>(buffer.Data() + pos, buffer.Size() - pos), Span<const CHAR>("Windows "));
+	pos += StringUtils::Length(buffer.Data() + pos);
+
+	USIZE n = StringUtils::UIntToStr(major, Span<CHAR>(numBuf, 16));
+	StringUtils::Copy(Span<CHAR>(buffer.Data() + pos, buffer.Size() - pos), Span<const CHAR>(numBuf, n + 1));
+	pos += n;
+
+	buffer.Data()[pos++] = '.';
+
+	n = StringUtils::UIntToStr(minor, Span<CHAR>(numBuf, 16));
+	StringUtils::Copy(Span<CHAR>(buffer.Data() + pos, buffer.Size() - pos), Span<const CHAR>(numBuf, n + 1));
+	pos += n;
+
+	StringUtils::Copy(Span<CHAR>(buffer.Data() + pos, buffer.Size() - pos), Span<const CHAR>(" Build "));
+	pos += StringUtils::Length(buffer.Data() + pos);
+
+	n = StringUtils::UIntToStr(build, Span<CHAR>(numBuf, 16));
+	StringUtils::Copy(Span<CHAR>(buffer.Data() + pos, buffer.Size() - pos), Span<const CHAR>(numBuf, n + 1));
+	pos += n;
+
+	return pos;
 }

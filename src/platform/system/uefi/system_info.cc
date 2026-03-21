@@ -1,5 +1,6 @@
 #include "platform/system/system_info.h"
 #include "platform/system/machine_id.h"
+#include "platform/system/environment.h"
 #include "platform/console/logger.h"
 #include "core/memory/memory.h"
 #include "core/string/string.h"
@@ -28,8 +29,8 @@ VOID GetSystemInfo(SystemInfo *info)
 #endif
 
 	// Agent platform (compile-time)
-	StringUtils::Copy(Span<CHAR>(info->AgentPlatform, 31), Span<const CHAR>("uefi"));
+	Environment::GetAgentPlatform(Span<CHAR>(info->AgentPlatform, 31));
 
-	// Runtime OS version (UEFI has no versioned OS concept)
-	StringUtils::Copy(Span<CHAR>(info->Platform, 127), Span<const CHAR>("uefi"));
+	// Runtime OS version
+	Environment::GetOSVersion(Span<CHAR>(info->OSVersion, 127));
 }

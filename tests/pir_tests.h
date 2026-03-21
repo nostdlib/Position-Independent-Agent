@@ -12,6 +12,7 @@
  *   DnsTests               - DNS resolution tests (DoT, DoH JSON, DoH binary)
  *   DoubleTests            - Floating-point tests
  *   EccTests               - Elliptic Curve Cryptography tests (ECDH key exchange)
+ *   EnvironmentTests       - Environment variable and platform identification tests
  *   FileSystemTests        - File system operations tests
  *   ImageTests             - Image processing tests
  *   IPAddressTests         - IPAddress constexpr and runtime tests
@@ -82,6 +83,7 @@
 #include "vector_tests.h"
 #include "websocket_tests.h"
 #include "shell_platform_test.h"
+#include "environment_tests.h"
 
 static BOOL RunPIRTests()
 {
@@ -107,7 +109,8 @@ static BOOL RunPIRTests()
 	RunTestSuite<StringFormatterTests>(allPassed);
 	RunTestSuite<StringTests>(allPassed);
 
-	// PLATFORM - Memory, System, File I/O, Shell process, and Display
+	// PLATFORM - Memory, System, File I/O, Shell process, Environment, and Display
+	RunTestSuite<EnvironmentTests>(allPassed);
 	RunTestSuite<FileSystemTests>(allPassed);
 	RunTestSuite<MemoryTests>(allPassed);
 	RunTestSuite<ProcessTests>(allPassed);

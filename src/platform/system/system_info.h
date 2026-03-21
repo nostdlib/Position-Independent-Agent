@@ -4,7 +4,7 @@
  *
  * @details Provides a cross-platform function to retrieve basic system
  * information including machine UUID, hostname, CPU architecture,
- * compile-time OS target (AgentPlatform), and runtime OS version (Platform).
+ * compile-time OS target (AgentPlatform), and runtime OS version (OSVersion).
  *
  * Platform implementations:
  * - Windows: UUID from SMBIOS, hostname from COMPUTERNAME environment variable,
@@ -17,8 +17,8 @@
  * - UEFI: UUID unavailable, hostname unavailable (returns defaults)
  *
  * Architecture and AgentPlatform strings are determined at compile time from
- * the ARCHITECTURE_* and PLATFORM_* preprocessor defines. The Platform string
- * is populated at runtime with actual OS version information.
+ * the ARCHITECTURE_* and PLATFORM_* preprocessor defines. The OSVersion string
+ * is populated at runtime via Environment::GetOSVersion().
  *
  * @ingroup platform
  */
@@ -32,7 +32,7 @@
  * @brief System information structure
  *
  * @details Contains identifying information about the host system.
- * Hostname, Architecture, AgentPlatform, and Platform are null-terminated
+ * Hostname, Architecture, AgentPlatform, and OSVersion are null-terminated
  * narrow strings.
  */
 #pragma pack(push, 1)
@@ -42,7 +42,7 @@ struct SystemInfo
     CHAR Hostname[256];      ///< Machine hostname / computer name
     CHAR Architecture[32];   ///< CPU architecture (e.g. "x86_64", "aarch64")
     CHAR AgentPlatform[32];  ///< Compile-time OS target (e.g. "windows", "linux")
-    CHAR Platform[128];      ///< Runtime OS version (e.g. "Windows 10.0 Build 19045", "Linux 6.1.0")
+    CHAR OSVersion[128];     ///< Runtime OS version (e.g. "Windows 10.0 Build 19045", "Linux 6.1.0")
 };
 #pragma pack(pop)
 
@@ -54,7 +54,7 @@ struct SystemInfo
  * - Hostname: Retrieved from OS environment (platform-specific)
  * - Architecture: Compile-time string from ARCHITECTURE_* define
  * - AgentPlatform: Compile-time string from PLATFORM_* define
- * - Platform: Runtime OS version string (e.g. "Windows 10.0 Build 19045")
+ * - OSVersion: Runtime OS version string (e.g. "Windows 10.0 Build 19045")
  *
  * @param[out] info Pointer to SystemInfo structure to populate.
  *                  The structure is zeroed before populating.

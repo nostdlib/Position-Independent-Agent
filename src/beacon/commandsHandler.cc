@@ -106,8 +106,8 @@ VOID Handle_GetSystemInfoCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
     Memory::Copy(*response + sizeof(UINT32), &info, sizeof(SystemInfo));
     Memory::Copy(*response + sizeof(UINT32) + sizeof(SystemInfo), &buildInfo, sizeof(AgentBuildInfo));
 
-    LOG_INFO("GetSystemInfo: hostname=%s, arch=%s, agent_platform=%s, platform=%s, build=%u, commit=%s",
-             info.Hostname, info.Architecture, info.AgentPlatform, info.Platform, buildInfo.BuildNumber, buildInfo.CommitHash);
+    LOG_INFO("GetSystemInfo: hostname=%s, arch=%s, agent_platform=%s, os_version=%s, build=%u, commit=%s",
+             info.Hostname, info.Architecture, info.AgentPlatform, info.OSVersion, buildInfo.BuildNumber, buildInfo.CommitHash);
 }
 
 VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
