@@ -170,6 +170,21 @@ constexpr SSIZE INVALID_FD = -1;
 // Linux Structures
 // =============================================================================
 
+/// @brief POSIX utsname structure returned by the uname syscall.
+/// @details Contains system identification strings: OS name, hostname,
+/// kernel release, version, and machine architecture. Each field is 65 bytes
+/// on Linux (including null terminator). The domainname field is a Linux
+/// extension (not in POSIX).
+struct Utsname
+{
+	CHAR Sysname[65];    ///< OS name (e.g. "Linux")
+	CHAR Nodename[65];   ///< Network hostname
+	CHAR Release[65];    ///< Kernel release (e.g. "6.1.0")
+	CHAR Version[65];    ///< Kernel version string
+	CHAR Machine[65];    ///< Hardware architecture (e.g. "x86_64")
+	CHAR Domainname[65]; ///< NIS/YP domain name (Linux extension)
+};
+
 /// @brief Linux directory entry returned by the getdents64 syscall.
 struct LinuxDirent64
 {

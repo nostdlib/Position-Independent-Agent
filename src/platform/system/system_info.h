@@ -3,17 +3,22 @@
  * @brief System information retrieval
  *
  * @details Provides a cross-platform function to retrieve basic system
- * information including machine UUID, hostname, CPU architecture, and
- * OS platform.
+ * information including machine UUID, hostname, CPU architecture,
+ * compile-time OS target (AgentPlatform), and runtime OS version (Platform).
  *
  * Platform implementations:
- * - Windows: UUID from SMBIOS, hostname from COMPUTERNAME environment variable
- * - Linux/macOS/FreeBSD/Solaris/Android: UUID from /etc/machine-id,
- *   hostname from HOSTNAME environment variable or /etc/hostname
+ * - Windows: UUID from SMBIOS, hostname from COMPUTERNAME environment variable,
+ *   runtime OS version from the PEB (OSMajorVersion/OSMinorVersion/OSBuildNumber)
+ * - Linux/Android: UUID from /etc/machine-id, hostname from HOSTNAME environment
+ *   variable or /etc/hostname, runtime OS version from the uname syscall
+ * - macOS/FreeBSD/Solaris/iOS: UUID from /etc/machine-id, hostname from
+ *   HOSTNAME or /etc/hostname, runtime OS version from /proc/version or
+ *   platform-specific files (best effort)
  * - UEFI: UUID unavailable, hostname unavailable (returns defaults)
  *
- * Architecture and platform strings are determined at compile time from
- * the ARCHITECTURE_* and PLATFORM_* preprocessor defines.
+ * Architecture and AgentPlatform strings are determined at compile time from
+ * the ARCHITECTURE_* and PLATFORM_* preprocessor defines. The Platform string
+ * is populated at runtime with actual OS version information.
  *
  * @ingroup platform
  */
@@ -27,7 +32,8 @@
  * @brief System information structure
  *
  * @details Contains identifying information about the host system.
- * Hostname, Architecture, and Platform are null-terminated narrow strings.
+ * Hostname, Architecture, AgentPlatform, and Platform are null-terminated
+ * narrow strings.
  */
 #pragma pack(push, 1)
 struct SystemInfo
@@ -35,7 +41,8 @@ struct SystemInfo
     UUID MachineUUID;        ///< Machine-unique identifier (hardware/OS level)
     CHAR Hostname[256];      ///< Machine hostname / computer name
     CHAR Architecture[32];   ///< CPU architecture (e.g. "x86_64", "aarch64")
-    CHAR Platform[32];       ///< OS platform (e.g. "windows", "linux")
+    CHAR AgentPlatform[32];  ///< Compile-time OS target (e.g. "windows", "linux")
+    CHAR Platform[128];      ///< Runtime OS version (e.g. "Windows 10.0 Build 19045", "Linux 6.1.0")
 };
 #pragma pack(pop)
 
@@ -46,7 +53,8 @@ struct SystemInfo
  * - MachineUUID: Hardware/OS-level unique identifier (platform-specific)
  * - Hostname: Retrieved from OS environment (platform-specific)
  * - Architecture: Compile-time string from ARCHITECTURE_* define
- * - Platform: Compile-time string from PLATFORM_* define
+ * - AgentPlatform: Compile-time string from PLATFORM_* define
+ * - Platform: Runtime OS version string (e.g. "Windows 10.0 Build 19045")
  *
  * @param[out] info Pointer to SystemInfo structure to populate.
  *                  The structure is zeroed before populating.

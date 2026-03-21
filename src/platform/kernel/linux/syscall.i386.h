@@ -60,6 +60,9 @@ constexpr USIZE SYS_CLOCK_GETTIME = 265;
 // Random operations
 constexpr USIZE SYS_GETRANDOM = 355;
 
+// System information
+constexpr USIZE SYS_UNAME = 122;
+
 // Process operations
 constexpr USIZE SYS_EXIT = 1;
 constexpr USIZE SYS_EXIT_GROUP = 252;

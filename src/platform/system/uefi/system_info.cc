@@ -27,6 +27,9 @@ VOID GetSystemInfo(SystemInfo *info)
 	StringUtils::Copy(Span<CHAR>(info->Architecture, 31), Span<const CHAR>("unknown"));
 #endif
 
-	// OS platform (compile-time)
-	StringUtils::Copy(Span<CHAR>(info->Platform, 31), Span<const CHAR>("uefi"));
+	// Agent platform (compile-time)
+	StringUtils::Copy(Span<CHAR>(info->AgentPlatform, 31), Span<const CHAR>("uefi"));
+
+	// Runtime OS version (UEFI has no versioned OS concept)
+	StringUtils::Copy(Span<CHAR>(info->Platform, 127), Span<const CHAR>("uefi"));
 }
