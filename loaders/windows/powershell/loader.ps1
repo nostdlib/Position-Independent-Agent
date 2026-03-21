@@ -42,7 +42,7 @@ $Script:DefaultTag = 'preview'
 # =============================================================================
 
 function Initialize-Win32 {
-    if ([System.Management.Automation.PSTypeName]'Win32' -as [bool]) { return }
+    if ('Win32' -as [type]) { return }
 
     Add-Type -TypeDefinition @'
 using System;
