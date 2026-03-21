@@ -19,6 +19,8 @@ public:
 		RunTest(allPassed, &TestGetAgentPlatformKnownValue, "GetAgentPlatform returns known platform");
 		RunTest(allPassed, &TestGetOSVersion, "GetOSVersion returns non-empty string");
 		RunTest(allPassed, &TestGetOSVersionNotUnknown, "GetOSVersion returns actual version info");
+		RunTest(allPassed, &TestGetHostname, "GetHostname returns non-empty string");
+		RunTest(allPassed, &TestGetArchitecture, "GetArchitecture returns known architecture");
 		RunTest(allPassed, &TestSystemInfoPopulated, "SystemInfo fields are populated");
 
 		if (allPassed)
@@ -140,34 +142,93 @@ private:
 		return true;
 	}
 
+	static BOOL TestGetHostname()
+	{
+		CHAR buffer[256];
+		Memory::Zero(buffer, sizeof(buffer));
+
+		USIZE len = Environment::GetHostname(Span<CHAR>(buffer, 255));
+
+		if (len == 0)
+		{
+			LOG_ERROR("GetHostname returned length 0");
+			return false;
+		}
+
+		if (buffer[0] == '\0')
+		{
+			LOG_ERROR("GetHostname returned empty string");
+			return false;
+		}
+
+		LOG_INFO("  Hostname: %s (len=%llu)", buffer, (UINT64)len);
+		return true;
+	}
+
+	static BOOL TestGetArchitecture()
+	{
+		CHAR buffer[32];
+		Memory::Zero(buffer, sizeof(buffer));
+
+		USIZE len = Environment::GetArchitecture(Span<CHAR>(buffer, 31));
+
+		if (len == 0)
+		{
+			LOG_ERROR("GetArchitecture returned length 0");
+			return false;
+		}
+
+		// Must be one of the known architecture strings
+		BOOL isKnown = StringUtils::Equals(buffer, "x86_64") ||
+					   StringUtils::Equals(buffer, "i386") ||
+					   StringUtils::Equals(buffer, "aarch64") ||
+					   StringUtils::Equals(buffer, "armv7a") ||
+					   StringUtils::Equals(buffer, "riscv64") ||
+					   StringUtils::Equals(buffer, "riscv32") ||
+					   StringUtils::Equals(buffer, "mips64");
+
+		if (!isKnown)
+		{
+			LOG_ERROR("GetArchitecture returned unknown value: %s", buffer);
+			return false;
+		}
+
+		LOG_INFO("  Architecture: %s (len=%llu)", buffer, (UINT64)len);
+		return true;
+	}
+
 	static BOOL TestSystemInfoPopulated()
 	{
 		SystemInfo info;
 		GetSystemInfo(&info);
 
-		// AgentPlatform should be populated
-		if (info.AgentPlatform[0] == '\0')
+		// All string fields should be populated
+		if (info.Hostname[0] == '\0')
 		{
-			LOG_ERROR("SystemInfo.AgentPlatform is empty");
+			LOG_ERROR("SystemInfo.Hostname is empty");
 			return false;
 		}
 
-		// OSVersion should be populated
-		if (info.OSVersion[0] == '\0')
-		{
-			LOG_ERROR("SystemInfo.OSVersion is empty");
-			return false;
-		}
-
-		// Architecture should be populated
 		if (info.Architecture[0] == '\0')
 		{
 			LOG_ERROR("SystemInfo.Architecture is empty");
 			return false;
 		}
 
-		LOG_INFO("  SystemInfo: arch=%s, agent_platform=%s, os_version=%s",
-				 info.Architecture, info.AgentPlatform, info.OSVersion);
+		if (info.AgentPlatform[0] == '\0')
+		{
+			LOG_ERROR("SystemInfo.AgentPlatform is empty");
+			return false;
+		}
+
+		if (info.OSVersion[0] == '\0')
+		{
+			LOG_ERROR("SystemInfo.OSVersion is empty");
+			return false;
+		}
+
+		LOG_INFO("  SystemInfo: host=%s, arch=%s, agent_platform=%s, os_version=%s",
+				 info.Hostname, info.Architecture, info.AgentPlatform, info.OSVersion);
 
 		return true;
 	}

@@ -30,3 +30,21 @@ USIZE Environment::GetOSVersion(Span<CHAR> buffer) noexcept
 	StringUtils::Copy(buffer, Span<const CHAR>("uefi"));
 	return StringUtils::Length(buffer.Data());
 }
+
+USIZE Environment::GetHostname(Span<CHAR> buffer) noexcept
+{
+	StringUtils::Copy(buffer, Span<const CHAR>("unknown"));
+	return StringUtils::Length(buffer.Data());
+}
+
+USIZE Environment::GetArchitecture(Span<CHAR> buffer) noexcept
+{
+#if defined(ARCHITECTURE_X86_64)
+	StringUtils::Copy(buffer, Span<const CHAR>("x86_64"));
+#elif defined(ARCHITECTURE_AARCH64)
+	StringUtils::Copy(buffer, Span<const CHAR>("aarch64"));
+#else
+	StringUtils::Copy(buffer, Span<const CHAR>("unknown"));
+#endif
+	return StringUtils::Length(buffer.Data());
+}

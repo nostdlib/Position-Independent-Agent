@@ -9,9 +9,11 @@
  * GetVariable() always returns 0 as environment variables are not available.
  * No .rdata dependencies.
  *
- * Platform identification:
+ * Platform and system identification:
  * - GetAgentPlatform(): compile-time OS target string (e.g. "windows", "linux")
  * - GetOSVersion(): runtime OS version string (e.g. "Windows 10.0 Build 19045")
+ * - GetHostname(): machine hostname from OS environment
+ * - GetArchitecture(): compile-time CPU architecture string (e.g. "x86_64")
  */
 
 #pragma once
@@ -61,6 +63,33 @@ public:
 	 * - UEFI: "uefi"
 	 */
 	static USIZE GetOSVersion(Span<CHAR> buffer) noexcept;
+
+	/**
+	 * @brief Retrieves the machine hostname.
+	 *
+	 * @param buffer Output buffer to receive the hostname string.
+	 * @return Length of the string written (excluding null terminator).
+	 *
+	 * @details Retrieves the hostname using platform-specific methods:
+	 * - Windows: COMPUTERNAME environment variable from PEB
+	 * - Linux/Android: HOSTNAME environment variable, fallback to /etc/hostname
+	 * - macOS/FreeBSD/Solaris/iOS: HOSTNAME environment variable, fallback
+	 *   to /etc/hostname
+	 * - UEFI: returns "unknown" (no hostname concept)
+	 */
+	static USIZE GetHostname(Span<CHAR> buffer) noexcept;
+
+	/**
+	 * @brief Retrieves the compile-time CPU architecture string.
+	 *
+	 * @param buffer Output buffer to receive the architecture string.
+	 * @return Length of the string written (excluding null terminator).
+	 *
+	 * @details Returns a short identifier for the CPU architecture the agent
+	 * was compiled for (e.g. "x86_64", "aarch64", "i386", "armv7a", "riscv64",
+	 * "riscv32", "mips64"). Determined at compile time from ARCHITECTURE_* defines.
+	 */
+	static USIZE GetArchitecture(Span<CHAR> buffer) noexcept;
 
 	// Prevent instantiation
 	VOID *operator new(USIZE) = delete;

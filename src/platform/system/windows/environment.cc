@@ -179,3 +179,30 @@ USIZE Environment::GetOSVersion(Span<CHAR> buffer) noexcept
 
 	return pos;
 }
+
+USIZE Environment::GetHostname(Span<CHAR> buffer) noexcept
+{
+	USIZE len = Environment::GetVariable("COMPUTERNAME", buffer);
+	if (len == 0)
+	{
+		StringUtils::Copy(buffer, Span<const CHAR>("unknown"));
+		return StringUtils::Length(buffer.Data());
+	}
+	return len;
+}
+
+USIZE Environment::GetArchitecture(Span<CHAR> buffer) noexcept
+{
+#if defined(ARCHITECTURE_X86_64)
+	StringUtils::Copy(buffer, Span<const CHAR>("x86_64"));
+#elif defined(ARCHITECTURE_I386)
+	StringUtils::Copy(buffer, Span<const CHAR>("i386"));
+#elif defined(ARCHITECTURE_AARCH64)
+	StringUtils::Copy(buffer, Span<const CHAR>("aarch64"));
+#elif defined(ARCHITECTURE_ARMV7A)
+	StringUtils::Copy(buffer, Span<const CHAR>("armv7a"));
+#else
+	StringUtils::Copy(buffer, Span<const CHAR>("unknown"));
+#endif
+	return StringUtils::Length(buffer.Data());
+}

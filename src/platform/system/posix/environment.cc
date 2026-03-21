@@ -232,3 +232,62 @@ USIZE Environment::GetOSVersion(Span<CHAR> buffer) noexcept
 	StringUtils::Copy(buffer, Span<const CHAR>("unknown"));
 	return StringUtils::Length(buffer.Data());
 }
+
+USIZE Environment::GetHostname(Span<CHAR> buffer) noexcept
+{
+	// Try HOSTNAME environment variable first
+	USIZE len = Environment::GetVariable("HOSTNAME", buffer);
+	if (len > 0)
+		return len;
+
+	// Fallback: read /etc/hostname
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+	{
+		const CHAR *path = "/etc/hostname";
+#if defined(ARCHITECTURE_AARCH64) || defined(ARCHITECTURE_RISCV64) || defined(ARCHITECTURE_RISCV32)
+		SSIZE fd = System::Call(SYS_OPENAT, (USIZE)-100, (USIZE)path, 0, 0);
+#else
+		SSIZE fd = System::Call(SYS_OPEN, (USIZE)path, 0, 0);
+#endif
+		if (fd >= 0)
+		{
+			SSIZE bytesRead = System::Call(SYS_READ, (USIZE)fd, (USIZE)buffer.Data(), buffer.Size() - 1);
+			System::Call(SYS_CLOSE, (USIZE)fd);
+			if (bytesRead > 0)
+			{
+				// Trim trailing newline
+				if (buffer.Data()[bytesRead - 1] == '\n')
+					buffer.Data()[bytesRead - 1] = '\0';
+				else
+					buffer.Data()[bytesRead] = '\0';
+				return StringUtils::Length(buffer.Data());
+			}
+		}
+	}
+#endif
+
+	StringUtils::Copy(buffer, Span<const CHAR>("unknown"));
+	return StringUtils::Length(buffer.Data());
+}
+
+USIZE Environment::GetArchitecture(Span<CHAR> buffer) noexcept
+{
+#if defined(ARCHITECTURE_X86_64)
+	StringUtils::Copy(buffer, Span<const CHAR>("x86_64"));
+#elif defined(ARCHITECTURE_I386)
+	StringUtils::Copy(buffer, Span<const CHAR>("i386"));
+#elif defined(ARCHITECTURE_AARCH64)
+	StringUtils::Copy(buffer, Span<const CHAR>("aarch64"));
+#elif defined(ARCHITECTURE_ARMV7A)
+	StringUtils::Copy(buffer, Span<const CHAR>("armv7a"));
+#elif defined(ARCHITECTURE_RISCV64)
+	StringUtils::Copy(buffer, Span<const CHAR>("riscv64"));
+#elif defined(ARCHITECTURE_RISCV32)
+	StringUtils::Copy(buffer, Span<const CHAR>("riscv32"));
+#elif defined(ARCHITECTURE_MIPS64)
+	StringUtils::Copy(buffer, Span<const CHAR>("mips64"));
+#else
+	StringUtils::Copy(buffer, Span<const CHAR>("unknown"));
+#endif
+	return StringUtils::Length(buffer.Data());
+}
