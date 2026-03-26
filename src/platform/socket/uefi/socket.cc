@@ -35,10 +35,8 @@ struct UefiSocketContext
 // Helper Functions
 // =============================================================================
 
-static VOID EFIAPI EmptyNotify(EFI_EVENT Event, PVOID Context)
+static VOID EFIAPI EmptyNotify([[maybe_unused]] EFI_EVENT Event, [[maybe_unused]] PVOID Context)
 {
-	(VOID) Event;
-	(VOID) Context;
 }
 
 [[nodiscard]] static Result<void, Error> InitializeNetworkInterface(EFI_CONTEXT &ctx)
@@ -716,10 +714,8 @@ Result<void, Error> Socket::Close()
 // Bind (not used on UEFI - TCP protocol handles addressing via Configure)
 // =============================================================================
 
-Result<void, Error> Socket::Bind(const SockAddr &socketAddress, INT32 shareType)
+Result<void, Error> Socket::Bind([[maybe_unused]] const SockAddr &socketAddress, [[maybe_unused]] INT32 shareType)
 {
-	(VOID)socketAddress;
-	(VOID)shareType;
 	return Result<void, Error>::Err(Error::Socket_BindFailed_Bind);
 }
 

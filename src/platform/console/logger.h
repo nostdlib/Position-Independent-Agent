@@ -66,9 +66,8 @@ private:
 	/**
 	 * ConsoleCallback - Callback for console output (with ANSI colors)
 	 */
-	static BOOL ConsoleCallbackA(PVOID context, CHAR ch)
+	static BOOL ConsoleCallbackA([[maybe_unused]] PVOID context, CHAR ch)
 	{
-		(VOID) context;
 		return Console::Write(Span<const CHAR>(&ch, 1));
 	}
 

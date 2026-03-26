@@ -151,10 +151,8 @@ Result<Socket, Error> Socket::Create(const IPAddress &ipAddress, UINT16 port)
 	return Result<Socket, Error>::Ok(static_cast<Socket &&>(sock));
 }
 
-Result<void, Error> Socket::Bind(const SockAddr &socketAddress, INT32 shareType)
+Result<void, Error> Socket::Bind(const SockAddr &socketAddress, [[maybe_unused]] INT32 shareType)
 {
-	(VOID)shareType; // not used on POSIX platforms
-
 	SSIZE  sockfd  = (SSIZE)handle;
 	UINT32 addrLen = (ip.IsIPv6()) ? sizeof(SockAddr6) : sizeof(SockAddr);
 	SSIZE  result  = PosixBind(sockfd, &socketAddress, addrLen);

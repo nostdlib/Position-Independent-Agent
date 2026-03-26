@@ -8,17 +8,12 @@
 #include "platform/system/process.h"
 
 Result<Process, Error> Process::Create(
-	const CHAR *path,
-	const CHAR *const args[],
-	SSIZE stdinFd,
-	SSIZE stdoutFd,
-	SSIZE stderrFd) noexcept
+	[[maybe_unused]] const CHAR *path,
+	[[maybe_unused]] const CHAR *const args[],
+	[[maybe_unused]] SSIZE stdinFd,
+	[[maybe_unused]] SSIZE stdoutFd,
+	[[maybe_unused]] SSIZE stderrFd) noexcept
 {
-	(void)path;
-	(void)args;
-	(void)stdinFd;
-	(void)stdoutFd;
-	(void)stderrFd;
 	return Result<Process, Error>::Err(Error::Process_NotSupported);
 }
 

@@ -18,29 +18,22 @@ Result<ShellProcess, Error> ShellProcess::Create() noexcept
 	return Result<ShellProcess, Error>::Err(Error::ShellProcess_NotSupported);
 }
 
-Result<USIZE, Error> ShellProcess::Write(const CHAR *data, USIZE length) noexcept
+Result<USIZE, Error> ShellProcess::Write([[maybe_unused]] const CHAR *data, [[maybe_unused]] USIZE length) noexcept
 {
-	(void)data;
-	(void)length;
 	return Result<USIZE, Error>::Err(Error::ShellProcess_NotSupported);
 }
 
-Result<USIZE, Error> ShellProcess::Read(CHAR *buffer, USIZE capacity) noexcept
+Result<USIZE, Error> ShellProcess::Read([[maybe_unused]] CHAR *buffer, [[maybe_unused]] USIZE capacity) noexcept
 {
-	(void)buffer;
-	(void)capacity;
 	return Result<USIZE, Error>::Err(Error::ShellProcess_NotSupported);
 }
 
-Result<USIZE, Error> ShellProcess::ReadError(CHAR *buffer, USIZE capacity) noexcept
+Result<USIZE, Error> ShellProcess::ReadError([[maybe_unused]] CHAR *buffer, [[maybe_unused]] USIZE capacity) noexcept
 {
-	(void)buffer;
-	(void)capacity;
 	return Result<USIZE, Error>::Err(Error::ShellProcess_NotSupported);
 }
 
-SSIZE ShellProcess::Poll(SSIZE timeoutMs) noexcept
+SSIZE ShellProcess::Poll([[maybe_unused]] SSIZE timeoutMs) noexcept
 {
-	(void)timeoutMs;
 	return -1;
 }

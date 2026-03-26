@@ -28,9 +28,7 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 // Screen::Capture (iOS — not supported)
 // =============================================================================
 
-Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
+Result<void, Error> Screen::Capture([[maybe_unused]] const ScreenDevice &device, [[maybe_unused]] Span<RGB> buffer)
 {
-	(void)device;
-	(void)buffer;
 	return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
 }

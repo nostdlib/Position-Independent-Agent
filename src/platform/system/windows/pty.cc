@@ -13,21 +13,18 @@ Result<Pty, Error> Pty::Create() noexcept
 	return Result<Pty, Error>::Err(Error::Pty_NotSupported);
 }
 
-Result<USIZE, Error> Pty::Read(Span<UINT8> buffer) noexcept
+Result<USIZE, Error> Pty::Read([[maybe_unused]] Span<UINT8> buffer) noexcept
 {
-	(void)buffer;
 	return Result<USIZE, Error>::Err(Error::Pty_NotSupported);
 }
 
-Result<USIZE, Error> Pty::Write(Span<const UINT8> data) noexcept
+Result<USIZE, Error> Pty::Write([[maybe_unused]] Span<const UINT8> data) noexcept
 {
-	(void)data;
 	return Result<USIZE, Error>::Err(Error::Pty_NotSupported);
 }
 
-SSIZE Pty::Poll(SSIZE timeoutMs) noexcept
+SSIZE Pty::Poll([[maybe_unused]] SSIZE timeoutMs) noexcept
 {
-	(void)timeoutMs;
 	return -1;
 }
 
