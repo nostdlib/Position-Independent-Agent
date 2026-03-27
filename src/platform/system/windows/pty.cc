@@ -28,15 +28,15 @@ SSIZE Pty::Poll([[maybe_unused]] SSIZE timeoutMs) noexcept
 	return -1;
 }
 
-Result<void, Error> Pty::CloseSlave() noexcept
+Result<VOID, Error> Pty::CloseSlave() noexcept
 {
 	slaveFd = INVALID_FD;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
-Result<void, Error> Pty::Close() noexcept
+Result<VOID, Error> Pty::Close() noexcept
 {
 	masterFd = INVALID_FD;
 	slaveFd = INVALID_FD;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }

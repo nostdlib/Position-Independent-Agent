@@ -508,7 +508,7 @@ private:
 			// Test 3: Posix error -> "111[P]"
 			if (passed)
 			{
-				auto posixResult = Result<void, Error>::Err(Error::Posix(111));
+				auto posixResult = Result<VOID, Error>::Err(Error::Posix(111));
 				Memory::Zero(buffer, 128);
 				ctx.index = 0;
 				StringFormatter::Format<CHAR>(fixed, &ctx, fmt_e, posixResult.Error());
@@ -531,7 +531,7 @@ private:
 				auto twoCode = Result<UINT32, Error>::Err(
 					Error::Windows(0xC0000034),
 					Error::Socket_OpenFailed_Connect);
-				auto propagated = Result<void, Error>::Err(twoCode, Error::Tls_OpenFailed_Socket);
+				auto propagated = Result<VOID, Error>::Err(twoCode, Error::Tls_OpenFailed_Socket);
 				Memory::Zero(buffer, 128);
 				ctx.index = 0;
 				StringFormatter::Format<CHAR>(fixed, &ctx, fmt_e, propagated.Error());

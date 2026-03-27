@@ -46,7 +46,7 @@ public:
 	~HttpClient()
 	{
 		if (IsValid())
-			(void)Close();
+			(VOID)Close();
 	}
 
 	HttpClient(const HttpClient &) = delete;
@@ -64,7 +64,7 @@ public:
 		if (this != &other)
 		{
 			if (IsValid())
-				(void)Close();
+				(VOID)Close();
 			ipAddress = other.ipAddress;
 			port = other.port;
 			tlsContext = static_cast<TlsClient &&>(other.tlsContext);
@@ -102,7 +102,7 @@ public:
 	 * @see RFC 9112 Section 3 — Connection Management
 	 *      https://datatracker.ietf.org/doc/html/rfc9112#section-3
 	 */
-	[[nodiscard]] Result<void, Error> Open();
+	[[nodiscard]] Result<VOID, Error> Open();
 	/**
 	 * @brief Close the connection and release resources
 	 *
@@ -114,7 +114,7 @@ public:
 	 * @see RFC 9112 Section 3 — Connection Management
 	 *      https://datatracker.ietf.org/doc/html/rfc9112#section-3
 	 */
-	[[nodiscard]] Result<void, Error> Close();
+	[[nodiscard]] Result<VOID, Error> Close();
 	/**
 	 * @brief Read data from the connection into the provided buffer
 	 *
@@ -150,7 +150,7 @@ public:
 	 * @see RFC 9112 Section 3 — Request Line
 	 *      https://datatracker.ietf.org/doc/html/rfc9112#section-3
 	 */
-	[[nodiscard]] Result<void, Error> SendGetRequest(PCCHAR host, PCCHAR path);
+	[[nodiscard]] Result<VOID, Error> SendGetRequest(PCCHAR host, PCCHAR path);
 	/**
 	 * @brief Send an HTTP POST request with the given body data
 	 *
@@ -167,7 +167,7 @@ public:
 	 * @see RFC 9112 Section 6 — Message Body
 	 *      https://datatracker.ietf.org/doc/html/rfc9112#section-6
 	 */
-	[[nodiscard]] Result<void, Error> SendPostRequest(PCCHAR host, PCCHAR path, Span<const CHAR> data);
+	[[nodiscard]] Result<VOID, Error> SendPostRequest(PCCHAR host, PCCHAR path, Span<const CHAR> data);
 	/**
 	 * @brief Parse a URL into its components and validate the format
 	 *
@@ -187,7 +187,7 @@ public:
 	 * @see RFC 3986 Section 3 — Syntax Components
 	 *      https://datatracker.ietf.org/doc/html/rfc3986#section-3
 	 */
-	[[nodiscard]] static Result<void, Error> ParseUrl(Span<const CHAR> url, CHAR (&host)[254], CHAR (&path)[2048], UINT16 &port, BOOL &secure);
+	[[nodiscard]] static Result<VOID, Error> ParseUrl(Span<const CHAR> url, CHAR (&host)[254], CHAR (&path)[2048], UINT16 &port, BOOL &secure);
 	/**
 	 * @brief Read HTTP response headers using a rolling window
 	 *

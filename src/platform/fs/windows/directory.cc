@@ -5,7 +5,7 @@
 #include "platform/kernel/windows/windows_types.h"
 #include "platform/kernel/windows/ntdll.h"
 
-Result<void, Error> Directory::Create(PCWCHAR path)
+Result<VOID, Error> Directory::Create(PCWCHAR path)
 {
 	PVOID hDir;
 	UNICODE_STRING uniName;
@@ -14,7 +14,7 @@ Result<void, Error> Directory::Create(PCWCHAR path)
 
 	auto pathResult = NTDLL::RtlDosPathNameToNtPathName_U(path, &uniName, nullptr, nullptr);
 	if (!pathResult)
-		return Result<void, Error>::Err(pathResult, Error::Fs_CreateDirFailed);
+		return Result<VOID, Error>::Err(pathResult, Error::Fs_CreateDirFailed);
 
 	InitializeObjectAttributes(&objAttr, &uniName, 0, nullptr, nullptr);
 
@@ -35,14 +35,14 @@ Result<void, Error> Directory::Create(PCWCHAR path)
 
 	if (createResult)
 	{
-		(void)NTDLL::ZwClose(hDir);
-		return Result<void, Error>::Ok();
+		(VOID)NTDLL::ZwClose(hDir);
+		return Result<VOID, Error>::Ok();
 	}
 	LOG_ERROR("Directory::Create failed: errors=%e path=%ls", createResult.Error(), path);
-	return Result<void, Error>::Err(createResult, Error::Fs_CreateDirFailed);
+	return Result<VOID, Error>::Err(createResult, Error::Fs_CreateDirFailed);
 }
 
-Result<void, Error> Directory::Delete(PCWCHAR path)
+Result<VOID, Error> Directory::Delete(PCWCHAR path)
 {
 	PVOID hDir;
 	FILE_DISPOSITION_INFORMATION disp;
@@ -54,7 +54,7 @@ Result<void, Error> Directory::Delete(PCWCHAR path)
 
 	auto pathResult = NTDLL::RtlDosPathNameToNtPathName_U(path, &uniName, nullptr, nullptr);
 	if (!pathResult)
-		return Result<void, Error>::Err(pathResult, Error::Fs_DeleteDirFailed);
+		return Result<VOID, Error>::Err(pathResult, Error::Fs_DeleteDirFailed);
 
 	InitializeObjectAttributes(&objAttr, &uniName, 0, nullptr, nullptr);
 
@@ -62,7 +62,7 @@ Result<void, Error> Directory::Delete(PCWCHAR path)
 	if (!openResult)
 	{
 		NTDLL::RtlFreeUnicodeString(&uniName);
-		return Result<void, Error>::Err(openResult, Error::Fs_DeleteDirFailed);
+		return Result<VOID, Error>::Err(openResult, Error::Fs_DeleteDirFailed);
 	}
 
 	auto setResult = NTDLL::ZwSetInformationFile(
@@ -72,11 +72,11 @@ Result<void, Error> Directory::Delete(PCWCHAR path)
 		sizeof(disp),
 		FileDispositionInformation);
 
-	(void)NTDLL::ZwClose(hDir);
+	(VOID)NTDLL::ZwClose(hDir);
 	NTDLL::RtlFreeUnicodeString(&uniName);
 
 	if (!setResult)
-		return Result<void, Error>::Err(setResult, Error::Fs_DeleteDirFailed);
+		return Result<VOID, Error>::Err(setResult, Error::Fs_DeleteDirFailed);
 
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }

@@ -22,9 +22,9 @@ Result<SSIZE, Error> Process::Wait() noexcept
 	return Result<SSIZE, Error>::Err(Error::Process_NotSupported);
 }
 
-Result<void, Error> Process::Terminate() noexcept
+Result<VOID, Error> Process::Terminate() noexcept
 {
-	return Result<void, Error>::Err(Error::Process_NotSupported);
+	return Result<VOID, Error>::Err(Error::Process_NotSupported);
 }
 
 BOOL Process::IsRunning() const noexcept
@@ -32,8 +32,8 @@ BOOL Process::IsRunning() const noexcept
 	return false;
 }
 
-Result<void, Error> Process::Close() noexcept
+Result<VOID, Error> Process::Close() noexcept
 {
 	id = INVALID_ID;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }

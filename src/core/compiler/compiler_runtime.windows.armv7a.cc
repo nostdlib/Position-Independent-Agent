@@ -134,7 +134,7 @@ extern "C"
 	 * calling convention (quotient in r0:r1, remainder in r2:r3).
 	 */
 	COMPILER_RUNTIME
-	__attribute__((naked)) void __rt_udiv64(void)
+	__attribute__((naked)) VOID __rt_udiv64(VOID)
 	{
 		// Swap r0:r1 (divisor) with r2:r3 (dividend) so divmod64_helper
 		// receives numerator=r0:r1, denominator=r2:r3

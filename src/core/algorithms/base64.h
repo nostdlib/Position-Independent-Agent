@@ -100,7 +100,7 @@ public:
 	 * @see RFC 4648 Section 3.5 — Canonical Encoding (padding rules)
 	 *      https://datatracker.ietf.org/doc/html/rfc4648#section-3.5
 	 */
-	static void Encode(Span<const CHAR> input, Span<CHAR> output);
+	static VOID Encode(Span<const CHAR> input, Span<CHAR> output);
 
 	/**
 	 * @brief Decodes Base64 formatted data back to binary
@@ -122,7 +122,7 @@ public:
 	 * @see RFC 4648 Section 3.3 — Interpretation of Non-Alphabet Characters
 	 *      https://datatracker.ietf.org/doc/html/rfc4648#section-3.3
 	 */
-	[[nodiscard]] static Result<void, Error> Decode(Span<const CHAR> input, Span<CHAR> output);
+	[[nodiscard]] static Result<VOID, Error> Decode(Span<const CHAR> input, Span<CHAR> output);
 
 	/**
 	 * @brief Calculates required output buffer size for encoding

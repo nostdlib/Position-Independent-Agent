@@ -130,39 +130,39 @@ Result<File, Error> File::Open(PCWCHAR path, INT32 flags)
 	return Result<File, Error>::Ok(File((PVOID)handle, size));
 }
 
-Result<void, Error> File::Delete(PCWCHAR path)
+Result<VOID, Error> File::Delete(PCWCHAR path)
 {
 	EFI_FILE_PROTOCOL *root = GetRootDirectory();
 	if (root == nullptr)
-		return Result<void, Error>::Err(Error::Fs_DeleteFailed);
+		return Result<VOID, Error>::Err(Error::Fs_DeleteFailed);
 
 	EFI_FILE_PROTOCOL *handle = OpenFileFromRoot(root, path, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0);
 	root->Close(root);
 
 	if (handle == nullptr)
-		return Result<void, Error>::Err(Error::Fs_DeleteFailed);
+		return Result<VOID, Error>::Err(Error::Fs_DeleteFailed);
 
 	// EFI_FILE_PROTOCOL.Delete closes the handle and deletes the file
 	EFI_STATUS status = handle->Delete(handle);
 	if (EFI_ERROR_CHECK(status))
-		return Result<void, Error>::Err(Error::Uefi((UINT32)status), Error::Fs_DeleteFailed);
-	return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Err(Error::Uefi((UINT32)status), Error::Fs_DeleteFailed);
+	return Result<VOID, Error>::Ok();
 }
 
-Result<void, Error> File::Exists(PCWCHAR path)
+Result<VOID, Error> File::Exists(PCWCHAR path)
 {
 	EFI_FILE_PROTOCOL *root = GetRootDirectory();
 	if (root == nullptr)
-		return Result<void, Error>::Err(Error::Fs_OpenFailed);
+		return Result<VOID, Error>::Err(Error::Fs_OpenFailed);
 
 	EFI_FILE_PROTOCOL *handle = OpenFileFromRoot(root, path, EFI_FILE_MODE_READ, 0);
 	root->Close(root);
 
 	if (handle == nullptr)
-		return Result<void, Error>::Err(Error::Fs_OpenFailed);
+		return Result<VOID, Error>::Err(Error::Fs_OpenFailed);
 
 	handle->Close(handle);
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 BOOL File::IsValid() const
@@ -232,22 +232,22 @@ Result<USIZE, Error> File::GetOffset() const
 	return Result<USIZE, Error>::Err(Error::Uefi((UINT32)status), Error::Fs_SeekFailed);
 }
 
-Result<void, Error> File::SetOffset(USIZE absoluteOffset)
+Result<VOID, Error> File::SetOffset(USIZE absoluteOffset)
 {
 	if (!IsValid())
-		return Result<void, Error>::Err(Error::Fs_SeekFailed);
+		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
 
 	EFI_FILE_PROTOCOL *fp = (EFI_FILE_PROTOCOL *)fileHandle;
 	EFI_STATUS status = fp->SetPosition(fp, absoluteOffset);
 	if (!EFI_ERROR_CHECK(status))
-		return Result<void, Error>::Ok();
-	return Result<void, Error>::Err(Error::Uefi((UINT32)status), Error::Fs_SeekFailed);
+		return Result<VOID, Error>::Ok();
+	return Result<VOID, Error>::Err(Error::Uefi((UINT32)status), Error::Fs_SeekFailed);
 }
 
-Result<void, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
+Result<VOID, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
 {
 	if (!IsValid())
-		return Result<void, Error>::Err(Error::Fs_SeekFailed);
+		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
 
 	EFI_FILE_PROTOCOL *fp = (EFI_FILE_PROTOCOL *)fileHandle;
 	UINT64 newPosition = 0;
@@ -262,7 +262,7 @@ Result<void, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
 		UINT64 currentPos = 0;
 		EFI_STATUS getStatus = fp->GetPosition(fp, &currentPos);
 		if (EFI_ERROR_CHECK(getStatus))
-			return Result<void, Error>::Err(Error::Uefi((UINT32)getStatus), Error::Fs_SeekFailed);
+			return Result<VOID, Error>::Err(Error::Uefi((UINT32)getStatus), Error::Fs_SeekFailed);
 		if (relativeAmount >= 0)
 			newPosition = currentPos + relativeAmount;
 		else
@@ -276,13 +276,13 @@ Result<void, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
 			newPosition = (fileSize > (UINT64)(-relativeAmount)) ? fileSize + relativeAmount : 0;
 		break;
 	default:
-		return Result<void, Error>::Err(Error::Fs_SeekFailed);
+		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
 	}
 
 	EFI_STATUS status = fp->SetPosition(fp, newPosition);
 	if (!EFI_ERROR_CHECK(status))
-		return Result<void, Error>::Ok();
-	return Result<void, Error>::Err(Error::Uefi((UINT32)status), Error::Fs_SeekFailed);
+		return Result<VOID, Error>::Ok();
+	return Result<VOID, Error>::Err(Error::Uefi((UINT32)status), Error::Fs_SeekFailed);
 }
 
 File::File(File &&other) noexcept
@@ -297,7 +297,7 @@ File &File::operator=(File &&other) noexcept
 	if (this != &other)
 	{
 		if (IsValid())
-			(void)Close();
+			(VOID)Close();
 		fileHandle = other.fileHandle;
 		fileSize = other.fileSize;
 		other.fileHandle = nullptr;

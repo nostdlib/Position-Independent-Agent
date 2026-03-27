@@ -98,7 +98,7 @@ private:
 		}
 
 		// Close write end so read gets EOF after data
-		(void)pipe.CloseWrite();
+		(VOID)pipe.CloseWrite();
 
 		// Read data
 		UINT8 buf[64]{};
@@ -137,7 +137,7 @@ private:
 		auto &pipe = result.Value();
 
 		// Close read end
-		(void)pipe.CloseRead();
+		(VOID)pipe.CloseRead();
 		if (pipe.ReadEnd() != -1)
 		{
 			LOG_ERROR("ReadEnd should be -1 after CloseRead");
@@ -145,7 +145,7 @@ private:
 		}
 
 		// Close write end
-		(void)pipe.CloseWrite();
+		(VOID)pipe.CloseWrite();
 		if (pipe.WriteEnd() != -1)
 		{
 			LOG_ERROR("WriteEnd should be -1 after CloseWrite");
@@ -228,7 +228,7 @@ private:
 		}
 
 		// Close write end in parent — child has its own copy
-		(void)pipe.CloseWrite();
+		(VOID)pipe.CloseWrite();
 
 		// Wait for child to exit
 		auto &proc = procResult.Value();

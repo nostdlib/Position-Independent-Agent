@@ -137,18 +137,18 @@ public:
 	VOID Destroy();
 	PINT8 CreateClientRand();
 	// Function to update server information
-	[[nodiscard]] Result<void, Error> UpdateServerInfo();
+	[[nodiscard]] Result<VOID, Error> UpdateServerInfo();
 	// Function to get and update the current handshake hash
 	VOID GetHash(Span<CHAR> out);
 	VOID UpdateHash(Span<const CHAR> in);
 	// Key computation functions
-	[[nodiscard]] Result<void, Error> ComputePublicKey(INT32 eccIndex, TlsBuffer &out);
-	[[nodiscard]] Result<void, Error> ComputePreKey(ECC_GROUP ecc, Span<const CHAR> serverKey, TlsBuffer &premasterKey);
-	[[nodiscard]] Result<void, Error> ComputeKey(ECC_GROUP ecc, Span<const CHAR> serverKey, Span<CHAR> finishedHash);
-	[[nodiscard]] Result<void, Error> ComputeVerify(TlsBuffer &out, INT32 verifySize, INT32 localOrRemote);
+	[[nodiscard]] Result<VOID, Error> ComputePublicKey(INT32 eccIndex, TlsBuffer &out);
+	[[nodiscard]] Result<VOID, Error> ComputePreKey(ECC_GROUP ecc, Span<const CHAR> serverKey, TlsBuffer &premasterKey);
+	[[nodiscard]] Result<VOID, Error> ComputeKey(ECC_GROUP ecc, Span<const CHAR> serverKey, Span<CHAR> finishedHash);
+	[[nodiscard]] Result<VOID, Error> ComputeVerify(TlsBuffer &out, INT32 verifySize, INT32 localOrRemote);
 	// Functions for encoding and decoding TLS records
 	VOID Encode(TlsBuffer &sendbuf, Span<const CHAR> packet, BOOL keepOriginal);
-	[[nodiscard]] Result<void, Error> Decode(TlsBuffer &inout, INT32 version);
+	[[nodiscard]] Result<VOID, Error> Decode(TlsBuffer &inout, INT32 version);
 	VOID SetEncoding(BOOL encoding);
 	// Function to reset sequence numbers
 	VOID ResetSequenceNumber();

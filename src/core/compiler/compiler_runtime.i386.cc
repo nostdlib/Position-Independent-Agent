@@ -38,7 +38,7 @@
  *
  * @note Force inlined for maximum performance in critical path
  */
-static FORCE_INLINE void udiv64_internal(UINT64 numerator, UINT64 denominator,
+static FORCE_INLINE VOID udiv64_internal(UINT64 numerator, UINT64 denominator,
 										 UINT64 *quotient, UINT64 *remainder)
 {
 	// Division by zero: return 0 quotient, numerator as remainder
@@ -152,7 +152,7 @@ extern "C"
 	 *
 	 * @note Force inlined for maximum performance in critical path
 	 */
-	static FORCE_INLINE void idiv64_internal(INT64 numerator, INT64 denominator,
+	static FORCE_INLINE VOID idiv64_internal(INT64 numerator, INT64 denominator,
 											 INT64 *quotient, INT64 *remainder)
 	{
 		if (__builtin_expect(denominator == 0, 0))

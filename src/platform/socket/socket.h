@@ -365,7 +365,7 @@ private:
 	 * @see RFC 9293 Section 3.1 — Header Format (local port assignment)
 	 *      https://datatracker.ietf.org/doc/html/rfc9293#section-3.1
 	 */
-	[[nodiscard]] Result<void, Error> Bind(const SockAddr &socketAddress, INT32 shareType);
+	[[nodiscard]] Result<VOID, Error> Bind(const SockAddr &socketAddress, INT32 shareType);
 
 	/**
 	 * @brief Private constructor for factory use
@@ -421,7 +421,7 @@ public:
 	~Socket()
 	{
 		if (IsValid())
-			(void)Close();
+			(VOID)Close();
 	}
 
 	/// @name Non-Copyable
@@ -452,7 +452,7 @@ public:
 		if (this != &other)
 		{
 			if (IsValid())
-				(void)Close();
+				(VOID)Close();
 			ip = other.ip;
 			port = other.port;
 			handle = other.handle;
@@ -504,7 +504,7 @@ public:
 	 * @see RFC 9293 Section 3.5 — Establishing a Connection
 	 *      https://datatracker.ietf.org/doc/html/rfc9293#section-3.5
 	 */
-	[[nodiscard]] Result<void, Error> Open();
+	[[nodiscard]] Result<VOID, Error> Open();
 
 	/**
 	 * @brief Closes the socket and releases all associated resources
@@ -530,7 +530,7 @@ public:
 	 * @see RFC 9293 Section 3.6 — Closing a Connection
 	 *      https://datatracker.ietf.org/doc/html/rfc9293#section-3.6
 	 */
-	[[nodiscard]] Result<void, Error> Close();
+	[[nodiscard]] Result<VOID, Error> Close();
 
 	/**
 	 * @brief Reads data from the connected socket

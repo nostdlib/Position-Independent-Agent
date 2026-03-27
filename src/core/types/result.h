@@ -45,7 +45,7 @@ struct VOID_TO_TAG
 
 // Specialization for void maps to VOID_TAG
 template <>
-struct VOID_TO_TAG<void>
+struct VOID_TO_TAG<VOID>
 {
 	using Type = VOID_TAG;
 };
@@ -54,7 +54,7 @@ struct VOID_TO_TAG<void>
 template <typename T, typename E>
 class [[nodiscard]] Result
 {
-	static constexpr BOOL IsVoid = __is_same_as(T, void);
+	static constexpr BOOL IsVoid = __is_same_as(T, VOID);
 	using STORED_TYPE = typename VOID_TO_TAG<T>::Type;
 
 	union
@@ -64,7 +64,7 @@ class [[nodiscard]] Result
 	};
 	BOOL m_isOk;
 
-	constexpr void DestroyActive() noexcept
+	constexpr VOID DestroyActive() noexcept
 	{
 		if constexpr (!__is_trivially_destructible(STORED_TYPE) || !__is_trivially_destructible(E))
 		{
@@ -204,12 +204,12 @@ private:
 /// @note Error() on an Ok result returns Error{None, Runtime} — well-defined,
 ///       unlike the primary template where reading the inactive union member is UB.
 template <>
-class [[nodiscard]] Result<void, Error>
+class [[nodiscard]] Result<VOID, Error>
 {
 	struct Error m_error;
 
 public:
-	using ValueType = void;
+	using ValueType = VOID;
 	using ErrorType = struct Error;
 
 	// =====================================================================

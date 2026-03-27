@@ -52,7 +52,7 @@ public:
 	 *
 	 * @return void on success, Error on failure
 	 */
-	[[nodiscard]] Result<void, Error> Terminate() noexcept;
+	[[nodiscard]] Result<VOID, Error> Terminate() noexcept;
 
 	/**
 	 * IsRunning - Check if the process is still alive
@@ -80,7 +80,7 @@ public:
 	~Process() noexcept
 	{
 		if (IsValid())
-			(void)Close();
+			(VOID)Close();
 	}
 
 	Process(Process &&other) noexcept
@@ -100,7 +100,7 @@ public:
 		if (this != &other)
 		{
 			if (IsValid())
-				(void)Close();
+				(VOID)Close();
 			id = other.id;
 #if defined(PLATFORM_WINDOWS)
 			handle = other.handle;
@@ -146,5 +146,5 @@ private:
 	}
 #endif
 
-	Result<void, Error> Close() noexcept;
+	Result<VOID, Error> Close() noexcept;
 };

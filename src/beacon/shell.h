@@ -14,7 +14,7 @@ public:
     Result<USIZE, Error> Read(char *buffer, USIZE capacity) noexcept;
     Result<USIZE, Error> ReadError(char *buffer, USIZE capacity) noexcept;
 
-    ~Shell() noexcept;
+    ~Shell() noexcept = default;
     Shell(Shell &&other) noexcept;
     Shell &operator=(Shell &&) = delete;
     Shell(const Shell &) = delete;

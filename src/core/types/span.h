@@ -219,7 +219,7 @@ public:
 	/// Template parameter makes this a function template so the non-template
 	/// array-reference constructor above wins when the argument is an array,
 	/// while this constructor wins when the argument is a plain pointer.
-	template <typename = void>
+	template <typename = VOID>
 	constexpr FORCE_INLINE explicit Span(T *ptr) : m_data(ptr) {}
 
 	// Span<U, N> -> Span<const U, N> implicit conversion

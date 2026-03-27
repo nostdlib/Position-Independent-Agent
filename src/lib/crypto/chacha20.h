@@ -161,7 +161,7 @@ public:
 	 * @details Derives the Poly1305 key by encrypting zeros with ChaCha20
 	 * using block counter 0, as specified in RFC 7539.
 	 */
-	[[nodiscard]] static Result<void, Error> GenerateKey(Span<const UCHAR, POLY1305_KEYLEN> key256, Span<const UCHAR> nonce, Span<UCHAR, POLY1305_KEYLEN> polyKey, UINT32 counter);
+	[[nodiscard]] static Result<VOID, Error> GenerateKey(Span<const UCHAR, POLY1305_KEYLEN> key256, Span<const UCHAR> nonce, Span<UCHAR, POLY1305_KEYLEN> polyKey, UINT32 counter);
 };
 
 /**
@@ -246,7 +246,7 @@ public:
 	 * @see RFC 8439 Section 2.3 — The ChaCha20 Block Function
 	 *      https://datatracker.ietf.org/doc/html/rfc8439#section-2.3
 	 */
-	[[nodiscard]] Result<void, Error> KeySetup(Span<const UINT8> key);
+	[[nodiscard]] Result<VOID, Error> KeySetup(Span<const UINT8> key);
 
 	/**
 	 * @brief Extracts current key from state

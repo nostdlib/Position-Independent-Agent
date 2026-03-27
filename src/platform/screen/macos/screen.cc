@@ -295,16 +295,16 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 // Screen::Capture
 // =============================================================================
 
-Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
 {
 	if (!ProbeDisplayAvailable())
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	CGFunctions cg;
 	Memory::Zero(&cg, sizeof(cg));
 
 	if (!LoadCGFunctions(cg))
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	// Find the matching display ID
 	constexpr UINT32 maxDisplays = 16;
@@ -313,7 +313,7 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 
 	INT32 err = cg.GetActiveDisplayList(maxDisplays, displayIDs, &displayCount);
 	if (err != kCGErrorSuccess || displayCount == 0)
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	// Match by position and dimensions
 	CGDisplayID targetDisplay = 0;
@@ -335,12 +335,12 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	}
 
 	if (!found)
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	// Capture the display
 	PVOID image = cg.DisplayCreateImage(targetDisplay);
 	if (image == nullptr)
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	USIZE imgWidth = cg.ImageGetWidth(image);
 	USIZE imgHeight = cg.ImageGetHeight(image);
@@ -351,7 +351,7 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	if (imgWidth == 0 || imgHeight == 0 || bitsPerPixel < 24)
 	{
 		cg.Release(image);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Get raw pixel data via data provider
@@ -359,14 +359,14 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	if (provider == nullptr)
 	{
 		cg.Release(image);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	PVOID cfData = cg.DataProviderCopyData(provider);
 	if (cfData == nullptr)
 	{
 		cg.Release(image);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	const UINT8 *pixelData = cg.DataGetBytePtr(cfData);
@@ -374,7 +374,7 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	{
 		cg.Release(cfData);
 		cg.Release(image);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Determine pixel layout from bitmap info
@@ -438,5 +438,5 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	cg.Release(cfData);
 	cg.Release(image);
 
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }

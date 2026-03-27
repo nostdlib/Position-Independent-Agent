@@ -25,17 +25,17 @@ private:
 	TlsBuffer channelBuffer; // Channel buffer for received data
 	INT32 channelBytesRead;  // Number of bytes read from channel buffer
 	[[nodiscard]] Result<INT32, Error> ReadChannel(Span<CHAR> output);
-	[[nodiscard]] Result<void, Error> ProcessReceive();
-	[[nodiscard]] Result<void, Error> OnPacket(INT32 packetType, INT32 version, TlsBuffer &TlsReader);
-	[[nodiscard]] Result<void, Error> OnServerFinished();
-	[[nodiscard]] Result<void, Error> VerifyFinished(TlsBuffer &TlsReader);
-	[[nodiscard]] Result<void, Error> OnServerHelloDone();
-	[[nodiscard]] Result<void, Error> OnServerHello(TlsBuffer &TlsReader);
-	[[nodiscard]] Result<void, Error> SendChangeCipherSpec();
-	[[nodiscard]] Result<void, Error> SendClientExchange();
-	[[nodiscard]] Result<void, Error> SendClientFinished();
-	[[nodiscard]] Result<void, Error> SendClientHello(const CHAR *host);
-	[[nodiscard]] Result<void, Error> SendPacket(INT32 packetType, INT32 ver, TlsBuffer &TlsBuffer);
+	[[nodiscard]] Result<VOID, Error> ProcessReceive();
+	[[nodiscard]] Result<VOID, Error> OnPacket(INT32 packetType, INT32 version, TlsBuffer &TlsReader);
+	[[nodiscard]] Result<VOID, Error> OnServerFinished();
+	[[nodiscard]] Result<VOID, Error> VerifyFinished(TlsBuffer &TlsReader);
+	[[nodiscard]] Result<VOID, Error> OnServerHelloDone();
+	[[nodiscard]] Result<VOID, Error> OnServerHello(TlsBuffer &TlsReader);
+	[[nodiscard]] Result<VOID, Error> SendChangeCipherSpec();
+	[[nodiscard]] Result<VOID, Error> SendClientExchange();
+	[[nodiscard]] Result<VOID, Error> SendClientFinished();
+	[[nodiscard]] Result<VOID, Error> SendClientHello(const CHAR *host);
+	[[nodiscard]] Result<VOID, Error> SendPacket(INT32 packetType, INT32 ver, TlsBuffer &TlsBuffer);
 
 	// Private trivial constructor — only used by Create()
 	TlsClient(PCCHAR host, const IPAddress &ipAddress, Socket &&socket, BOOL secure)
@@ -56,7 +56,7 @@ public:
 	~TlsClient()
 	{
 		if (IsValid())
-			(void)Close();
+			(VOID)Close();
 	}
 
 	// Disallow copy construction and assignment
@@ -78,7 +78,7 @@ public:
 		if (this != &other)
 		{
 			if (IsValid())
-				(void)Close();
+				(VOID)Close();
 			host = other.host;
 			ip = other.ip;
 			context = static_cast<Socket &&>(other.context);
@@ -100,8 +100,8 @@ public:
 	// Accessors and operations
 	BOOL IsValid() const { return context.IsValid(); }
 	BOOL IsSecure() const { return secure; }
-	[[nodiscard]] Result<void, Error> Open();
-	[[nodiscard]] Result<void, Error> Close();
+	[[nodiscard]] Result<VOID, Error> Open();
+	[[nodiscard]] Result<VOID, Error> Close();
 	[[nodiscard]] Result<SSIZE, Error> Read(Span<CHAR> buffer);
 	[[nodiscard]] Result<UINT32, Error> Write(Span<const CHAR> buffer);
 };

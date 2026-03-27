@@ -3,6 +3,6 @@
 
 NO_RETURN VOID ExitProcess(USIZE code)
 {
-	(void)NTDLL::ZwTerminateProcess(NTDLL::NtCurrentProcess(), (NTSTATUS)(code));
+	(VOID)NTDLL::ZwTerminateProcess(NTDLL::NtCurrentProcess(), (NTSTATUS)(code));
 	__builtin_unreachable();
 }

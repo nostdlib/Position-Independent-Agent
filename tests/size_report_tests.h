@@ -92,7 +92,7 @@ private:
 
 		// ── Common template instantiations ──
 		{ auto n = "Span<UINT8>";                CopyName(entries[count++], (PCCHAR)n, sizeof(Span<UINT8>)); }
-		{ auto n = "Result<void,Error>";         CopyName(entries[count++], (PCCHAR)n, sizeof(Result<void, Error>)); }
+		{ auto n = "Result<VOID,Error>";         CopyName(entries[count++], (PCCHAR)n, sizeof(Result<VOID, Error>)); }
 
 		// Bubble sort descending by size
 		for (INT32 i = 0; i < count - 1; i++)

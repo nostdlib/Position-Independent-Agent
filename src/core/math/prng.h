@@ -77,7 +77,7 @@ public:
 	 * @brief Set or reset the generator state
 	 * @param seed New state value
 	 */
-	constexpr FORCE_INLINE void Seed(UINT64 seed) { state = seed; }
+	constexpr FORCE_INLINE VOID Seed(UINT64 seed) { state = seed; }
 
 	/**
 	 * @brief Check whether the generator has been seeded

@@ -132,7 +132,7 @@ public:
 		Argument(const WCHAR *v) : Kind(Type::WSTR), Wstr(v) {}
 		Argument(WCHAR *v) : Kind(Type::WSTR), Wstr(v) {}
 		Argument(PVOID v) : Kind(Type::PTR), Ptr(v) {}
-		Argument(const void *v) : Kind(Type::PTR), Ptr(const_cast<PVOID>(v)) {}
+		Argument(const VOID *v) : Kind(Type::PTR), Ptr(const_cast<PVOID>(v)) {}
 		Argument(const Error &v) : Kind(Type::ERROR_VALUE), ErrValue(v) {}
 		Argument(INT64 v) : Kind(Type::INT64), I64(v) {}
 		Argument(UINT64 v) : Kind(Type::UINT64), U64(v) {}

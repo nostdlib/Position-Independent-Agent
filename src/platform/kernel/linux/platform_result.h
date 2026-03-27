@@ -21,7 +21,7 @@ template <typename T>
 {
 	if (result >= 0)
 	{
-		if constexpr (__is_same_as(T, void))
+		if constexpr (__is_same_as(T, VOID))
 			return Result<T, Error>::Ok();
 		else
 			return Result<T, Error>::Ok((T)result);

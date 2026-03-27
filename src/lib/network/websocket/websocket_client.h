@@ -186,7 +186,7 @@ private:
 	 * @see RFC 6455 Section 4.1 — Client Requirements
 	 *      https://datatracker.ietf.org/doc/html/rfc6455#section-4.1
 	 */
-	[[nodiscard]] Result<void, Error> Open(PCCHAR path);
+	[[nodiscard]] Result<VOID, Error> Open(PCCHAR path);
 
 	/**
 	 * @brief Reads exactly buffer.Size() bytes from the TLS transport
@@ -195,7 +195,7 @@ private:
 	 * @details Loops over TlsClient::Read until the requested byte count is satisfied.
 	 * Used internally by ReceiveFrame to read fixed-size header fields and payload data.
 	 */
-	[[nodiscard]] Result<void, Error> ReceiveRestrict(Span<CHAR> buffer);
+	[[nodiscard]] Result<VOID, Error> ReceiveRestrict(Span<CHAR> buffer);
 
 	/**
 	 * @brief Reads and parses a single WebSocket frame from the transport
@@ -215,7 +215,7 @@ private:
 	 * @see RFC 6455 Section 5.2 — Base Framing Protocol
 	 *      https://datatracker.ietf.org/doc/html/rfc6455#section-5.2
 	 */
-	[[nodiscard]] Result<void, Error> ReceiveFrame(WebSocketFrame &frame);
+	[[nodiscard]] Result<VOID, Error> ReceiveFrame(WebSocketFrame &frame);
 
 	/**
 	 * @brief Applies or removes the XOR masking transformation on a frame's payload
@@ -268,7 +268,7 @@ public:
 		if (this != &other)
 		{
 			if (IsValid())
-				(void)Close();
+				(VOID)Close();
 			Memory::Copy(hostName, other.hostName, sizeof(hostName));
 			ipAddress = other.ipAddress;
 			port = other.port;
@@ -322,7 +322,7 @@ public:
 	 * @see RFC 6455 Section 7.4.1 — Defined Status Codes (1000 = Normal Closure)
 	 *      https://datatracker.ietf.org/doc/html/rfc6455#section-7.4.1
 	 */
-	[[nodiscard]] Result<void, Error> Close();
+	[[nodiscard]] Result<VOID, Error> Close();
 
 	/**
 	 * @brief Reads the next complete WebSocket message (reassembling fragments)

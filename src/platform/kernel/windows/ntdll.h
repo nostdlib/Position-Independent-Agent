@@ -234,7 +234,7 @@ public:
 	 * @param FilePart Optional. Receives a pointer to the file name portion within NtName.
 	 * @param RelativeName Optional. Receives the relative name and containing directory handle.
 	 *
-	 * @return Result<void, Error> Ok() on success, Err(Ntdll_RtlPathResolveFailed) on failure.
+	 * @return Result<VOID, Error> Ok() on success, Err(Ntdll_RtlPathResolveFailed) on failure.
 	 *
 	 * @par Requirements
 	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
@@ -243,7 +243,7 @@ public:
 	 * @see RtlDosPathNameToNtPathName_U_WithStatus (documented variant)
 	 *      https://learn.microsoft.com/en-us/windows/win32/devnotes/rtldospathnametontpathname_u_withstatus
 	 */
-	[[nodiscard]] static Result<void, Error> RtlDosPathNameToNtPathName_U(const WCHAR *DosName, UNICODE_STRING *NtName, WCHAR **FilePart, PRTL_RELATIVE_NAME_U RelativeName);
+	[[nodiscard]] static Result<VOID, Error> RtlDosPathNameToNtPathName_U(const WCHAR *DosName, UNICODE_STRING *NtName, WCHAR **FilePart, PRTL_RELATIVE_NAME_U RelativeName);
 
 	/**
 	 * @brief Frees a UNICODE_STRING buffer allocated by the runtime library.

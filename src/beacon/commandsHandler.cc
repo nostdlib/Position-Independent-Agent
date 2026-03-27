@@ -92,9 +92,12 @@ static BOOL IsDotEntry(const DirectoryEntry &entry)
 
 VOID Handle_GetSystemInfoCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
+    LOG_INFO("Handling GetSystemInfoCommand.");
+    // Retrieve system information
     SystemInfo info;
     GetSystemInfo(&info);
 
+    // Append build metadata to the response
     AgentBuildInfo buildInfo;
     buildInfo.BuildNumber = AGENT_BUILD_NUMBER;
     const CHAR commitHash[] = AGENT_COMMIT_HASH;
@@ -103,6 +106,8 @@ VOID Handle_GetSystemInfoCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
     *responseLength = sizeof(UINT32) + sizeof(SystemInfo) + sizeof(AgentBuildInfo);
     *response = new CHAR[*responseLength];
     *(PUINT32)*response = StatusCode::StatusSuccess;
+
+    // Append system info and build info to the response buffer
     Memory::Copy(*response + sizeof(UINT32), &info, sizeof(SystemInfo));
     Memory::Copy(*response + sizeof(UINT32) + sizeof(SystemInfo), &buildInfo, sizeof(AgentBuildInfo));
 
@@ -193,7 +198,7 @@ VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused
     *responseLength = sizeof(UINT32) + sizeof(UINT64) + (USIZE)readCount;
     *response = new CHAR[*responseLength];
 
-    (void)file.SetOffset((USIZE)offset);
+    (VOID)file.SetOffset((USIZE)offset);
     auto readResult = file.Read(Span<UINT8>((UINT8 *)(*response + sizeof(UINT32) + sizeof(UINT64)), (USIZE)readCount));
     UINT32 bytesRead = readResult ? readResult.Value() : 0;
 
@@ -240,7 +245,7 @@ VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unus
     {
         UINT64 bytesToRead = Math::Min(bufferSize, chunkSize - totalRead);
         LOG_INFO("Reading file chunk with offset: %llu and count: %llu.", offset + totalRead, bytesToRead);
-        (void)file.SetOffset((USIZE)(offset + totalRead));
+        (VOID)file.SetOffset((USIZE)(offset + totalRead));
         auto readResult = file.Read(Span<UINT8>(buffer, (USIZE)bytesToRead));
         UINT32 bytesRead = readResult ? readResult.Value() : 0;
         if (bytesRead == 0)
@@ -264,6 +269,9 @@ VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unus
 // Writes a command to the shell
 VOID Handle_WriteShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
+    LOG_INFO("Handling WriteShellCommand.");
+    
+    // Verify that shell instance exists in the context, if not create it and validate the result
     if (context->shell == nullptr)
     {
         auto shellResult = Shell::Create();
@@ -276,9 +284,11 @@ VOID Handle_WriteShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] U
         context->shell = new Shell(static_cast<Shell &&>(shellResult.Value()));
     }
 
+    // Trim for null terminator 
     while (commandLength > 0 && command[commandLength - 1] == '\0')
         commandLength--;
 
+    // Write the command to the shell and validate the result
     auto writeResult = context->shell->Write(command, commandLength);
     if (!writeResult)
     {
@@ -296,6 +306,9 @@ VOID Handle_WriteShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] U
 // Reads a chunk of data from the shell's stdout
 VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
+    LOG_INFO("Handling ReadShellCommand.");
+
+    // Verify that shell instance exists in the context, if not create it and validate the result
     if (context->shell == nullptr)
     {
         auto shellResult = Shell::Create();
@@ -319,6 +332,7 @@ VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] US
         return;
     }
 
+    // Construct the response with status code and the data read from the shell
     USIZE bytesRead = readResult.Value() + 1;
     *responseLength += bytesRead;
     *response = new CHAR[*responseLength];
@@ -329,6 +343,8 @@ VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] US
 // Gets the list of display devices and their information
 VOID Handle_GetDisplaysCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
+    LOG_INFO("Handling GetDisplaysCommand.");
+
     if (context->screenCaptureContext == nullptr)
         context->screenCaptureContext = new ScreenCaptureContext();
 
@@ -385,6 +401,7 @@ VOID JpegCallback(PVOID context, PVOID data, INT32 size)
 // Gets a screenshot of the specified display device
 VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
+    // Retrieve parameters from command buffer
     auto displayIndex = *(PUINT32)(command);
     auto quality = *(PUINT32)(command + sizeof(UINT32));
     auto isFullScreen = *(PUINT32)(command + sizeof(UINT32) + sizeof(UINT32));
@@ -524,6 +541,7 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
     // Copy the current screenshot to the screenshot buffer for the next comparison
     Memory::Copy(graphics.screenshot, graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB));
 
+    // Construct the response
     *(PUINT32)(packet + sizeof(UINT32)) = countOfRects;
     *response = packet;
     *responseLength = offset;

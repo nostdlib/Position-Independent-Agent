@@ -242,8 +242,8 @@ private:
 			if (result)
 			{
 				// Terminate it
-				(void)result.Value().Terminate();
-				(void)result.Value().Wait();
+				(VOID)result.Value().Terminate();
+				(VOID)result.Value().Wait();
 			}
 
 			if (passed)
@@ -295,7 +295,7 @@ private:
 					passed = false;
 				}
 
-				(void)moved.Wait();
+				(VOID)moved.Wait();
 			}
 
 			if (passed)

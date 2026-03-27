@@ -14,7 +14,7 @@ Result<UUID, Error> GetMachineUUID()
 	request.TableBufferLength = 0;
 
 	UINT32 requiredSize = 0;
-	(void)NTDLL::ZwQuerySystemInformation(
+	(VOID)NTDLL::ZwQuerySystemInformation(
 		SystemFirmwareTableInformation,
 		&request,
 		sizeof(SYSTEM_FIRMWARE_TABLE_INFORMATION),

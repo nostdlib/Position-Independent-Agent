@@ -101,7 +101,7 @@ private:
 
 		// Void Ok construction
 		{
-			auto r = Result<void, UINT32>::Ok();
+			auto r = Result<VOID, UINT32>::Ok();
 			if (!r.IsOk())
 			{
 				LOG_ERROR("  FAILED: Void Ok construction (Ok().IsOk() returned false)");
@@ -120,7 +120,7 @@ private:
 
 		// Void Err construction
 		{
-			auto r = Result<void, Error>::Err(Error::Socket_CreateFailed_Open);
+			auto r = Result<VOID, Error>::Err(Error::Socket_CreateFailed_Open);
 			if (!r.IsErr())
 			{
 				LOG_ERROR("  FAILED: Void Err construction (Err().IsErr() returned false)");
@@ -325,8 +325,8 @@ private:
 
 		// Void move construction
 		{
-			auto ok1 = Result<void, UINT32>::Ok();
-			auto ok2 = static_cast<Result<void, UINT32> &&>(ok1);
+			auto ok1 = Result<VOID, UINT32>::Ok();
+			auto ok2 = static_cast<Result<VOID, UINT32> &&>(ok1);
 			if (!ok2.IsOk())
 			{
 				LOG_ERROR("  FAILED: Void move construction (Ok IsOk() false)");
@@ -334,8 +334,8 @@ private:
 			}
 			else
 			{
-				auto err1 = Result<void, UINT32>::Err(7);
-				auto err2 = static_cast<Result<void, UINT32> &&>(err1);
+				auto err1 = Result<VOID, UINT32>::Err(7);
+				auto err2 = static_cast<Result<VOID, UINT32> &&>(err1);
 				if (!err2.IsErr())
 				{
 					LOG_ERROR("  FAILED: Void move construction (Err IsErr() false)");
@@ -501,7 +501,7 @@ private:
 				Error::Posix(111),
 				Error::Socket_WriteFailed_Send);
 
-			auto outer = Result<void, Error>::Err(inner, Error::Tls_WriteFailed_Send);
+			auto outer = Result<VOID, Error>::Err(inner, Error::Tls_WriteFailed_Send);
 			if (!outer.IsErr())
 			{
 				LOG_ERROR("  FAILED: Propagation Err chaining (IsErr() false)");
@@ -556,10 +556,10 @@ private:
 		// Multi-level error chaining
 		{
 			// Simulate: OS -> Socket -> TLS -> HTTP (4 levels)
-			auto osResult = Result<void, Error>::Err(Error::Windows(0xC0000034));
-			auto socketResult = Result<void, Error>::Err(osResult, Error::Socket_OpenFailed_Connect);
-			auto tlsResult = Result<void, Error>::Err(socketResult, Error::Tls_OpenFailed_Socket);
-			auto httpResult = Result<void, Error>::Err(tlsResult, Error::Http_OpenFailed);
+			auto osResult = Result<VOID, Error>::Err(Error::Windows(0xC0000034));
+			auto socketResult = Result<VOID, Error>::Err(osResult, Error::Socket_OpenFailed_Connect);
+			auto tlsResult = Result<VOID, Error>::Err(socketResult, Error::Tls_OpenFailed_Socket);
+			auto httpResult = Result<VOID, Error>::Err(tlsResult, Error::Http_OpenFailed);
 
 			const Error &err = httpResult.Error();
 
@@ -627,16 +627,16 @@ private:
 
 		// Compact size
 		{
-			static_assert(sizeof(Result<void, Error>) == sizeof(Error),
+			static_assert(sizeof(Result<VOID, Error>) == sizeof(Error),
 				"Compact specialization must equal sizeof(Error)");
-			static_assert(sizeof(Result<void, UINT32>) > sizeof(UINT32),
-				"Primary template Result<void, UINT32> should have m_isOk overhead");
+			static_assert(sizeof(Result<VOID, UINT32>) > sizeof(UINT32),
+				"Primary template Result<VOID, UINT32> should have m_isOk overhead");
 			LOG_INFO("  PASSED: Compact specialization size");
 		}
 
 		// Compact void Ok
 		{
-			auto r = Result<void, Error>::Ok();
+			auto r = Result<VOID, Error>::Ok();
 			if (!r.IsOk())
 			{
 				LOG_ERROR("  FAILED: Compact void Ok (IsOk() returned false)");
@@ -660,7 +660,7 @@ private:
 
 		// Compact void Err
 		{
-			auto r = Result<void, Error>::Err(Error::Socket_CreateFailed_Open);
+			auto r = Result<VOID, Error>::Err(Error::Socket_CreateFailed_Open);
 			if (!r.IsErr())
 			{
 				LOG_ERROR("  FAILED: Compact void Err (IsErr() returned false)");
@@ -702,7 +702,7 @@ private:
 				Error::Posix(111),
 				Error::Socket_WriteFailed_Send);
 
-			auto outer = Result<void, Error>::Err(inner, Error::Tls_WriteFailed_Send);
+			auto outer = Result<VOID, Error>::Err(inner, Error::Tls_WriteFailed_Send);
 			if (!outer.IsErr())
 			{
 				LOG_ERROR("  FAILED: Compact void propagation (IsErr() false)");
@@ -746,7 +746,7 @@ private:
 
 		// Compact void two-arg Err
 		{
-			auto r = Result<void, Error>::Err(
+			auto r = Result<VOID, Error>::Err(
 				Error::Windows(0xC0000034),
 				Error::Socket_OpenFailed_Connect);
 			if (!r.IsErr())
@@ -792,7 +792,7 @@ private:
 
 		// Compact Error() on Ok is well-defined
 		{
-			auto r = Result<void, Error>::Ok();
+			auto r = Result<VOID, Error>::Ok();
 			const Error &err = r.Error();
 			if (err.Code != Error::None)
 			{
@@ -813,8 +813,8 @@ private:
 		// Compact void move construction
 		{
 			// Move Ok
-			auto ok1 = Result<void, Error>::Ok();
-			auto ok2 = static_cast<Result<void, Error> &&>(ok1);
+			auto ok1 = Result<VOID, Error>::Ok();
+			auto ok2 = static_cast<Result<VOID, Error> &&>(ok1);
 			if (!ok2.IsOk())
 			{
 				LOG_ERROR("  FAILED: Compact void move construction (Ok IsOk() false)");
@@ -823,8 +823,8 @@ private:
 			else
 			{
 				// Move Err
-				auto err1 = Result<void, Error>::Err(Error::Dns_ConnectFailed);
-				auto err2 = static_cast<Result<void, Error> &&>(err1);
+				auto err1 = Result<VOID, Error>::Err(Error::Dns_ConnectFailed);
+				auto err2 = static_cast<Result<VOID, Error> &&>(err1);
 				if (!err2.IsErr())
 				{
 					LOG_ERROR("  FAILED: Compact void move construction (Err IsErr() false)");
@@ -938,7 +938,7 @@ private:
 			}
 			else
 			{
-				auto r2 = Result<void, UINT32>::Err(7);
+				auto r2 = Result<VOID, UINT32>::Err(7);
 				if (!r2.IsErr())
 				{
 					LOG_ERROR("  FAILED: Non-chainable E type (void Err(7) IsErr() false)");
@@ -964,8 +964,8 @@ private:
 		{
 			static_assert(__is_same(Result<UINT32, UINT64>::ValueType, UINT32));
 			static_assert(__is_same(Result<UINT32, UINT64>::ErrorType, UINT64));
-			static_assert(__is_same(Result<void, UINT32>::ValueType, void));
-			static_assert(__is_same(Result<void, UINT32>::ErrorType, UINT32));
+			static_assert(__is_same(Result<VOID, UINT32>::ValueType, VOID));
+			static_assert(__is_same(Result<VOID, UINT32>::ErrorType, UINT32));
 			LOG_INFO("  PASSED: Type aliases");
 		}
 

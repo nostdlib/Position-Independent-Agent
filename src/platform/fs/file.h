@@ -50,7 +50,7 @@ public:
 	 * @param path Null-terminated wide string file path.
 	 * @return Void on success, or an Error on failure.
 	 */
-	[[nodiscard]] static Result<void, Error> Delete(PCWCHAR path);
+	[[nodiscard]] static Result<VOID, Error> Delete(PCWCHAR path);
 
 	/**
 	 * @brief Checks whether a file exists at the given path.
@@ -59,7 +59,7 @@ public:
 	 * @param path Null-terminated wide string file path.
 	 * @return Void on success (file exists), or an Error if the file does not exist.
 	 */
-	[[nodiscard]] static Result<void, Error> Exists(PCWCHAR path);
+	[[nodiscard]] static Result<VOID, Error> Exists(PCWCHAR path);
 
 	/// Default constructor; initializes to an invalid handle with zero size.
 	File() : fileHandle(InvalidFileHandle()), fileSize(0) {}
@@ -141,7 +141,7 @@ public:
 	 * @param absoluteOffset Byte offset from the start of the file.
 	 * @return Void on success, or an Error on failure.
 	 */
-	[[nodiscard]] Result<void, Error> SetOffset(USIZE absoluteOffset);
+	[[nodiscard]] Result<VOID, Error> SetOffset(USIZE absoluteOffset);
 
 	/**
 	 * @brief Moves the file pointer by a relative amount from the specified origin.
@@ -149,5 +149,5 @@ public:
 	 * @param origin Reference point for the seek (Start, Current, or End).
 	 * @return Void on success, or an Error on failure.
 	 */
-	[[nodiscard]] Result<void, Error> MoveOffset(SSIZE relativeAmount, OffsetOrigin origin = OffsetOrigin::Current);
+	[[nodiscard]] Result<VOID, Error> MoveOffset(SSIZE relativeAmount, OffsetOrigin origin = OffsetOrigin::Current);
 };

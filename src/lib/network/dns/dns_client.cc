@@ -539,12 +539,12 @@ Result<IPAddress, Error> DnsClient::ResolveOverHttp(Span<const CHAR> host, const
 	}
 	UINT32 querySize = queryResult.Value();
 
-	auto writeSpan = [&tlsClient](Span<const CHAR> s) -> Result<void, Error>
+	auto writeSpan = [&tlsClient](Span<const CHAR> s) -> Result<VOID, Error>
 	{
 		auto r = tlsClient.Write(s);
 		if (!r || r.Value() != s.Size())
-			return Result<void, Error>::Err(r, Error::Dns_SendFailed);
-		return Result<void, Error>::Ok();
+			return Result<VOID, Error>::Err(r, Error::Dns_SendFailed);
+		return Result<VOID, Error>::Ok();
 	};
 
 	CHAR sizeBuf[8];

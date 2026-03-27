@@ -32,8 +32,8 @@ Result<Pipe, Error> Pipe::Create() noexcept
 
 	if (result.IsErr())
 	{
-		(void)NTDLL::ZwClose(readHandle);
-		(void)NTDLL::ZwClose(writeHandle);
+		(VOID)NTDLL::ZwClose(readHandle);
+		(VOID)NTDLL::ZwClose(writeHandle);
 		return Result<Pipe, Error>::Err(result, Error::Pipe_CreateFailed);
 	}
 
@@ -101,37 +101,37 @@ Result<USIZE, Error> Pipe::Write(Span<const UINT8> data) noexcept
 // Pipe::CloseRead
 // ============================================================================
 
-Result<void, Error> Pipe::CloseRead() noexcept
+Result<VOID, Error> Pipe::CloseRead() noexcept
 {
 	if (readFd == INVALID_FD)
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 
-	(void)NTDLL::ZwClose((PVOID)(USIZE)readFd);
+	(VOID)NTDLL::ZwClose((PVOID)(USIZE)readFd);
 	readFd = INVALID_FD;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 // ============================================================================
 // Pipe::CloseWrite
 // ============================================================================
 
-Result<void, Error> Pipe::CloseWrite() noexcept
+Result<VOID, Error> Pipe::CloseWrite() noexcept
 {
 	if (writeFd == INVALID_FD)
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 
-	(void)NTDLL::ZwClose((PVOID)(USIZE)writeFd);
+	(VOID)NTDLL::ZwClose((PVOID)(USIZE)writeFd);
 	writeFd = INVALID_FD;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 // ============================================================================
 // Pipe::Close
 // ============================================================================
 
-Result<void, Error> Pipe::Close() noexcept
+Result<VOID, Error> Pipe::Close() noexcept
 {
-	(void)CloseRead();
-	(void)CloseWrite();
-	return Result<void, Error>::Ok();
+	(VOID)CloseRead();
+	(VOID)CloseWrite();
+	return Result<VOID, Error>::Ok();
 }

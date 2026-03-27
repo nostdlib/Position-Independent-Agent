@@ -95,7 +95,7 @@ public:
 	 * @param buffer Output RGB pixel buffer (top-down, left-to-right)
 	 * @return Ok on success, Err on capture failure
 	 */
-	[[nodiscard]] static Result<void, Error> Capture(
+	[[nodiscard]] static Result<VOID, Error> Capture(
 		const ScreenDevice &device,
 		Span<RGB> buffer);
 };

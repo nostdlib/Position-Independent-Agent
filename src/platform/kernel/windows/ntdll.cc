@@ -144,14 +144,14 @@ Result<NTSTATUS, Error> NTDLL::ZwOpenFile(PPVOID FileHandle, UINT32 DesiredAcces
 	return result::FromNTSTATUS<NTSTATUS>(status);
 }
 
-Result<void, Error> NTDLL::RtlDosPathNameToNtPathName_U(const WCHAR *DosName, UNICODE_STRING *NtName, WCHAR **FilePart, PRTL_RELATIVE_NAME_U RelativeName)
+Result<VOID, Error> NTDLL::RtlDosPathNameToNtPathName_U(const WCHAR *DosName, UNICODE_STRING *NtName, WCHAR **FilePart, PRTL_RELATIVE_NAME_U RelativeName)
 {
 	BOOL result = ((BOOL(STDCALL *)(const WCHAR *DosName, UNICODE_STRING *NtName, WCHAR **FilePart, PRTL_RELATIVE_NAME_U RelativeName))ResolveNtdllExportAddress("RtlDosPathNameToNtPathName_U"))(DosName, NtName, FilePart, RelativeName);
 	if (!result)
 	{
-		return Result<void, Error>::Err(Error(Error::Ntdll_RtlPathResolveFailed));
+		return Result<VOID, Error>::Err(Error(Error::Ntdll_RtlPathResolveFailed));
 	}
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 VOID NTDLL::RtlFreeUnicodeString(PUNICODE_STRING UnicodeString)

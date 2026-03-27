@@ -102,7 +102,7 @@ private:
 		// Test: Public key export functionality
 		{
 			ECC ecc;
-			(void)ecc.Initialize(32);
+			(VOID)ecc.Initialize(32);
 
 			UINT8 publicKey[32 * 2 + 1];
 			auto result = ecc.ExportPublicKey(Span<UINT8>(publicKey));
@@ -124,10 +124,10 @@ private:
 		// Test: Public key format validation
 		{
 			ECC ecc;
-			(void)ecc.Initialize(32);
+			(VOID)ecc.Initialize(32);
 
 			UINT8 publicKey[32 * 2 + 1];
-			(void)ecc.ExportPublicKey(Span<UINT8>(publicKey));
+			(VOID)ecc.ExportPublicKey(Span<UINT8>(publicKey));
 
 			if (publicKey[0] != 0x04)
 			{
@@ -161,14 +161,14 @@ private:
 		{
 			ECC alice, bob;
 
-			(void)alice.Initialize(32);
-			(void)bob.Initialize(32);
+			(VOID)alice.Initialize(32);
+			(VOID)bob.Initialize(32);
 
 			UINT8 alicePublicKey[32 * 2 + 1];
 			UINT8 bobPublicKey[32 * 2 + 1];
 
-			(void)alice.ExportPublicKey(Span<UINT8>(alicePublicKey));
-			(void)bob.ExportPublicKey(Span<UINT8>(bobPublicKey));
+			(VOID)alice.ExportPublicKey(Span<UINT8>(alicePublicKey));
+			(VOID)bob.ExportPublicKey(Span<UINT8>(bobPublicKey));
 
 			UINT8 aliceSecret[32];
 			UINT8 bobSecret[32];
@@ -200,16 +200,16 @@ private:
 		// Test: Sequential key generation produces different keys
 		{
 			ECC ecc1;
-			(void)ecc1.Initialize(32);
+			(VOID)ecc1.Initialize(32);
 
 			UINT8 pubKey1[32 * 2 + 1];
-			(void)ecc1.ExportPublicKey(Span<UINT8>(pubKey1));
+			(VOID)ecc1.ExportPublicKey(Span<UINT8>(pubKey1));
 
 			ECC ecc2;
-			(void)ecc2.Initialize(32);
+			(VOID)ecc2.Initialize(32);
 
 			UINT8 pubKey2[32 * 2 + 1];
-			(void)ecc2.ExportPublicKey(Span<UINT8>(pubKey2));
+			(VOID)ecc2.ExportPublicKey(Span<UINT8>(pubKey2));
 
 			BOOL key1DiffersFrom2 = !CompareBytes(Span<const UINT8>(pubKey1), Span<const UINT8>(pubKey2));
 			BOOL key1Valid = pubKey1[0] == 0x04 && !IsAllZeros(Span<const UINT8>(pubKey1 + 1, 64));
@@ -249,7 +249,7 @@ private:
 		// Test: Export buffer size validation
 		{
 			ECC ecc;
-			(void)ecc.Initialize(32);
+			(VOID)ecc.Initialize(32);
 
 			UINT8 tooSmallBuffer[32];
 			auto result = ecc.ExportPublicKey(Span<UINT8>(tooSmallBuffer));
@@ -266,7 +266,7 @@ private:
 		// Test: Invalid public key handling
 		{
 			ECC ecc;
-			(void)ecc.Initialize(32);
+			(VOID)ecc.Initialize(32);
 
 			UINT8 invalidPublicKey[32 * 2 + 1];
 			Memory::Zero(invalidPublicKey, sizeof(invalidPublicKey));

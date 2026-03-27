@@ -200,11 +200,11 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 // Screen::Capture (Solaris)
 // =============================================================================
 
-Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
 {
 	SSIZE fd = OpenFramebuffer();
 	if (fd < 0)
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	FbType fbt;
 	Memory::Zero(&fbt, sizeof(fbt));
@@ -213,21 +213,21 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	if (ret < 0 || fbt.Width <= 0 || fbt.Height <= 0)
 	{
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Validate dimensions match the device
 	if ((UINT32)fbt.Width != device.Width || (UINT32)fbt.Height != device.Height)
 	{
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	UINT32 bytesPerPixel = (UINT32)fbt.Depth / 8;
 	if (bytesPerPixel == 0 || bytesPerPixel > 4)
 	{
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Use fb_size from FBIOGTYPE, fall back to computed size
@@ -238,7 +238,7 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	System::Call(SYS_CLOSE, (USIZE)fd);
 
 	if (mapped == nullptr)
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	// Convert framebuffer pixels to RGB
 	// FBIOGTYPE does not report per-component bitfield offsets or line stride,
@@ -284,7 +284,7 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 
 	System::Call(SYS_MUNMAP, (USIZE)mapped, mapSize);
 
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID) || defined(PLATFORM_FREEBSD)
@@ -802,14 +802,14 @@ static VOID DrmGetDevices(ScreenDevice *tempDevices, UINT32 &deviceCount, UINT32
 /// @param device Display device with Left = -(cardIndex+1), Top = crtcId
 /// @param buffer Output RGB pixel buffer
 /// @return Ok on success, Err on failure
-static Result<void, Error> DrmCapture(const ScreenDevice &device, Span<RGB> buffer)
+static Result<VOID, Error> DrmCapture(const ScreenDevice &device, Span<RGB> buffer)
 {
 	UINT32 cardIdx = (UINT32)(-(device.Left + 1));
 	UINT32 crtcId = (UINT32)device.Top;
 
 	SSIZE fd = OpenDrmCard(cardIdx);
 	if (fd < 0)
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	// Get CRTC to find the active framebuffer
 	DrmModeCrtc crtc;
@@ -819,7 +819,7 @@ static Result<void, Error> DrmCapture(const ScreenDevice &device, Span<RGB> buff
 	if (Ioctl(fd, DRM_IOCTL_MODE_GETCRTC, &crtc) < 0 || crtc.FbId == 0)
 	{
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Get framebuffer info (returns GEM handle)
@@ -830,7 +830,7 @@ static Result<void, Error> DrmCapture(const ScreenDevice &device, Span<RGB> buff
 	if (Ioctl(fd, DRM_IOCTL_MODE_GETFB, &fb) < 0 || fb.Handle == 0)
 	{
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Validate dimensions
@@ -841,7 +841,7 @@ static Result<void, Error> DrmCapture(const ScreenDevice &device, Span<RGB> buff
 		gc.Pad = 0;
 		Ioctl(fd, DRM_IOCTL_GEM_CLOSE, &gc);
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Map the dumb buffer
@@ -856,7 +856,7 @@ static Result<void, Error> DrmCapture(const ScreenDevice &device, Span<RGB> buff
 		gc.Pad = 0;
 		Ioctl(fd, DRM_IOCTL_GEM_CLOSE, &gc);
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	USIZE mapSize = (USIZE)fb.Pitch * (USIZE)fb.Height;
@@ -869,7 +869,7 @@ static Result<void, Error> DrmCapture(const ScreenDevice &device, Span<RGB> buff
 		gc.Pad = 0;
 		Ioctl(fd, DRM_IOCTL_GEM_CLOSE, &gc);
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Convert framebuffer pixels to RGB
@@ -921,7 +921,7 @@ static Result<void, Error> DrmCapture(const ScreenDevice &device, Span<RGB> buff
 	Ioctl(fd, DRM_IOCTL_GEM_CLOSE, &gc);
 	System::Call(SYS_CLOSE, (USIZE)fd);
 
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 // =============================================================================
@@ -1660,7 +1660,7 @@ static VOID X11GetDevices(ScreenDevice *tempDevices, UINT32 &deviceCount, UINT32
 /// @param device Display device with Left = -(1000 + displayNum)
 /// @param buffer Output RGB pixel buffer (must be device.Width * device.Height)
 /// @return Ok on success, Err on connection/capture failure
-static Result<void, Error> X11Capture(const ScreenDevice &device, Span<RGB> buffer)
+static Result<VOID, Error> X11Capture(const ScreenDevice &device, Span<RGB> buffer)
 {
 	UINT32 displayNum = (UINT32)(-(device.Left + 1000));
 
@@ -1669,7 +1669,7 @@ static Result<void, Error> X11Capture(const ScreenDevice &device, Span<RGB> buff
 
 	SSIZE fd = X11OpenConnection(displayNum, info);
 	if (fd < 0)
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	// Send GetImage request for the full root window
 	X11GetImageRequest req;
@@ -1686,7 +1686,7 @@ static Result<void, Error> X11Capture(const ScreenDevice &device, Span<RGB> buff
 	if (!UnixSendAll(fd, &req, sizeof(req)))
 	{
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Read 32-byte reply header
@@ -1696,14 +1696,14 @@ static Result<void, Error> X11Capture(const ScreenDevice &device, Span<RGB> buff
 	if (!UnixRecvAll(fd, replyHeader, 32))
 	{
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Byte 0 must be 1 (Reply), not 0 (Error)
 	if (replyHeader[0] != 1)
 	{
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	UINT32 replyDataLen = *(UINT32 *)(replyHeader + 4); // 4-byte units
@@ -1735,13 +1735,13 @@ static Result<void, Error> X11Capture(const ScreenDevice &device, Span<RGB> buff
 		if (paddedBytesPerLine > sizeof(lineBuf))
 		{
 			System::Call(SYS_CLOSE, (USIZE)fd);
-			return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 		}
 
 		if (!UnixRecvAll(fd, lineBuf, paddedBytesPerLine))
 		{
 			System::Call(SYS_CLOSE, (USIZE)fd);
-			return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 		}
 		bytesConsumed += paddedBytesPerLine;
 
@@ -1773,7 +1773,7 @@ static Result<void, Error> X11Capture(const ScreenDevice &device, Span<RGB> buff
 	}
 
 	System::Call(SYS_CLOSE, (USIZE)fd);
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 #endif // PLATFORM_LINUX
@@ -1901,14 +1901,14 @@ static BOOL ScreencapReadHeader(const CHAR *screencapPath, const CHAR *displayId
 		return false;
 	Process &proc = procResult.Value();
 
-	(void)stdoutPipe.CloseWrite();
+	(VOID)stdoutPipe.CloseWrite();
 
 	// Read 16 bytes — covers Android <9 (12-byte) and 9+ (16-byte) headers
 	UINT8 header[16];
 	BOOL ok = PipeReadAll(stdoutPipe, header, 16);
 
-	(void)proc.Terminate();
-	(void)proc.Wait();
+	(VOID)proc.Terminate();
+	(VOID)proc.Wait();
 
 	if (!ok)
 		return false;
@@ -1952,7 +1952,7 @@ static UINT32 GetAndroidDisplayIds(CHAR ids[][32], UINT32 maxIds)
 		return 0;
 	Process &proc = procResult.Value();
 
-	(void)stdoutPipe.CloseWrite();
+	(VOID)stdoutPipe.CloseWrite();
 
 	// Read dumpsys output (typically small — a few display ID lines)
 	CHAR buf[1024];
@@ -1966,7 +1966,7 @@ static UINT32 GetAndroidDisplayIds(CHAR ids[][32], UINT32 maxIds)
 	}
 	buf[totalRead] = '\0';
 
-	(void)proc.Wait();
+	(VOID)proc.Wait();
 
 	// Parse output: each line with a long decimal number is a display ID
 	// Example output:
@@ -2119,11 +2119,11 @@ static VOID ScreencapPixelToRGB(const UINT8 *src, RGB &dst, UINT32 format)
 /// @param device Display device from ScreencapGetDevices
 /// @param buffer Output RGB pixel buffer
 /// @return Ok on success, Err on failure
-static Result<void, Error> ScreencapCapture(const ScreenDevice &device, Span<RGB> buffer)
+static Result<VOID, Error> ScreencapCapture(const ScreenDevice &device, Span<RGB> buffer)
 {
 	const CHAR *screencapPath = FindScreencap();
 	if (screencapPath == nullptr)
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	// Determine display ID for screencap -d
 	const CHAR *displayId = nullptr;
@@ -2147,23 +2147,23 @@ static Result<void, Error> ScreencapCapture(const ScreenDevice &device, Span<RGB
 
 	auto pipeResult = Pipe::Create();
 	if (pipeResult.IsErr())
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	Pipe &stdoutPipe = pipeResult.Value();
 
 	auto procResult = SpawnScreencap(screencapPath, displayId, stdoutPipe);
 	if (procResult.IsErr())
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	Process &proc = procResult.Value();
 
-	(void)stdoutPipe.CloseWrite();
+	(VOID)stdoutPipe.CloseWrite();
 
 	// Read 16-byte header (Android 9+ adds colorspace field at offset 12)
 	UINT8 header[16];
 	if (!PipeReadAll(stdoutPipe, header, 16))
 	{
-		(void)proc.Terminate();
-		(void)proc.Wait();
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		(VOID)proc.Terminate();
+		(VOID)proc.Wait();
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	UINT32 width = *(UINT32 *)(header + 0);
@@ -2178,9 +2178,9 @@ static Result<void, Error> ScreencapCapture(const ScreenDevice &device, Span<RGB
 
 	if (width != device.Width || height != device.Height)
 	{
-		(void)proc.Terminate();
-		(void)proc.Wait();
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		(VOID)proc.Terminate();
+		(VOID)proc.Wait();
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Determine bytes per pixel
@@ -2197,9 +2197,9 @@ static Result<void, Error> ScreencapCapture(const ScreenDevice &device, Span<RGB
 	}
 	else
 	{
-		(void)proc.Terminate();
-		(void)proc.Wait();
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		(VOID)proc.Terminate();
+		(VOID)proc.Wait();
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	PRGB rgbBuf = buffer.Data();
@@ -2210,9 +2210,9 @@ static Result<void, Error> ScreencapCapture(const ScreenDevice &device, Span<RGB
 	{
 		if (bytesPerLine > sizeof(lineBuf))
 		{
-			(void)proc.Terminate();
-			(void)proc.Wait();
-			return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+			(VOID)proc.Terminate();
+			(VOID)proc.Wait();
+			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 		}
 
 		// On pre-Android 9, we consumed 4 extra bytes from the header.
@@ -2221,16 +2221,16 @@ static Result<void, Error> ScreencapCapture(const ScreenDevice &device, Span<RGB
 			Memory::Copy(lineBuf, extraBytes, extraLen);
 			if (!PipeReadAll(stdoutPipe, lineBuf + extraLen, bytesPerLine - extraLen))
 			{
-				(void)proc.Terminate();
-				(void)proc.Wait();
-				return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+				(VOID)proc.Terminate();
+				(VOID)proc.Wait();
+				return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 			}
 		}
 		else if (!PipeReadAll(stdoutPipe, lineBuf, bytesPerLine))
 		{
-			(void)proc.Terminate();
-			(void)proc.Wait();
-			return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+			(VOID)proc.Terminate();
+			(VOID)proc.Wait();
+			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 		}
 
 		for (UINT32 x = 0; x < width; x++)
@@ -2240,8 +2240,8 @@ static Result<void, Error> ScreencapCapture(const ScreenDevice &device, Span<RGB
 		}
 	}
 
-	(void)proc.Wait();
-	return Result<void, Error>::Ok();
+	(VOID)proc.Wait();
+	return Result<VOID, Error>::Ok();
 }
 
 #endif // PLATFORM_ANDROID
@@ -2326,14 +2326,14 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 /// @param device Display device descriptor (for resolution validation)
 /// @param buffer Output RGB pixel buffer
 /// @return Ok on success, Err on failure
-static Result<void, Error> FbCapture(UINT32 fbIndex, const ScreenDevice &device, Span<RGB> buffer)
+static Result<VOID, Error> FbCapture(UINT32 fbIndex, const ScreenDevice &device, Span<RGB> buffer)
 {
 	if (fbIndex > 7)
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	SSIZE fd = OpenFramebuffer(fbIndex);
 	if (fd < 0)
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	// Query screen parameters
 	FbVarScreeninfo vinfo;
@@ -2346,21 +2346,21 @@ static Result<void, Error> FbCapture(UINT32 fbIndex, const ScreenDevice &device,
 		Ioctl(fd, FBIOGET_FSCREENINFO, &finfo) < 0)
 	{
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Validate dimensions match the device
 	if (vinfo.Xres != device.Width || vinfo.Yres != device.Height)
 	{
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	UINT32 bytesPerPixel = vinfo.BitsPerPixel / 8;
 	if (bytesPerPixel == 0 || bytesPerPixel > 4)
 	{
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Map the framebuffer memory
@@ -2368,7 +2368,7 @@ static Result<void, Error> FbCapture(UINT32 fbIndex, const ScreenDevice &device,
 	System::Call(SYS_CLOSE, (USIZE)fd);
 
 	if (mapped == nullptr)
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	// Calculate pointer to the visible area
 	UINT8 *fbBase = (UINT8 *)mapped;
@@ -2402,14 +2402,14 @@ static Result<void, Error> FbCapture(UINT32 fbIndex, const ScreenDevice &device,
 	// Unmap framebuffer
 	System::Call(SYS_MUNMAP, (USIZE)mapped, (USIZE)finfo.SmemLen);
 
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 /// @brief Try framebuffer capture across all /dev/fb devices matching resolution
 /// @param device Display device descriptor (for resolution matching)
 /// @param buffer Output RGB pixel buffer
 /// @return Ok on success, Err if no matching framebuffer found
-static Result<void, Error> FbCaptureFallback(const ScreenDevice &device, Span<RGB> buffer)
+static Result<VOID, Error> FbCaptureFallback(const ScreenDevice &device, Span<RGB> buffer)
 {
 	for (UINT32 i = 0; i < 8; i++)
 	{
@@ -2417,14 +2417,14 @@ static Result<void, Error> FbCaptureFallback(const ScreenDevice &device, Span<RG
 		if (result.IsOk())
 			return result;
 	}
-	return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+	return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 }
 
 // =============================================================================
 // Screen::Capture (X11, DRM, or framebuffer dispatch)
 // =============================================================================
 
-Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
 {
 #if defined(PLATFORM_LINUX)
 	// X11 device: Left <= -1000 encodes -(1000 + displayNum)

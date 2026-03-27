@@ -73,7 +73,7 @@ public:
 	 *
 	 * @return void on success, Error on failure
 	 */
-	Result<void, Error> CloseSlave() noexcept;
+	Result<VOID, Error> CloseSlave() noexcept;
 
 	/**
 	 * IsValid - Check if the master end is open
@@ -87,7 +87,7 @@ public:
 	~Pty() noexcept
 	{
 		if (IsValid())
-			(void)Close();
+			(VOID)Close();
 	}
 
 	Pty(Pty &&other) noexcept
@@ -102,7 +102,7 @@ public:
 		if (this != &other)
 		{
 			if (IsValid())
-				(void)Close();
+				(VOID)Close();
 			masterFd = other.masterFd;
 			slaveFd = other.slaveFd;
 			other.masterFd = INVALID_FD;
@@ -134,5 +134,5 @@ private:
 	{
 	}
 
-	Result<void, Error> Close() noexcept;
+	Result<VOID, Error> Close() noexcept;
 };

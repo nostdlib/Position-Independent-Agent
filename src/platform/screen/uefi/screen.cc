@@ -90,11 +90,11 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 // Screen::Capture
 // =============================================================================
 
-Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
 {
 	EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = LocateGop();
 	if (gop == nullptr)
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	UINT32 width = device.Width;
 	UINT32 height = device.Height;
@@ -103,7 +103,7 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	// Allocate temporary BLT buffer (BGRX format, 4 bytes per pixel)
 	EFI_GRAPHICS_OUTPUT_BLT_PIXEL *bltBuf = new EFI_GRAPHICS_OUTPUT_BLT_PIXEL[pixelCount];
 	if (bltBuf == nullptr)
-		return Result<void, Error>::Err(Error(Error::Screen_AllocFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_AllocFailed));
 
 	// Copy from video framebuffer to BLT buffer
 	EFI_STATUS status = gop->Blt(
@@ -121,7 +121,7 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	if (EFI_ERROR_CHECK(status))
 	{
 		delete[] bltBuf;
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Convert BLT pixel (BGRX) to RGB
@@ -134,5 +134,5 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	}
 
 	delete[] bltBuf;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }

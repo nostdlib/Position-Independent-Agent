@@ -248,7 +248,7 @@ public:
 	 * @param buffer Output buffer span
 	 * @return Result<void, Error> - Ok on success, Err(IpAddress_ToStringFailed) if buffer too small or invalid
 	 */
-	[[nodiscard]] Result<void, Error> ToString(Span<CHAR> buffer) const;
+	[[nodiscard]] Result<VOID, Error> ToString(Span<CHAR> buffer) const;
 
 	/// @}
 	/// @name Operators

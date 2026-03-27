@@ -220,11 +220,11 @@ Result<IPAddress, Error> IPAddress::FromString(PCCHAR ipString)
 }
 
 
-Result<void, Error> IPAddress::ToString(Span<CHAR> buffer) const
+Result<VOID, Error> IPAddress::ToString(Span<CHAR> buffer) const
 {
 	if (buffer.Size() == 0)
 	{
-		return Result<void, Error>::Err(Error::IpAddress_ToStringFailed);
+		return Result<VOID, Error>::Err(Error::IpAddress_ToStringFailed);
 	}
 
 	if (version == IPVersion::IPv4)
@@ -232,7 +232,7 @@ Result<void, Error> IPAddress::ToString(Span<CHAR> buffer) const
 		// Convert IPv4 to string
 		if (buffer.Size() < 16) // Minimum size for "255.255.255.255\0"
 		{
-			return Result<void, Error>::Err(Error::IpAddress_ToStringFailed);
+			return Result<VOID, Error>::Err(Error::IpAddress_ToStringFailed);
 		}
 
 		UINT8 octets[4];
@@ -251,14 +251,14 @@ Result<void, Error> IPAddress::ToString(Span<CHAR> buffer) const
 			offset += (UINT32)len;
 		}
 		buffer[offset] = '\0';
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 	}
 	else if (version == IPVersion::IPv6)
 	{
 		// Convert IPv6 to string (simplified format)
 		if (buffer.Size() < 40) // Minimum size for full IPv6 address
 		{
-			return Result<void, Error>::Err(Error::IpAddress_ToStringFailed);
+			return Result<VOID, Error>::Err(Error::IpAddress_ToStringFailed);
 		}
 
 		UINT32 offset = 0;
@@ -277,8 +277,8 @@ Result<void, Error> IPAddress::ToString(Span<CHAR> buffer) const
 			offset += (UINT32)hexLen;
 		}
 		buffer[offset] = '\0';
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 	}
 
-	return Result<void, Error>::Err(Error::IpAddress_ToStringFailed);
+	return Result<VOID, Error>::Err(Error::IpAddress_ToStringFailed);
 }

@@ -35,7 +35,7 @@ Result<ShellProcess, Error> ShellProcess::Create() noexcept
 
 	const CHAR *args[] = {"/bin/sh", nullptr};
 	auto processResult = Process::Create("/bin/sh", args, pty.SlaveFd(), pty.SlaveFd(), pty.SlaveFd());
-	(void)pty.CloseSlave();
+	(VOID)pty.CloseSlave();
 
 	if (!processResult)
 	{

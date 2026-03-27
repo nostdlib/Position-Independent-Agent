@@ -39,10 +39,10 @@ static VOID EFIAPI EmptyNotify([[maybe_unused]] EFI_EVENT Event, [[maybe_unused]
 {
 }
 
-[[nodiscard]] static Result<void, Error> InitializeNetworkInterface(EFI_CONTEXT &ctx)
+[[nodiscard]] static Result<VOID, Error> InitializeNetworkInterface(EFI_CONTEXT &ctx)
 {
 	if (ctx.NetworkInitialized)
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 
 	LOG_DEBUG("Socket: InitializeNetworkInterface starting...");
 
@@ -68,12 +68,12 @@ static VOID EFIAPI EmptyNotify([[maybe_unused]] EFI_EVENT Event, [[maybe_unused]
 	if (EFI_ERROR_CHECK(lhbStatus))
 	{
 		LOG_DEBUG("Socket: LocateHandleBuffer failed: 0x%lx", (UINT64)lhbStatus);
-		return Result<void, Error>::Err(Error::Uefi((UINT32)lhbStatus), Error::Socket_OpenFailed_Connect);
+		return Result<VOID, Error>::Err(Error::Uefi((UINT32)lhbStatus), Error::Socket_OpenFailed_Connect);
 	}
 	if (HandleCount == 0)
 	{
 		LOG_DEBUG("Socket: no SNP handles found");
-		return Result<void, Error>::Err(Error::Socket_OpenFailed_Connect);
+		return Result<VOID, Error>::Err(Error::Socket_OpenFailed_Connect);
 	}
 
 	LOG_DEBUG("Socket: Found %u SNP handles", (UINT32)HandleCount);
@@ -108,14 +108,14 @@ static VOID EFIAPI EmptyNotify([[maybe_unused]] EFI_EVENT Event, [[maybe_unused]
 	bs->FreePool(HandleBuffer);
 	LOG_DEBUG("Socket: InitializeNetworkInterface done, success=%d", (INT32)ctx.NetworkInitialized);
 	if (!ctx.NetworkInitialized)
-		return Result<void, Error>::Err(Error::Socket_OpenFailed_Connect);
-	return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Err(Error::Socket_OpenFailed_Connect);
+	return Result<VOID, Error>::Ok();
 }
 
-[[nodiscard]] static Result<void, Error> InitializeDhcp(EFI_CONTEXT &ctx)
+[[nodiscard]] static Result<VOID, Error> InitializeDhcp(EFI_CONTEXT &ctx)
 {
 	if (ctx.DhcpConfigured)
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 
 	LOG_DEBUG("Socket: InitializeDhcp starting...");
 
@@ -141,12 +141,12 @@ static VOID EFIAPI EmptyNotify([[maybe_unused]] EFI_EVENT Event, [[maybe_unused]
 	if (EFI_ERROR_CHECK(lhbStatus))
 	{
 		LOG_DEBUG("Socket: DHCP LocateHandleBuffer failed: 0x%lx", (UINT64)lhbStatus);
-		return Result<void, Error>::Err(Error::Uefi((UINT32)lhbStatus), Error::Socket_OpenFailed_Connect);
+		return Result<VOID, Error>::Err(Error::Uefi((UINT32)lhbStatus), Error::Socket_OpenFailed_Connect);
 	}
 	if (HandleCount == 0)
 	{
 		LOG_DEBUG("Socket: no Ip4Config2 handles found");
-		return Result<void, Error>::Err(Error::Socket_OpenFailed_Connect);
+		return Result<VOID, Error>::Err(Error::Socket_OpenFailed_Connect);
 	}
 
 	LOG_DEBUG("Socket: Found %u Ip4Config2 handles", (UINT32)HandleCount);
@@ -212,8 +212,8 @@ static VOID EFIAPI EmptyNotify([[maybe_unused]] EFI_EVENT Event, [[maybe_unused]
 
 	LOG_DEBUG("Socket: InitializeDhcp done, success=%d", (INT32)ctx.DhcpConfigured);
 	if (!ctx.DhcpConfigured)
-		return Result<void, Error>::Err(Error::Socket_OpenFailed_Connect);
-	return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Err(Error::Socket_OpenFailed_Connect);
+	return Result<VOID, Error>::Ok();
 }
 
 // Wait for async operation with Poll to drive network stack
@@ -402,7 +402,7 @@ Result<Socket, Error> Socket::Create(const IPAddress &ipAddress, UINT16 portNum)
 // Open (Connect)
 // =============================================================================
 
-Result<void, Error> Socket::Open()
+Result<VOID, Error> Socket::Open()
 {
 	LOG_DEBUG("Socket: Open() starting...");
 
@@ -410,7 +410,7 @@ Result<void, Error> Socket::Open()
 	if (sockCtx->IsConnected)
 	{
 		LOG_DEBUG("Socket: Open() - already connected");
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 	}
 
 	EFI_CONTEXT *ctx = GetEfiContext();
@@ -418,11 +418,11 @@ Result<void, Error> Socket::Open()
 
 	auto netResult = InitializeNetworkInterface(*ctx);
 	if (!netResult)
-		return Result<void, Error>::Err(netResult, Error::Socket_OpenFailed_Connect);
+		return Result<VOID, Error>::Err(netResult, Error::Socket_OpenFailed_Connect);
 
 	auto dhcpResult = InitializeDhcp(*ctx);
 	if (!dhcpResult)
-		return Result<void, Error>::Err(dhcpResult, Error::Socket_OpenFailed_Connect);
+		return Result<VOID, Error>::Err(dhcpResult, Error::Socket_OpenFailed_Connect);
 
 	LOG_DEBUG("Socket: Creating connect event...");
 	EFI_EVENT ConnectEvent;
@@ -430,7 +430,7 @@ Result<void, Error> Socket::Open()
 	if (EFI_ERROR_CHECK(efiStatus))
 	{
 		LOG_DEBUG("Socket: CreateEvent failed");
-		return Result<void, Error>::Err(
+		return Result<VOID, Error>::Err(
 			Error::Uefi((UINT32)efiStatus),
 			Error::Socket_OpenFailed_EventCreate);
 	}
@@ -455,7 +455,7 @@ Result<void, Error> Socket::Open()
 		{
 			LOG_DEBUG("Socket: TCP6 Configure failed");
 			bs->CloseEvent(ConnectEvent);
-			return Result<void, Error>::Err(
+			return Result<VOID, Error>::Err(
 				Error::Uefi((UINT32)efiStatus),
 				Error::Socket_OpenFailed_Connect);
 		}
@@ -513,7 +513,7 @@ Result<void, Error> Socket::Open()
 		{
 			LOG_DEBUG("Socket: TCP4 Configure failed: 0x%lx", (UINT64)Status);
 			bs->CloseEvent(ConnectEvent);
-			return Result<void, Error>::Err(
+			return Result<VOID, Error>::Err(
 				Error::Uefi((UINT32)Status),
 				Error::Socket_OpenFailed_Connect);
 		}
@@ -550,17 +550,17 @@ Result<void, Error> Socket::Open()
 
 	if (!success)
 	{
-		return Result<void, Error>::Err(
+		return Result<VOID, Error>::Err(
 			Error::Socket_OpenFailed_Connect);
 	}
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 // =============================================================================
 // Close
 // =============================================================================
 
-Result<void, Error> Socket::Close()
+Result<VOID, Error> Socket::Close()
 {
 	LOG_DEBUG("Socket: Close() starting...");
 
@@ -707,16 +707,16 @@ Result<void, Error> Socket::Close()
 	bs->FreePool(sockCtx);
 	handle = nullptr;
 	LOG_DEBUG("Socket: Close() completed");
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 // =============================================================================
 // Bind (not used on UEFI - TCP protocol handles addressing via Configure)
 // =============================================================================
 
-Result<void, Error> Socket::Bind([[maybe_unused]] const SockAddr &socketAddress, [[maybe_unused]] INT32 shareType)
+Result<VOID, Error> Socket::Bind([[maybe_unused]] const SockAddr &socketAddress, [[maybe_unused]] INT32 shareType)
 {
-	return Result<void, Error>::Err(Error::Socket_BindFailed_Bind);
+	return Result<VOID, Error>::Err(Error::Socket_BindFailed_Bind);
 }
 
 // =============================================================================

@@ -133,10 +133,10 @@ public:
 	 * @param buffer Output buffer (must be at least 37 bytes: 32 hex + 4 dashes + null)
 	 * @return Ok on success, Err if the buffer is too small
 	 */
-	[[nodiscard]] Result<void, Error> ToString(Span<CHAR> buffer) const noexcept
+	[[nodiscard]] Result<VOID, Error> ToString(Span<CHAR> buffer) const noexcept
 	{
 		if (buffer.Size() < 37)
-			return Result<void, Error>::Err(Error::Uuid_ToStringFailed);
+			return Result<VOID, Error>::Err(Error::Uuid_ToStringFailed);
 
 		INT32 index = 0;
 		auto hex = "0123456789abcdef";
@@ -150,7 +150,7 @@ public:
 		}
 		buffer[index] = '\0';
 
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 	}
 
 	/// @}

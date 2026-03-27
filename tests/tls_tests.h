@@ -111,7 +111,7 @@ private:
 			}
 		}
 
-		(void)tls.Close();
+		(VOID)tls.Close();
 		return allPassed;
 	}
 
