@@ -87,7 +87,7 @@ Result<USIZE, Error> ShellProcess::ReadError(CHAR *buffer, USIZE capacity) noexc
 
 SSIZE ShellProcess::Poll([[maybe_unused]]SSIZE timeoutMs) noexcept
 {
-		UINT32 bytesAvailable = 0;
+	UINT32 bytesAvailable = 0;
 	if (Kernel32::PeekNamedPipe(stdoutPipe.ReadEnd(), nullptr, 0, nullptr, &bytesAvailable, nullptr))
 	{
 		if (bytesAvailable > 0)

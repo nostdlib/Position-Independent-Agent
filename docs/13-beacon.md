@@ -38,6 +38,7 @@ commandHandlers[CommandType::Command_WriteShell] = Handle_WriteShellCommand;
 commandHandlers[CommandType::Command_ReadShell] = Handle_ReadShellCommand;
 commandHandlers[CommandType::Command_GetDisplays] = Handle_GetDisplaysCommand;
 commandHandlers[CommandType::Command_GetScreenshot] = Handle_GetScreenshotCommand;
+commandHandlers[CommandType::Command_ResetShell] = Handle_ResetShellCommand;
 ```
 
 This array lives on the stack. That matters -- see section 2.

@@ -15,6 +15,7 @@ enum CommandType : UINT8
     Command_ReadShell = 5,
     Command_GetDisplays = 6,
     Command_GetScreenshot = 7,
+    Command_ResetShell = 8,
     CommandTypeCount
 };
 
@@ -73,5 +74,6 @@ VOID Handle_GetFileContentCommand(PCHAR command, USIZE commandLength, PPCHAR res
 VOID Handle_GetFileChunkHashCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context);
 VOID Handle_ReadShellCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context);
 VOID Handle_WriteShellCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context);
+VOID Handle_ResetShellCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context);
 VOID Handle_GetDisplaysCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context);
 VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context);

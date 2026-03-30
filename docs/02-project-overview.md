@@ -74,7 +74,7 @@ A single codebase that compiles to all of these is extremely valuable for securi
 The agent doesn't connect directly to the operator's machine. It talks to a relay — a Cloudflare Worker at `relay.nostdlib.workers.dev`. The operator also connects to the relay. Commands and responses get forwarded between them through this intermediary.
 
 ```
-+----------+        HTTPS/WSS        +---------+        HTTPS/WSS       +----------+
++----------+        HTTPS/WSS       +---------+        HTTPS/WSS       +----------+
 |  Agent   | <--------------------> |  Relay  | <--------------------> | Operator |
 | (target) |                        | (CF     |                        |  (you)   |
 |          |                        | Worker) |                        |          |
@@ -94,9 +94,9 @@ See `docs/12-networking.md` for the full breakdown of each layer.
 
 ---
 
-## The 8 Command Types
+## The 9 Command Types
 
-The agent supports 8 commands, dispatched via a function pointer array (see `docs/13-beacon.md`):
+The agent supports 9 commands, dispatched via a function pointer array (see `docs/13-beacon.md`):
 
 | Command | What It Does |
 |---------|-------------|
@@ -108,6 +108,7 @@ The agent supports 8 commands, dispatched via a function pointer array (see `doc
 | `ReadShell` | Reads output from the shell process |
 | `GetDisplays` | Enumerates connected monitors with geometry info |
 | `GetScreenshot` | Captures the screen as JPEG with incremental dirty-rectangle compression |
+| `ResetShell` | Resets the shell instance, nullifying the pointer and freeing resources. |
 
 These are the fundamental building blocks an operator needs during an engagement. Nothing flashy — just solid primitives that compose well.
 

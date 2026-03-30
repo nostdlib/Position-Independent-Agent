@@ -453,6 +453,14 @@ Captures a JPEG-encoded screenshot of a specified display.
 | `sizeOfData`  | `UINT32`           | Size of image                      |
 | `imageAsJpeg` | `CHAR[sizeOfData]` | Image                              |
 
+
+### `ResetShell` (0x08)
+
+Resets the shell instance, nullifying the pointer and freeing resources.
+
+- **Request**: No payload (command type byte only)
+- **Response**: `UINT32 status`
+
 ## Configuration
 
 - **Server URL**: Defined in `src/beacon/main.cc` (WebSocket endpoint)
