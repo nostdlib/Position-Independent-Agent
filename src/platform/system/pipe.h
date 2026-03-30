@@ -73,14 +73,14 @@ public:
 	 *
 	 * @return void on success, Error on failure
 	 */
-	Result<void, Error> CloseRead() noexcept;
+	Result<VOID, Error> CloseRead() noexcept;
 
 	/**
 	 * CloseWrite - Close the write end of the pipe
 	 *
 	 * @return void on success, Error on failure
 	 */
-	Result<void, Error> CloseWrite() noexcept;
+	Result<VOID, Error> CloseWrite() noexcept;
 
 	/**
 	 * IsValid - Check if at least one end of the pipe is open
@@ -94,7 +94,7 @@ public:
 	~Pipe() noexcept
 	{
 		if (IsValid())
-			(void)Close();
+			(VOID)Close();
 	}
 
 	Pipe(Pipe &&other) noexcept
@@ -109,7 +109,7 @@ public:
 		if (this != &other)
 		{
 			if (IsValid())
-				(void)Close();
+				(VOID)Close();
 			readFd = other.readFd;
 			writeFd = other.writeFd;
 			other.readFd = INVALID_FD;
@@ -141,5 +141,5 @@ private:
 	{
 	}
 
-	Result<void, Error> Close() noexcept;
+	Result<VOID, Error> Close() noexcept;
 };
