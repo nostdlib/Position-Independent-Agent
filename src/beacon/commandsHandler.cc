@@ -201,7 +201,7 @@ VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused
     auto setOffsetResult = file.SetOffset((USIZE)offset);
 
     if(!setOffsetResult){
-        LOG_ERROR("Failed to set file offset: %llu", offset);
+        LOG_ERROR("Failed to set file offset: %llu, error: %e", offset, setOffsetResult.Error());
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
     }
