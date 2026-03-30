@@ -860,7 +860,7 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 //  Public API
 // ============================================================
 
-[[nodiscard]] Result<void, Error> JpegEncoder::Encode(
+[[nodiscard]] Result<VOID, Error> JpegEncoder::Encode(
 	JpegWriteFunc *func,
 	PVOID context,
 	INT32 quality,
@@ -872,7 +872,7 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 	if ((numComponents != 3 && numComponents != 4) || width <= 0 || height <= 0 ||
 		width > 0xFFFF || height > 0xFFFF)
 	{
-		return Result<void, Error>::Err(Error::Jpeg_InvalidParams);
+		return Result<VOID, Error>::Err(Error::Jpeg_InvalidParams);
 	}
 
 	if (quality < 1)
@@ -1047,5 +1047,5 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 
 	EncodeImageData(&state, srcData.Data(), width, height, numComponents);
 
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }

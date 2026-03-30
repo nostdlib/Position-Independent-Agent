@@ -63,9 +63,9 @@ public:
 
 	/**
 	 * @brief Advances the iterator to the next directory entry.
-	 * @return Void on success (entry available via Get()), or an Error when no more entries remain or a syscall fails.
+	 * @return VOID on success (entry available via Get()), or an Error when no more entries remain or a syscall fails.
 	 */
-	[[nodiscard]] Result<void, Error> Next();
+	[[nodiscard]] Result<VOID, Error> Next();
 
 	/**
 	 * @brief Returns a reference to the current directory entry.

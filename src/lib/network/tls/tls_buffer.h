@@ -79,11 +79,11 @@ public:
 
 	INT32 AppendSize(INT32 count);
 	// Setting operation
-	[[nodiscard]] Result<void, Error> SetSize(INT32 newSize);
+	[[nodiscard]] Result<VOID, Error> SetSize(INT32 newSize);
 	// Clean up for buffers
 	VOID Clear();
 	// Ensure there is enough capacity to append data
-	[[nodiscard]] Result<void, Error> CheckSize(INT32 appendSize);
+	[[nodiscard]] Result<VOID, Error> CheckSize(INT32 appendSize);
 
 	// Read operations
 	template <typename T>

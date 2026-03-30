@@ -107,10 +107,10 @@ VOID DirectoryIterator::Close()
 	}
 }
 
-Result<void, Error> DirectoryIterator::Next()
+Result<VOID, Error> DirectoryIterator::Next()
 {
 	if (!IsValid())
-		return Result<void, Error>::Err(Error::Fs_ReadFailed);
+		return Result<VOID, Error>::Err(Error::Fs_ReadFailed);
 
 	if (isFirst || bufferPosition >= bytesRead)
 	{
@@ -130,9 +130,9 @@ Result<void, Error> DirectoryIterator::Next()
 #endif
 
 		if (bytesRead < 0)
-			return Result<void, Error>::Err(Error::Posix((UINT32)(-bytesRead)), Error::Fs_ReadFailed);
+			return Result<VOID, Error>::Err(Error::Posix((UINT32)(-bytesRead)), Error::Fs_ReadFailed);
 		if (bytesRead == 0)
-			return Result<void, Error>::Err(Error::Fs_ReadFailed);
+			return Result<VOID, Error>::Err(Error::Fs_ReadFailed);
 		bufferPosition = 0;
 	}
 
@@ -299,7 +299,7 @@ Result<void, Error> DirectoryIterator::Next()
 
 	bufferPosition += d->Reclen;
 
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 BOOL DirectoryIterator::IsValid() const

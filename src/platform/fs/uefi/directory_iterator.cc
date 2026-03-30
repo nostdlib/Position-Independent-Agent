@@ -74,10 +74,10 @@ VOID DirectoryIterator::Close()
 	}
 }
 
-Result<void, Error> DirectoryIterator::Next()
+Result<VOID, Error> DirectoryIterator::Next()
 {
 	if (!IsValid())
-		return Result<void, Error>::Err(Error::Fs_ReadFailed);
+		return Result<VOID, Error>::Err(Error::Fs_ReadFailed);
 
 	EFI_FILE_PROTOCOL *fp = (EFI_FILE_PROTOCOL *)handle;
 
@@ -89,11 +89,11 @@ Result<void, Error> DirectoryIterator::Next()
 	EFI_STATUS status = fp->Read(fp, &bufferSize, buffer);
 
 	if (EFI_ERROR_CHECK(status))
-		return Result<void, Error>::Err(Error::Uefi((UINT32)status), Error::Fs_ReadFailed);
+		return Result<VOID, Error>::Err(Error::Uefi((UINT32)status), Error::Fs_ReadFailed);
 
 	// End of directory
 	if (bufferSize == 0)
-		return Result<void, Error>::Err(Error::Fs_ReadFailed);
+		return Result<VOID, Error>::Err(Error::Fs_ReadFailed);
 
 	EFI_FILE_INFO *fileInfo = (EFI_FILE_INFO *)buffer;
 
@@ -117,7 +117,7 @@ Result<void, Error> DirectoryIterator::Next()
 	currentEntry.CreationTime = 0;
 	currentEntry.LastModifiedTime = 0;
 
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 BOOL DirectoryIterator::IsValid() const

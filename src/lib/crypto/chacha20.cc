@@ -171,13 +171,13 @@ VOID Poly1305::ProcessBlocks(Span<const UCHAR> data)
 	this->h[4] = h4;
 }
 
-Result<void, Error> Poly1305::GenerateKey(Span<const UCHAR, POLY1305_KEYLEN> key256, Span<const UCHAR> nonce, Span<UCHAR, POLY1305_KEYLEN> polyKey, UINT32 counter)
+Result<VOID, Error> Poly1305::GenerateKey(Span<const UCHAR, POLY1305_KEYLEN> key256, Span<const UCHAR> nonce, Span<UCHAR, POLY1305_KEYLEN> polyKey, UINT32 counter)
 {
 	ChaCha20Poly1305 ctx;
 	UINT64 ctr;
 	auto keyResult = ctx.KeySetup(key256);
 	if (!keyResult)
-		return Result<void, Error>::Err(keyResult, Error::ChaCha20_GenerateKeyFailed);
+		return Result<VOID, Error>::Err(keyResult, Error::ChaCha20_GenerateKeyFailed);
 
 	if (nonce.Size() == 8)
 	{
@@ -190,11 +190,11 @@ Result<void, Error> Poly1305::GenerateKey(Span<const UCHAR, POLY1305_KEYLEN> key
 	}
 	else
 	{
-		return Result<void, Error>::Err(Error::ChaCha20_GenerateKeyFailed);
+		return Result<VOID, Error>::Err(Error::ChaCha20_GenerateKeyFailed);
 	}
 
 	ctx.Block(polyKey);
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 VOID Poly1305::Update(Span<const UCHAR> data)
@@ -332,11 +332,11 @@ VOID Poly1305::Finish(Span<UCHAR, POLY1305_TAGLEN> mac)
 
 // --- ChaCha20 Implementation (D. J. Bernstein, https://cr.yp.to/chacha.html) ---
 
-Result<void, Error> ChaCha20Poly1305::KeySetup(Span<const UINT8> key)
+Result<VOID, Error> ChaCha20Poly1305::KeySetup(Span<const UINT8> key)
 {
 	UINT32 keyBits = (UINT32)key.Size() * 8;
 	if (keyBits != 128 && keyBits != 256)
-		return Result<void, Error>::Err(Error::ChaCha20_KeySetupFailed);
+		return Result<VOID, Error>::Err(Error::ChaCha20_KeySetupFailed);
 
 	const UINT8 *k = key.Data();
 
@@ -361,7 +361,7 @@ Result<void, Error> ChaCha20Poly1305::KeySetup(Span<const UINT8> key)
 	this->state[1] = U8To32Little((const UINT8 *)constants + 4);
 	this->state[2] = U8To32Little((const UINT8 *)constants + 8);
 	this->state[3] = U8To32Little((const UINT8 *)constants + 12);
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 VOID ChaCha20Poly1305::Key(UINT8 (&k)[32])
@@ -683,7 +683,7 @@ VOID ChaCha20Poly1305::Poly1305Key(Span<UCHAR, POLY1305_KEYLEN> polyKey)
 	this->Key(key);
 	this->Nonce(nonce);
 	// Nonce is always 12 bytes, so GenerateKey cannot fail
-	(void)Poly1305::GenerateKey(key, nonce, polyKey, 0);
+	(VOID)Poly1305::GenerateKey(key, nonce, polyKey, 0);
 	Memory::Zero(key, sizeof(key));
 	Memory::Zero(nonce, sizeof(nonce));
 }

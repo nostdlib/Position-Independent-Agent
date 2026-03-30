@@ -365,23 +365,23 @@ SSIZE Pty::Poll(SSIZE timeoutMs) noexcept
 // Pty::CloseSlave
 // ============================================================================
 
-Result<void, Error> Pty::CloseSlave() noexcept
+Result<VOID, Error> Pty::CloseSlave() noexcept
 {
 	if (slaveFd == INVALID_FD)
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 
 	System::Call(SYS_CLOSE, (USIZE)slaveFd);
 	slaveFd = INVALID_FD;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 // ============================================================================
 // Pty::Close
 // ============================================================================
 
-Result<void, Error> Pty::Close() noexcept
+Result<VOID, Error> Pty::Close() noexcept
 {
-	(void)CloseSlave();
+	(VOID)CloseSlave();
 
 	if (masterFd != INVALID_FD)
 	{
@@ -389,5 +389,5 @@ Result<void, Error> Pty::Close() noexcept
 		masterFd = INVALID_FD;
 	}
 
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }

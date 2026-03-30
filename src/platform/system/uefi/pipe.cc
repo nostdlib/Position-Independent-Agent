@@ -22,21 +22,21 @@ Result<USIZE, Error> Pipe::Write([[maybe_unused]] Span<const UINT8> data) noexce
 	return Result<USIZE, Error>::Err(Error::Pipe_NotSupported);
 }
 
-Result<void, Error> Pipe::CloseRead() noexcept
+Result<VOID, Error> Pipe::CloseRead() noexcept
 {
 	readFd = INVALID_FD;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
-Result<void, Error> Pipe::CloseWrite() noexcept
+Result<VOID, Error> Pipe::CloseWrite() noexcept
 {
 	writeFd = INVALID_FD;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
-Result<void, Error> Pipe::Close() noexcept
+Result<VOID, Error> Pipe::Close() noexcept
 {
 	readFd = INVALID_FD;
 	writeFd = INVALID_FD;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }

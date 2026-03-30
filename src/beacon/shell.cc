@@ -3,8 +3,6 @@
 Shell::Shell(ShellProcess &&sp) noexcept
     : shellProcess(static_cast<ShellProcess &&>(sp)) {}
 
-Shell::~Shell() noexcept = default;
-
 Shell::Shell(Shell &&other) noexcept
     : shellProcess(static_cast<ShellProcess &&>(other.shellProcess)) {}
 

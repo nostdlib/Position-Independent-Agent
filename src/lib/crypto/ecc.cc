@@ -801,7 +801,7 @@ Result<UINT32, Error> ECC::ComputeSharedSecret(Span<const UINT8> publicKey, Span
 	return Result<UINT32, Error>::Ok(this->eccBytes);
 }
 
-Result<void, Error> ECC::Initialize(INT32 bytes)
+Result<VOID, Error> ECC::Initialize(INT32 bytes)
 {
 	this->eccBytes = bytes;
 	this->numEccDigits = bytes >> 3;
@@ -832,7 +832,7 @@ Result<void, Error> ECC::Initialize(INT32 bytes)
 		Memory::Copy(this->curveN, nEmbed, sizeof(this->curveN));
 	}
 	else
-		return Result<void, Error>::Err(Error::Ecc_InitFailed);
+		return Result<VOID, Error>::Err(Error::Ecc_InitFailed);
 
 	UINT32 tries = 0;
 
@@ -841,7 +841,7 @@ Result<void, Error> ECC::Initialize(INT32 bytes)
 		Random random;
 		random.GetArray(Span<UINT8>((UINT8 *)this->privateKey, (USIZE)(this->numEccDigits * sizeof(UINT64))));
 		if (tries++ >= MAX_TRIES)
-			return Result<void, Error>::Err(Error::Ecc_InitFailed);
+			return Result<VOID, Error>::Err(Error::Ecc_InitFailed);
 		if (this->VliIsZero(this->privateKey))
 			continue;
 
@@ -852,7 +852,7 @@ Result<void, Error> ECC::Initialize(INT32 bytes)
 
 		this->Mult(this->publicKey, this->curveG, this->privateKey, nullptr);
 	} while (this->IsZero(this->publicKey));
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 Result<UINT32, Error> ECC::ExportPublicKey(Span<UINT8> publicKey)

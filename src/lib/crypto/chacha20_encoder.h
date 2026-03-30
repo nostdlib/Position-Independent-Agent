@@ -150,7 +150,7 @@ public:
 	 * @see RFC 8446 Section 7.3 — Traffic Key Calculation
 	 *      https://datatracker.ietf.org/doc/html/rfc8446#section-7.3
 	 */
-	[[nodiscard]] Result<void, Error> Initialize(Span<const UINT8, POLY1305_KEYLEN> localKey, Span<const UINT8, POLY1305_KEYLEN> remoteKey, const UCHAR (&localIv)[TLS_CHACHA20_IV_LENGTH], const UCHAR (&remoteIv)[TLS_CHACHA20_IV_LENGTH]);
+	[[nodiscard]] Result<VOID, Error> Initialize(Span<const UINT8, POLY1305_KEYLEN> localKey, Span<const UINT8, POLY1305_KEYLEN> remoteKey, const UCHAR (&localIv)[TLS_CHACHA20_IV_LENGTH], const UCHAR (&remoteIv)[TLS_CHACHA20_IV_LENGTH]);
 
 	/**
 	 * @brief Encrypts and authenticates a TLS record
@@ -183,7 +183,7 @@ public:
 	 * @see RFC 8446 Section 5.2 — Record Payload Protection
 	 *      https://datatracker.ietf.org/doc/html/rfc8446#section-5.2
 	 */
-	[[nodiscard]] Result<void, Error> Decode(TlsBuffer &in, TlsBuffer &out, Span<const UCHAR> aad);
+	[[nodiscard]] Result<VOID, Error> Decode(TlsBuffer &in, TlsBuffer &out, Span<const UCHAR> aad);
 
 	/**
 	 * @brief Computes output size for encoding or decoding

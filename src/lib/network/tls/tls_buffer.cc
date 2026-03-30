@@ -31,14 +31,14 @@ INT32 TlsBuffer::AppendSize(INT32 count)
 /// @brief Set the size of the TLS buffer
 /// @param size The new size of the buffer
 /// @return Result indicating success or failure
-Result<void, Error> TlsBuffer::SetSize(INT32 newSize)
+Result<VOID, Error> TlsBuffer::SetSize(INT32 newSize)
 {
 	size = 0;
 	auto r = CheckSize(newSize);
 	if (!r)
-		return Result<void, Error>::Err(r.Error());
+		return Result<VOID, Error>::Err(r.Error());
 	size = newSize;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 /// @brief Clean up the TLS buffer by freeing memory if owned and resetting size and capacity
@@ -58,13 +58,13 @@ VOID TlsBuffer::Clear()
 /// @brief Ensure there is enough capacity in the TLS buffer to append additional data
 /// @param appendSize The size of the data to be appended
 /// @return Result indicating success or failure
-Result<void, Error> TlsBuffer::CheckSize(INT32 appendSize)
+Result<VOID, Error> TlsBuffer::CheckSize(INT32 appendSize)
 {
 	// Capacity check
 	if (size + appendSize <= capacity)
 	{
 		LOG_DEBUG("Buffer size is sufficient: %d + %d <= %d", size, appendSize, capacity);
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 	}
 
 	PCHAR oldBuffer = buffer;
@@ -79,7 +79,7 @@ Result<void, Error> TlsBuffer::CheckSize(INT32 appendSize)
 	// Validate allocation
 	if (!newBuffer)
 	{
-		return Result<void, Error>::Err(Error::TlsBuffer_AllocationFailed);
+		return Result<VOID, Error>::Err(Error::TlsBuffer_AllocationFailed);
 	}
 	if (size > 0)
 	{
@@ -96,7 +96,7 @@ Result<void, Error> TlsBuffer::CheckSize(INT32 appendSize)
 	buffer = newBuffer;
 	capacity = newLen;
 	ownsMemory = true;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 /// @brief Remove consumed bytes from the front and shift remaining data down

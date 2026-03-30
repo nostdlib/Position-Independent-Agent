@@ -53,11 +53,11 @@ Result<Process, Error> Process::Create(
 
 		// Make redirected handles inheritable
 		if (stdinFd != -1)
-			(void)Kernel32::SetHandleInformation(si.hStdInput, 1, 1);
+			(VOID)Kernel32::SetHandleInformation(si.hStdInput, 1, 1);
 		if (stdoutFd != -1)
-			(void)Kernel32::SetHandleInformation(si.hStdOutput, 1, 1);
+			(VOID)Kernel32::SetHandleInformation(si.hStdOutput, 1, 1);
 		if (stderrFd != -1)
-			(void)Kernel32::SetHandleInformation(si.hStdError, 1, 1);
+			(VOID)Kernel32::SetHandleInformation(si.hStdError, 1, 1);
 	}
 
 	// Build command line: concatenate args with spaces into a wide string
@@ -99,7 +99,7 @@ Result<Process, Error> Process::Create(
 	}
 
 	// Close the thread handle — we only need the process handle
-	(void)NTDLL::ZwClose(pi.hThread);
+	(VOID)NTDLL::ZwClose(pi.hThread);
 
 	return Result<Process, Error>::Ok(
 		Process((SSIZE)pi.dwProcessId, pi.hProcess));
@@ -125,7 +125,7 @@ Result<SSIZE, Error> Process::Wait() noexcept
 	// ZwWaitForSingleObject returns STATUS_SUCCESS (0) when signaled
 	// The actual exit code would require ZwQueryInformationProcess,
 	// but for now return 0 on successful wait
-	(void)NTDLL::ZwClose(handle);
+	(VOID)NTDLL::ZwClose(handle);
 	handle = nullptr;
 	id = INVALID_ID;
 	return Result<SSIZE, Error>::Ok(0);
@@ -135,17 +135,17 @@ Result<SSIZE, Error> Process::Wait() noexcept
 // Process::Terminate
 // ============================================================================
 
-Result<void, Error> Process::Terminate() noexcept
+Result<VOID, Error> Process::Terminate() noexcept
 {
 	if (!IsValid())
-		return Result<void, Error>::Err(Error::Process_TerminateFailed);
+		return Result<VOID, Error>::Err(Error::Process_TerminateFailed);
 
 	auto result = NTDLL::ZwTerminateProcess(handle, 1);
 	if (result.IsErr())
 	{
-		return Result<void, Error>::Err(result, Error::Process_TerminateFailed);
+		return Result<VOID, Error>::Err(result, Error::Process_TerminateFailed);
 	}
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 // ============================================================================
@@ -171,13 +171,13 @@ BOOL Process::IsRunning() const noexcept
 // Process::Close
 // ============================================================================
 
-Result<void, Error> Process::Close() noexcept
+Result<VOID, Error> Process::Close() noexcept
 {
 	if (handle != nullptr)
 	{
-		(void)NTDLL::ZwClose(handle);
+		(VOID)NTDLL::ZwClose(handle);
 		handle = nullptr;
 	}
 	id = INVALID_ID;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }

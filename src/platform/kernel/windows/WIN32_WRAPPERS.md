@@ -40,7 +40,7 @@ Each DLL wrapper module defines a resolution macro that resolves function addres
 Each wrapper then casts the resolved address to the correct function pointer type and calls it:
 
 ```c
-Result<void, Error> Kernel32::CreateProcessW(/* params */)
+Result<VOID, Error> Kernel32::CreateProcessW(/* params */)
 {
     BOOL result = ((BOOL(STDCALL *)(PWCHAR, PWCHAR, PVOID, PVOID, BOOL,
                    UINT32, PVOID, PWCHAR, LPSTARTUPINFOW,
@@ -49,8 +49,8 @@ Result<void, Error> Kernel32::CreateProcessW(/* params */)
                    (lpApplicationName, lpCommandLine, ...);
 
     if (!result)
-        return Result<void, Error>::Err(Error(Error::Kernel32_CreateProcessFailed));
-    return Result<void, Error>::Ok();
+        return Result<VOID, Error>::Err(Error(Error::Kernel32_CreateProcessFailed));
+    return Result<VOID, Error>::Ok();
 }
 ```
 
@@ -63,7 +63,7 @@ Result<void, Error> Kernel32::CreateProcessW(/* params */)
 Creates a new process and its primary thread.
 
 ```c
-Result<void, Error> Kernel32::CreateProcessW(
+Result<VOID, Error> Kernel32::CreateProcessW(
     PWCHAR lpApplicationName,       // path to executable (or NULL)
     PWCHAR lpCommandLine,           // command line string
     PVOID lpProcessAttributes,      // security attributes for process (NULL = default)
@@ -115,7 +115,7 @@ Result<void, Error> Kernel32::CreateProcessW(
 Sets properties on an object handle — primarily used to control handle inheritance:
 
 ```c
-Result<void, Error> Kernel32::SetHandleInformation(
+Result<VOID, Error> Kernel32::SetHandleInformation(
     PVOID hObject,    // handle to modify
     UINT32 dwMask,    // which flags to change (HANDLE_FLAG_INHERIT)
     UINT32 dwFlags    // new flag values
@@ -133,7 +133,7 @@ Kernel32::SetHandleInformation(hWritePipe, HANDLE_FLAG_INHERIT, 0);
 Creates an anonymous pipe for inter-process communication:
 
 ```c
-Result<void, Error> Kernel32::CreatePipe(
+Result<VOID, Error> Kernel32::CreatePipe(
     PPVOID hReadPipe,           // OUT: read end of the pipe
     PPVOID hWritePipe,          // OUT: write end of the pipe
     PVOID lpPipeAttributes,     // security attributes (NULL = non-inheritable)
@@ -146,7 +146,7 @@ Result<void, Error> Kernel32::CreatePipe(
 Non-blocking check for available data in a pipe:
 
 ```c
-Result<void, Error> Kernel32::PeekNamedPipe(
+Result<VOID, Error> Kernel32::PeekNamedPipe(
     SSIZE hNamedPipe,                // pipe handle
     PVOID lpBuffer,                  // optional output buffer (can be NULL)
     UINT32 nBufferSize,              // buffer size

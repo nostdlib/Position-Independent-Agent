@@ -105,7 +105,7 @@ Result<File, Error> File::Open(PCWCHAR path, INT32 flags)
 	return Result<File, Error>::Ok(File((PVOID)fd, size));
 }
 
-Result<void, Error> File::Delete(PCWCHAR path)
+Result<VOID, Error> File::Delete(PCWCHAR path)
 {
 	CHAR utf8Path[1024];
 	NormalizePathToUtf8(path, Span<CHAR>(utf8Path));
@@ -116,11 +116,11 @@ Result<void, Error> File::Delete(PCWCHAR path)
 	SSIZE result = System::Call(SYS_UNLINK, (USIZE)utf8Path);
 #endif
 	if (result == 0)
-		return Result<void, Error>::Ok();
-	return Result<void, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_DeleteFailed);
+		return Result<VOID, Error>::Ok();
+	return Result<VOID, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_DeleteFailed);
 }
 
-Result<void, Error> File::Exists(PCWCHAR path)
+Result<VOID, Error> File::Exists(PCWCHAR path)
 {
 	CHAR utf8Path[1024];
 	NormalizePathToUtf8(path, Span<CHAR>(utf8Path));
@@ -135,8 +135,8 @@ Result<void, Error> File::Exists(PCWCHAR path)
 	SSIZE result = System::Call(SYS_STAT, (USIZE)utf8Path, (USIZE)statbuf);
 #endif
 	if (result == 0)
-		return Result<void, Error>::Ok();
-	return Result<void, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_OpenFailed);
+		return Result<VOID, Error>::Ok();
+	return Result<VOID, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_OpenFailed);
 }
 
 File::File(File &&other) noexcept : fileHandle((PVOID)INVALID_FD), fileSize(0)
@@ -152,7 +152,7 @@ File &File::operator=(File &&other) noexcept
 	if (this != &other)
 	{
 		if (IsValid())
-			(void)Close();
+			(VOID)Close();
 		fileHandle = other.fileHandle;
 		fileSize = other.fileSize;
 		other.fileHandle = (PVOID)INVALID_FD;
@@ -210,21 +210,21 @@ Result<USIZE, Error> File::GetOffset() const
 	return Result<USIZE, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_SeekFailed);
 }
 
-Result<void, Error> File::SetOffset(USIZE absoluteOffset)
+Result<VOID, Error> File::SetOffset(USIZE absoluteOffset)
 {
 	if (!IsValid())
-		return Result<void, Error>::Err(Error::Fs_SeekFailed);
+		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
 
 	SSIZE result = PosixLseek((USIZE)fileHandle, (SSIZE)absoluteOffset, SEEK_SET);
 	if (result >= 0)
-		return Result<void, Error>::Ok();
-	return Result<void, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_SeekFailed);
+		return Result<VOID, Error>::Ok();
+	return Result<VOID, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_SeekFailed);
 }
 
-Result<void, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
+Result<VOID, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
 {
 	if (!IsValid())
-		return Result<void, Error>::Err(Error::Fs_SeekFailed);
+		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
 
 	INT32 whence = SEEK_CUR;
 	if (origin == OffsetOrigin::Start)
@@ -234,6 +234,6 @@ Result<void, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
 
 	SSIZE result = PosixLseek((USIZE)fileHandle, relativeAmount, whence);
 	if (result >= 0)
-		return Result<void, Error>::Ok();
-	return Result<void, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_SeekFailed);
+		return Result<VOID, Error>::Ok();
+	return Result<VOID, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_SeekFailed);
 }

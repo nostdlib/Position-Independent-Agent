@@ -105,7 +105,7 @@ static FORCE_INLINE UINT32 udiv32_internal(UINT32 numerator, UINT32 denominator,
  *
  * Performance: O(1) for power-of-2, O(n) for general case where n = significant bits
  */
-static FORCE_INLINE void udiv64_internal(UINT64 numerator, UINT64 denominator,
+static FORCE_INLINE VOID udiv64_internal(UINT64 numerator, UINT64 denominator,
 										 UINT64 *quotient, UINT64 *remainder)
 {
 	// Division by zero: return 0 quotient, numerator as remainder
@@ -295,7 +295,7 @@ extern "C"
 	 * @note __attribute__((used)) is required because the compiler cannot detect
 	 * the reference from inline assembly, preventing "unused function" warnings.
 	 */
-	__attribute__((used)) void divmod64_helper(INT64 numerator, INT64 denominator,
+	__attribute__((used)) VOID divmod64_helper(INT64 numerator, INT64 denominator,
 													  INT64 *quotient, INT64 *remainder, BOOL isSigned)
 	{
 		if (__builtin_expect(denominator == 0, 0))
@@ -353,7 +353,7 @@ extern "C"
 	 *   - Results are loaded directly into output registers per EABI spec
 	 */
 	COMPILER_RUNTIME
-	__attribute__((naked)) void __aeabi_uldivmod(void)
+	__attribute__((naked)) VOID __aeabi_uldivmod(void)
 	{
 		__asm__ volatile(
 			"push   {r4, r5, lr}\n\t"    // Save callee-saved registers and return address
@@ -644,7 +644,7 @@ extern "C"
 	 * @see ARM EABI §4.3.4
 	 *      https://github.com/ARM-software/abi-aa/blob/main/rtabi32/rtabi32.rst
 	 */
-	COMPILER_RUNTIME void __aeabi_memcpy4(void *dest, const void *src, USIZE n)
+	COMPILER_RUNTIME VOID __aeabi_memcpy4(VOID *dest, const VOID *src, USIZE n)
 	{
 		memcpy(dest, src, n);
 	}
@@ -655,7 +655,7 @@ extern "C"
 	 * @see ARM EABI §4.3.4
 	 *      https://github.com/ARM-software/abi-aa/blob/main/rtabi32/rtabi32.rst
 	 */
-	COMPILER_RUNTIME void __aeabi_memcpy8(void *dest, const void *src, USIZE n)
+	COMPILER_RUNTIME VOID __aeabi_memcpy8(VOID *dest, const VOID *src, USIZE n)
 	{
 		memcpy(dest, src, n);
 	}
@@ -666,7 +666,7 @@ extern "C"
 	 * @see ARM EABI §4.3.4
 	 *      https://github.com/ARM-software/abi-aa/blob/main/rtabi32/rtabi32.rst
 	 */
-	COMPILER_RUNTIME void __aeabi_memcpy(void *dest, const void *src, USIZE n)
+	COMPILER_RUNTIME VOID __aeabi_memcpy(VOID *dest, const VOID *src, USIZE n)
 	{
 		memcpy(dest, src, n);
 	}
@@ -677,7 +677,7 @@ extern "C"
 	 * @see ARM EABI §4.3.4
 	 *      https://github.com/ARM-software/abi-aa/blob/main/rtabi32/rtabi32.rst
 	 */
-	COMPILER_RUNTIME void __aeabi_memclr(void *dest, USIZE n)
+	COMPILER_RUNTIME VOID __aeabi_memclr(VOID *dest, USIZE n)
 	{
 		memset(dest, 0, n);
 	}
@@ -691,7 +691,7 @@ extern "C"
 	 * @see ARM EABI §4.3.4
 	 *      https://github.com/ARM-software/abi-aa/blob/main/rtabi32/rtabi32.rst
 	 */
-	COMPILER_RUNTIME void __aeabi_memset(void *dest, USIZE n, INT32 c)
+	COMPILER_RUNTIME VOID __aeabi_memset(VOID *dest, USIZE n, INT32 c)
 	{
 		memset(dest, c, n);
 	}
@@ -702,7 +702,7 @@ extern "C"
 	 * @see ARM EABI §4.3.4
 	 *      https://github.com/ARM-software/abi-aa/blob/main/rtabi32/rtabi32.rst
 	 */
-	COMPILER_RUNTIME void __aeabi_memclr4(void *dest, USIZE n)
+	COMPILER_RUNTIME VOID __aeabi_memclr4(VOID *dest, USIZE n)
 	{
 		memset(dest, 0, n);
 	}
@@ -713,7 +713,7 @@ extern "C"
 	 * @see ARM EABI §4.3.4
 	 *      https://github.com/ARM-software/abi-aa/blob/main/rtabi32/rtabi32.rst
 	 */
-	COMPILER_RUNTIME void __aeabi_memclr8(void *dest, USIZE n)
+	COMPILER_RUNTIME VOID __aeabi_memclr8(VOID *dest, USIZE n)
 	{
 		memset(dest, 0, n);
 	}

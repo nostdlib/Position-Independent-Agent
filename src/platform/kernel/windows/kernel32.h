@@ -10,7 +10,7 @@
  * ResolveKernel32ExportAddress() using DJB2 hash-based PEB module lookup,
  * eliminating static import table entries.
  *
- * @note All wrappers return Result<void, Error> for uniform error handling.
+ * @note All wrappers return Result<VOID, Error> for uniform error handling.
  *
  * @see Windows API Index
  *      https://learn.microsoft.com/en-us/windows/win32/apiindex/windows-api-list
@@ -112,7 +112,7 @@ public:
 	 * @param lpStartupInfo Pointer to STARTUPINFOW specifying window and handle configuration.
 	 * @param lpProcessInformation Receives identification information about the new process.
 	 *
-	 * @return Result<void, Error> Ok() on success, Err(Kernel32_CreateProcessFailed) on failure.
+	 * @return Result<VOID, Error> Ok() on success, Err(Kernel32_CreateProcessFailed) on failure.
 	 *
 	 * @par Requirements
 	 * Minimum supported client: Windows XP [desktop apps | UWP apps]
@@ -121,7 +121,7 @@ public:
 	 * @see Microsoft Learn -- CreateProcessW function
 	 *      https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw
 	 */
-	[[nodiscard]] static Result<void, Error> CreateProcessW(PWCHAR lpApplicationName, PWCHAR lpCommandLine, PVOID lpProcessAttributes, PVOID lpThreadAttributes, BOOL bInheritHandles, UINT32 dwCreationFlags, PVOID lpEnvironment, PWCHAR lpCurrentDirectory, LPSTARTUPINFOW lpStartupInfo, LPPROCESS_INFORMATION lpProcessInformation);
+	[[nodiscard]] static Result<VOID, Error> CreateProcessW(PWCHAR lpApplicationName, PWCHAR lpCommandLine, PVOID lpProcessAttributes, PVOID lpThreadAttributes, BOOL bInheritHandles, UINT32 dwCreationFlags, PVOID lpEnvironment, PWCHAR lpCurrentDirectory, LPSTARTUPINFOW lpStartupInfo, LPPROCESS_INFORMATION lpProcessInformation);
 
 	/**
 	 * @brief Sets certain properties of an object handle.
@@ -134,7 +134,7 @@ public:
 	 * @param dwMask Bitmask specifying which flags to change (e.g., HANDLE_FLAG_INHERIT).
 	 * @param dwFlags Bitmask specifying the new values for the flags identified by dwMask.
 	 *
-	 * @return Result<void, Error> Ok() on success, Err(Kernel32_SetHandleInfoFailed) on failure.
+	 * @return Result<VOID, Error> Ok() on success, Err(Kernel32_SetHandleInfoFailed) on failure.
 	 *
 	 * @par Requirements
 	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
@@ -143,7 +143,7 @@ public:
 	 * @see Microsoft Learn -- SetHandleInformation function
 	 *      https://learn.microsoft.com/en-us/windows/win32/api/handleapi/nf-handleapi-sethandleinformation
 	 */
-	[[nodiscard]] static Result<void, Error> SetHandleInformation(PVOID hObject, UINT32 dwMask, UINT32 dwFlags);
+	[[nodiscard]] static Result<VOID, Error> SetHandleInformation(PVOID hObject, UINT32 dwMask, UINT32 dwFlags);
 
 	/**
 	 * @brief Creates an anonymous pipe and returns handles to the read and write ends.
@@ -157,7 +157,7 @@ public:
 	 * @param lpPipeAttributes Security attributes (NULL for default, non-inheritable).
 	 * @param nSize Suggested buffer size (0 for system default).
 	 *
-	 * @return Result<void, Error> Ok() on success, Err(Kernel32_CreatePipeFailed) on failure.
+	 * @return Result<VOID, Error> Ok() on success, Err(Kernel32_CreatePipeFailed) on failure.
 	 *
 	 * @par Requirements
 	 * Minimum supported client: Windows 2000 Professional [desktop apps | UWP apps]
@@ -166,7 +166,7 @@ public:
 	 * @see Microsoft Learn -- CreatePipe function
 	 *      https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-createpipe
 	 */
-	[[nodiscard]] static Result<void, Error> CreatePipe(PPVOID hReadPipe, PPVOID hWritePipe, PVOID lpPipeAttributes, UINT32 nSize);
+	[[nodiscard]] static Result<VOID, Error> CreatePipe(PPVOID hReadPipe, PPVOID hWritePipe, PVOID lpPipeAttributes, UINT32 nSize);
 
 	/**
 	 * @brief Copies data from a pipe into a buffer without removing it from the pipe.
@@ -183,7 +183,7 @@ public:
 	 * @param lpTotalBytesAvail Pointer to receive total bytes available (can be NULL).
 	 * @param lpBytesLeftThisMessage Pointer to bytes remaining in this message (can be NULL).
 	 *
-	 * @return Result<void, Error> Ok() on success, Err(Kernel32_PeekNamedPipeFailed) on failure.
+	 * @return Result<VOID, Error> Ok() on success, Err(Kernel32_PeekNamedPipeFailed) on failure.
 	 *
 	 * @par Requirements
 	 * Minimum supported client: Windows 2000 Professional [desktop apps | UWP apps]
@@ -192,5 +192,5 @@ public:
 	 * @see Microsoft Learn -- PeekNamedPipe function
 	 * https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-peeknamedpipe
 	 */
-	[[nodiscard]] static Result<void, Error> PeekNamedPipe(SSIZE hNamedPipe, PVOID lpBuffer, UINT32 nBufferSize, PUINT32 lpBytesRead, PUINT32 lpTotalBytesAvail, PUINT32 lpBytesLeftThisMessage);
+	[[nodiscard]] static Result<VOID, Error> PeekNamedPipe(SSIZE hNamedPipe, PVOID lpBuffer, UINT32 nBufferSize, PUINT32 lpBytesRead, PUINT32 lpTotalBytesAvail, PUINT32 lpBytesLeftThisMessage);
 };

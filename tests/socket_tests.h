@@ -35,7 +35,7 @@ private:
 		if (!openResult)
 		{
 			LOG_ERROR("Socket connection failed (error: %e)", openResult.Error());
-			(void)sock.Close();
+			(VOID)sock.Close();
 			return false;
 		}
 		LOG_INFO("  PASSED: Socket connection (HTTP:80)");
@@ -47,13 +47,13 @@ private:
 		if (!writeResult)
 		{
 			LOG_ERROR("Failed to send HTTP request (error: %e)", writeResult.Error());
-			(void)sock.Close();
+			(VOID)sock.Close();
 			return false;
 		}
 		if (writeResult.Value() != requestLen)
 		{
 			LOG_ERROR("Incomplete HTTP request (sent %d/%d bytes)", writeResult.Value(), requestLen);
-			(void)sock.Close();
+			(VOID)sock.Close();
 			return false;
 		}
 
@@ -67,12 +67,12 @@ private:
 				LOG_ERROR("Failed to receive HTTP response (error: %e)", readResult.Error());
 			else
 				LOG_ERROR("Failed to receive HTTP response (zero bytes)");
-			(void)sock.Close();
+			(VOID)sock.Close();
 			return false;
 		}
 		LOG_INFO("  PASSED: HTTP GET request");
 
-		(void)sock.Close();
+		(VOID)sock.Close();
 
 		// --- Sequential reconnection test (verifies create-connect-send cycle works repeatedly) ---
 		{
@@ -98,13 +98,13 @@ private:
 			if (!writeResult2)
 			{
 				LOG_ERROR("Sequential connection: failed to send request (error: %e)", writeResult2.Error());
-				(void)sock2.Close();
+				(VOID)sock2.Close();
 				return false;
 			}
 			if (writeResult2.Value() != requestLen2)
 			{
 				LOG_ERROR("Sequential connection: incomplete send (%d/%d bytes)", writeResult2.Value(), requestLen2);
-				(void)sock2.Close();
+				(VOID)sock2.Close();
 				return false;
 			}
 
@@ -118,11 +118,11 @@ private:
 					LOG_ERROR("Sequential connection: failed to receive response (error: %e)", readResult2.Error());
 				else
 					LOG_ERROR("Sequential connection: received zero bytes");
-				(void)sock2.Close();
+				(VOID)sock2.Close();
 				return false;
 			}
 
-			(void)sock2.Close();
+			(VOID)sock2.Close();
 		}
 		LOG_INFO("  PASSED: Sequential reconnection");
 
@@ -229,7 +229,7 @@ private:
 		if (!openResult)
 		{
 			LOG_WARNING("IPv6 socket connection failed (error: %e) (IPv6 may not be available)", openResult.Error());
-			(void)sock.Close();
+			(VOID)sock.Close();
 			return true; // non-fatal: IPv6 may be unavailable
 		}
 
@@ -242,13 +242,13 @@ private:
 		if (!writeResult)
 		{
 			LOG_ERROR("Failed to send HTTP request over IPv6 (error: %e)", writeResult.Error());
-			(void)sock.Close();
+			(VOID)sock.Close();
 			return false;
 		}
 		if (writeResult.Value() != requestLen)
 		{
 			LOG_ERROR("Incomplete HTTP request over IPv6 (sent %d/%d bytes)", writeResult.Value(), requestLen);
-			(void)sock.Close();
+			(VOID)sock.Close();
 			return false;
 		}
 
@@ -259,17 +259,17 @@ private:
 		if (!readResult)
 		{
 			LOG_ERROR("Failed to receive HTTP response over IPv6 (error: %e)", readResult.Error());
-			(void)sock.Close();
+			(VOID)sock.Close();
 			return false;
 		}
 		if (readResult.Value() <= 0)
 		{
 			LOG_ERROR("Received zero bytes over IPv6");
-			(void)sock.Close();
+			(VOID)sock.Close();
 			return false;
 		}
 
-		(void)sock.Close();
+		(VOID)sock.Close();
 		return true;
 	}
 
@@ -302,13 +302,13 @@ private:
 		if (!writeResult)
 		{
 			LOG_ERROR("Failed to send HTTP request to httpbin.org (error: %e)", writeResult.Error());
-			(void)sock.Close();
+			(VOID)sock.Close();
 			return false;
 		}
 		if (writeResult.Value() != sizeof(request) - 1)
 		{
 			LOG_ERROR("Incomplete HTTP request to httpbin.org (sent %d/%d bytes)", writeResult.Value(), sizeof(request) - 1);
-			(void)sock.Close();
+			(VOID)sock.Close();
 			return false;
 		}
 
@@ -318,18 +318,18 @@ private:
 		if (!readResult)
 		{
 			LOG_ERROR("Failed to receive HTTP response from httpbin.org (error: %e)", readResult.Error());
-			(void)sock.Close();
+			(VOID)sock.Close();
 			return false;
 		}
 		if (readResult.Value() <= 0)
 		{
 			LOG_ERROR("Received zero bytes from httpbin.org");
-			(void)sock.Close();
+			(VOID)sock.Close();
 			return false;
 		}
 
 		LOG_INFO("Received %d bytes from httpbin.org", readResult.Value());
-		(void)sock.Close();
+		(VOID)sock.Close();
 		return true;
 	}
 

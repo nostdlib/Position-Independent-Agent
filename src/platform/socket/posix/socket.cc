@@ -151,22 +151,22 @@ Result<Socket, Error> Socket::Create(const IPAddress &ipAddress, UINT16 port)
 	return Result<Socket, Error>::Ok(static_cast<Socket &&>(sock));
 }
 
-Result<void, Error> Socket::Bind(const SockAddr &socketAddress, [[maybe_unused]] INT32 shareType)
+Result<VOID, Error> Socket::Bind(const SockAddr &socketAddress, [[maybe_unused]] INT32 shareType)
 {
 	SSIZE  sockfd  = (SSIZE)handle;
 	UINT32 addrLen = (ip.IsIPv6()) ? sizeof(SockAddr6) : sizeof(SockAddr);
 	SSIZE  result  = PosixBind(sockfd, &socketAddress, addrLen);
 	if (result != 0)
 	{
-		return Result<void, Error>::Err(
+		return Result<VOID, Error>::Err(
 			Error::Posix((UINT32)(-result)),
 			Error::Socket_BindFailed_Bind);
 	}
 
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
-Result<void, Error> Socket::Open()
+Result<VOID, Error> Socket::Open()
 {
 	SSIZE sockfd = (SSIZE)handle;
 
@@ -178,22 +178,22 @@ Result<void, Error> Socket::Open()
 
 	UINT32 addrLen = SocketAddressHelper::PrepareAddress(ip, port, Span<UINT8>((UINT8 *)&addrBuffer, sizeof(addrBuffer)));
 	if (addrLen == 0)
-		return Result<void, Error>::Err(Error::Socket_OpenFailed_Connect);
+		return Result<VOID, Error>::Err(Error::Socket_OpenFailed_Connect);
 
 	// Set socket to non-blocking for connect with timeout
 	SSIZE flags = PosixFcntl(sockfd, F_GETFL);
 	if (flags < 0)
-		return Result<void, Error>::Err(Error::Posix((UINT32)(-flags)), Error::Socket_OpenFailed_Connect);
+		return Result<VOID, Error>::Err(Error::Posix((UINT32)(-flags)), Error::Socket_OpenFailed_Connect);
 
 	SSIZE setResult = PosixFcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
 	if (setResult < 0)
-		return Result<void, Error>::Err(Error::Posix((UINT32)(-setResult)), Error::Socket_OpenFailed_Connect);
+		return Result<VOID, Error>::Err(Error::Posix((UINT32)(-setResult)), Error::Socket_OpenFailed_Connect);
 
 	SSIZE result = PosixConnect(sockfd, &addrBuffer, addrLen);
 	if (result != 0 && (-(INT32)result) != EINPROGRESS)
 	{
-		(void)PosixFcntl(sockfd, F_SETFL, flags);
-		return Result<void, Error>::Err(
+		(VOID)PosixFcntl(sockfd, F_SETFL, flags);
+		return Result<VOID, Error>::Err(
 			Error::Posix((UINT32)(-result)),
 			Error::Socket_OpenFailed_Connect);
 	}
@@ -209,12 +209,12 @@ Result<void, Error> Socket::Open()
 		SSIZE pollResult = PosixPoll(&pfd, 1, 5);
 		if (pollResult <= 0)
 		{
-			(void)PosixFcntl(sockfd, F_SETFL, flags);
+			(VOID)PosixFcntl(sockfd, F_SETFL, flags);
 			if (pollResult < 0)
-				return Result<void, Error>::Err(
+				return Result<VOID, Error>::Err(
 					Error::Posix((UINT32)(-pollResult)),
 					Error::Socket_OpenFailed_Connect);
-			return Result<void, Error>::Err(Error::Socket_OpenFailed_Connect);
+			return Result<VOID, Error>::Err(Error::Socket_OpenFailed_Connect);
 		}
 
 		// Check for connection error
@@ -223,27 +223,27 @@ Result<void, Error> Socket::Open()
 		SSIZE gsoResult = PosixGetsockopt(sockfd, SOL_SOCKET, SO_ERROR, &sockError, &optLen);
 		if (gsoResult < 0 || sockError != 0)
 		{
-			(void)PosixFcntl(sockfd, F_SETFL, flags);
+			(VOID)PosixFcntl(sockfd, F_SETFL, flags);
 			UINT32 errCode = (sockError != 0) ? (UINT32)sockError : (UINT32)(-gsoResult);
-			return Result<void, Error>::Err(
+			return Result<VOID, Error>::Err(
 				Error::Posix(errCode),
 				Error::Socket_OpenFailed_Connect);
 		}
 	}
 
 	// Restore blocking mode
-	(void)PosixFcntl(sockfd, F_SETFL, flags);
-	return Result<void, Error>::Ok();
+	(VOID)PosixFcntl(sockfd, F_SETFL, flags);
+	return Result<VOID, Error>::Ok();
 }
 
-Result<void, Error> Socket::Close()
+Result<VOID, Error> Socket::Close()
 {
 	SSIZE sockfd = (SSIZE)handle;
 	SSIZE result = System::Call(SYS_CLOSE, (USIZE)sockfd);
 	handle = nullptr;
 	if (result < 0)
-		return Result<void, Error>::Err(Error::Posix((UINT32)(-result)), Error::Socket_CloseFailed_Close);
-	return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Err(Error::Posix((UINT32)(-result)), Error::Socket_CloseFailed_Close);
+	return Result<VOID, Error>::Ok();
 }
 
 Result<SSIZE, Error> Socket::Read(Span<CHAR> buffer)

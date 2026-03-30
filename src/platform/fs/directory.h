@@ -3,7 +3,7 @@
  * @brief Directory operations
  *
  * @details Provides static methods for creating and deleting directories
- * across platforms. All operations return Result<void, Error> for uniform
+ * across platforms. All operations return Result<VOID, Error> for uniform
  * error handling via the PIR Result type.
  */
 #pragma once
@@ -22,7 +22,7 @@ public:
 	 * @param path Null-terminated wide string directory path.
 	 * @return Void on success, or an Error on failure.
 	 */
-	[[nodiscard]] static Result<void, Error> Create(PCWCHAR path);
+	[[nodiscard]] static Result<VOID, Error> Create(PCWCHAR path);
 
 	/**
 	 * @brief Deletes a directory at the given path.
@@ -32,5 +32,5 @@ public:
 	 * @param path Null-terminated wide string directory path.
 	 * @return Void on success, or an Error on failure.
 	 */
-	[[nodiscard]] static Result<void, Error> Delete(PCWCHAR path);
+	[[nodiscard]] static Result<VOID, Error> Delete(PCWCHAR path);
 };

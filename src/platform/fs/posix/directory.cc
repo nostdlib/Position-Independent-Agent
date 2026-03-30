@@ -26,7 +26,7 @@
 // Directory Implementation
 // =============================================================================
 
-Result<void, Error> Directory::Create(PCWCHAR path)
+Result<VOID, Error> Directory::Create(PCWCHAR path)
 {
 	CHAR utf8Path[1024];
 	NormalizePathToUtf8(path, Span<CHAR>(utf8Path));
@@ -40,11 +40,11 @@ Result<void, Error> Directory::Create(PCWCHAR path)
 	SSIZE result = System::Call(SYS_MKDIR, (USIZE)utf8Path, mode);
 #endif
 	if (result == 0 || result == -EEXIST)
-		return Result<void, Error>::Ok();
-	return Result<void, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_CreateDirFailed);
+		return Result<VOID, Error>::Ok();
+	return Result<VOID, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_CreateDirFailed);
 }
 
-Result<void, Error> Directory::Delete(PCWCHAR path)
+Result<VOID, Error> Directory::Delete(PCWCHAR path)
 {
 	CHAR utf8Path[1024];
 	NormalizePathToUtf8(path, Span<CHAR>(utf8Path));
@@ -55,6 +55,6 @@ Result<void, Error> Directory::Delete(PCWCHAR path)
 	SSIZE result = System::Call(SYS_RMDIR, (USIZE)utf8Path);
 #endif
 	if (result == 0)
-		return Result<void, Error>::Ok();
-	return Result<void, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_DeleteDirFailed);
+		return Result<VOID, Error>::Ok();
+	return Result<VOID, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_DeleteDirFailed);
 }

@@ -101,37 +101,37 @@ Result<USIZE, Error> Pipe::Write(Span<const UINT8> data) noexcept
 // Pipe::CloseRead
 // ============================================================================
 
-Result<void, Error> Pipe::CloseRead() noexcept
+Result<VOID, Error> Pipe::CloseRead() noexcept
 {
 	if (readFd == INVALID_FD)
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 
 	System::Call(SYS_CLOSE, (USIZE)readFd);
 	readFd = INVALID_FD;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 // ============================================================================
 // Pipe::CloseWrite
 // ============================================================================
 
-Result<void, Error> Pipe::CloseWrite() noexcept
+Result<VOID, Error> Pipe::CloseWrite() noexcept
 {
 	if (writeFd == INVALID_FD)
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 
 	System::Call(SYS_CLOSE, (USIZE)writeFd);
 	writeFd = INVALID_FD;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 // ============================================================================
 // Pipe::Close
 // ============================================================================
 
-Result<void, Error> Pipe::Close() noexcept
+Result<VOID, Error> Pipe::Close() noexcept
 {
-	(void)CloseRead();
-	(void)CloseWrite();
-	return Result<void, Error>::Ok();
+	(VOID)CloseRead();
+	(VOID)CloseWrite();
+	return Result<VOID, Error>::Ok();
 }

@@ -125,7 +125,7 @@ Result<DirectoryIterator, Error> DirectoryIterator::Create(PCWCHAR path)
 	}
 	else
 	{
-		(void)NTDLL::ZwClose(iter.handle);
+		(VOID)NTDLL::ZwClose(iter.handle);
 		iter.handle = (PVOID)-1;
 		return Result<DirectoryIterator, Error>::Err(dirResult, Error::Fs_ReadFailed);
 	}
@@ -133,10 +133,10 @@ Result<DirectoryIterator, Error> DirectoryIterator::Create(PCWCHAR path)
 }
 
 // Move to next entry. Ok = has entry, Err = done or syscall failed.
-Result<void, Error> DirectoryIterator::Next()
+Result<VOID, Error> DirectoryIterator::Next()
 {
 	if (!IsValid())
-		return Result<void, Error>::Err(Error::Fs_ReadFailed);
+		return Result<VOID, Error>::Err(Error::Fs_ReadFailed);
 
 	IO_STATUS_BLOCK ioStatusBlock;
 	Memory::Zero(&ioStatusBlock, sizeof(IO_STATUS_BLOCK));
@@ -148,7 +148,7 @@ Result<void, Error> DirectoryIterator::Next()
 		USIZE mask = (USIZE)handle;
 
 		if (mask == 0)
-			return Result<void, Error>::Err(Error::Fs_ReadFailed);
+			return Result<VOID, Error>::Err(Error::Fs_ReadFailed);
 
 		// Query the process device map to get drive types
 		PROCESS_DEVICEMAP_INFORMATION devMapInfo;
@@ -185,18 +185,18 @@ Result<void, Error> DirectoryIterator::Next()
 				handle = (PVOID)mask;
 				isFirst = false;
 
-				return Result<void, Error>::Ok();
+				return Result<VOID, Error>::Ok();
 			}
 		}
 
-		return Result<void, Error>::Err(Error::Fs_ReadFailed);
+		return Result<VOID, Error>::Err(Error::Fs_ReadFailed);
 	}
 
 	// --- NORMAL MODE ---
 	if (isFirst)
 	{
 		isFirst = false;
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 	}
 
 	alignas(alignof(FILE_BOTH_DIR_INFORMATION)) UINT8 buffer[sizeof(FILE_BOTH_DIR_INFORMATION) + 260 * sizeof(WCHAR)];
@@ -219,10 +219,10 @@ Result<void, Error> DirectoryIterator::Next()
 	{
 		const FILE_BOTH_DIR_INFORMATION &dirInfo = *(const FILE_BOTH_DIR_INFORMATION *)buffer;
 		FillEntry(currentEntry, dirInfo);
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 	}
 
-	return Result<void, Error>::Err(dirResult, Error::Fs_ReadFailed);
+	return Result<VOID, Error>::Err(dirResult, Error::Fs_ReadFailed);
 }
 
 // Move constructor
@@ -252,7 +252,7 @@ VOID DirectoryIterator::Close()
 	if (IsValid())
 	{
 		if (!isBitMaskMode)
-			(void)NTDLL::ZwClose(handle);
+			(VOID)NTDLL::ZwClose(handle);
 		handle = (PVOID)-1;
 	}
 }

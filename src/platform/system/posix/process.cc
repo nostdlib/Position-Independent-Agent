@@ -224,11 +224,11 @@ Result<Process, Error> Process::Create(
 		if (hasRedirect)
 		{
 			// Create new session and set controlling terminal
-			(void)PosixSetsid();
+			(VOID)PosixSetsid();
 #if !defined(PLATFORM_SOLARIS)
 			// Set the PTY slave as controlling terminal (no-op if not a PTY)
 			if (stdinFd != -1)
-				(void)System::Call(SYS_IOCTL, (USIZE)stdinFd, TIOCSCTTY, 0);
+				(VOID)System::Call(SYS_IOCTL, (USIZE)stdinFd, TIOCSCTTY, 0);
 #endif
 
 			// Redirect each fd that was specified
@@ -330,18 +330,18 @@ Result<SSIZE, Error> Process::Wait() noexcept
 // Process::Terminate
 // ============================================================================
 
-Result<void, Error> Process::Terminate() noexcept
+Result<VOID, Error> Process::Terminate() noexcept
 {
 	if (!IsValid())
-		return Result<void, Error>::Err(Error::Process_TerminateFailed);
+		return Result<VOID, Error>::Err(Error::Process_TerminateFailed);
 
 	SSIZE result = System::Call(SYS_KILL, (USIZE)id, (USIZE)SIGKILL);
 	if (result < 0)
 	{
-		return Result<void, Error>::Err(
+		return Result<VOID, Error>::Err(
 			Error::Posix((UINT32)(-result)), Error::Process_TerminateFailed);
 	}
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 // ============================================================================
@@ -362,25 +362,25 @@ BOOL Process::IsRunning() const noexcept
 // Process::Close
 // ============================================================================
 
-Result<void, Error> Process::Close() noexcept
+Result<VOID, Error> Process::Close() noexcept
 {
 	if (!IsValid())
-		return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Ok();
 
 	// Try to reap zombie (non-blocking) to avoid resource leak
 #if defined(PLATFORM_SOLARIS) || (defined(PLATFORM_LINUX) && defined(ARCHITECTURE_RISCV32))
 	UINT8 siginfo[256];
 	Memory::Zero(siginfo, sizeof(siginfo));
 #if defined(PLATFORM_SOLARIS)
-	(void)System::Call(SYS_WAITID, (USIZE)P_PID, (USIZE)id, (USIZE)siginfo, (USIZE)(WEXITED | WNOHANG));
+	(VOID)System::Call(SYS_WAITID, (USIZE)P_PID, (USIZE)id, (USIZE)siginfo, (USIZE)(WEXITED | WNOHANG));
 #else
-	(void)System::Call(SYS_WAITID, (USIZE)LINUX_P_PID, (USIZE)id, (USIZE)siginfo, (USIZE)(LINUX_WEXITED | WNOHANG), 0);
+	(VOID)System::Call(SYS_WAITID, (USIZE)LINUX_P_PID, (USIZE)id, (USIZE)siginfo, (USIZE)(LINUX_WEXITED | WNOHANG), 0);
 #endif
 #else
 	INT32 status = 0;
-	(void)System::Call(SYS_WAIT4, (USIZE)id, (USIZE)&status, (USIZE)WNOHANG, 0);
+	(VOID)System::Call(SYS_WAIT4, (USIZE)id, (USIZE)&status, (USIZE)WNOHANG, 0);
 #endif
 
 	id = INVALID_ID;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }

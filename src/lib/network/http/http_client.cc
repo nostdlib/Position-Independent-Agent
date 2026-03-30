@@ -57,23 +57,23 @@ Result<HttpClient, Error> HttpClient::Create(Span<const CHAR> url)
 /// @brief Open a connection to the server
 /// @return Ok on success, or Err with Http_OpenFailed on failure
 
-Result<void, Error> HttpClient::Open()
+Result<VOID, Error> HttpClient::Open()
 {
 	auto r = tlsContext.Open();
 	if (!r)
-		return Result<void, Error>::Err(r, Error::Http_OpenFailed);
-	return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Err(r, Error::Http_OpenFailed);
+	return Result<VOID, Error>::Ok();
 }
 
 /// @brief Closes the connection to the server and cleans up resources
 /// @return Ok on success, or Err with Http_CloseFailed on failure
 
-Result<void, Error> HttpClient::Close()
+Result<VOID, Error> HttpClient::Close()
 {
 	auto r = tlsContext.Close();
 	if (!r)
-		return Result<void, Error>::Err(r, Error::Http_CloseFailed);
-	return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Err(r, Error::Http_CloseFailed);
+	return Result<VOID, Error>::Ok();
 }
 
 /// @brief Read data from the server into the provided buffer, handling decryption if the connection is secure
@@ -103,7 +103,7 @@ Result<UINT32, Error> HttpClient::Write(Span<const CHAR> buffer)
 /// @brief Send an HTTP GET request to the server
 /// @return Ok on success, or Err with Http_SendGetFailed on failure
 
-Result<void, Error> HttpClient::SendGetRequest(PCCHAR host, PCCHAR path)
+Result<VOID, Error> HttpClient::SendGetRequest(PCCHAR host, PCCHAR path)
 {
 	// Build GET request: "GET <path> HTTP/1.1\r\nHost: <host>\r\nConnection: close\r\n\r\n"
 	CHAR request[2048];
@@ -120,10 +120,10 @@ Result<void, Error> HttpClient::SendGetRequest(PCCHAR host, PCCHAR path)
 
 	auto r = Write(Span<const CHAR>(request, (UINT32)pos));
 	if (!r)
-		return Result<void, Error>::Err(r, Error::Http_SendGetFailed);
+		return Result<VOID, Error>::Err(r, Error::Http_SendGetFailed);
 	if (r.Value() != (UINT32)pos)
-		return Result<void, Error>::Err(Error::Http_SendGetFailed);
-	return Result<void, Error>::Ok();
+		return Result<VOID, Error>::Err(Error::Http_SendGetFailed);
+	return Result<VOID, Error>::Ok();
 }
 
 /// @brief Send an HTTP POST request to the server
@@ -132,7 +132,7 @@ Result<void, Error> HttpClient::SendGetRequest(PCCHAR host, PCCHAR path)
 /// @param data The data to be sent in the body of the POST request
 /// @return Ok on success, or Err with Http_SendPostFailed on failure
 
-Result<void, Error> HttpClient::SendPostRequest(PCCHAR host, PCCHAR path, Span<const CHAR> data)
+Result<VOID, Error> HttpClient::SendPostRequest(PCCHAR host, PCCHAR path, Span<const CHAR> data)
 {
 	// Build POST request with Content-Length
 	CHAR request[2048];
@@ -157,21 +157,21 @@ Result<void, Error> HttpClient::SendPostRequest(PCCHAR host, PCCHAR path, Span<c
 	// Send headers
 	auto r = Write(Span<const CHAR>(request, (UINT32)pos));
 	if (!r)
-		return Result<void, Error>::Err(r, Error::Http_SendPostFailed);
+		return Result<VOID, Error>::Err(r, Error::Http_SendPostFailed);
 	if (r.Value() != (UINT32)pos)
-		return Result<void, Error>::Err(Error::Http_SendPostFailed);
+		return Result<VOID, Error>::Err(Error::Http_SendPostFailed);
 
 	// Send body
 	if (data.Size() > 0)
 	{
 		auto bodyResult = Write(data);
 		if (!bodyResult)
-			return Result<void, Error>::Err(bodyResult, Error::Http_SendPostFailed);
+			return Result<VOID, Error>::Err(bodyResult, Error::Http_SendPostFailed);
 		if (bodyResult.Value() != (UINT32)data.Size())
-			return Result<void, Error>::Err(Error::Http_SendPostFailed);
+			return Result<VOID, Error>::Err(Error::Http_SendPostFailed);
 	}
 
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 /// @brief Parse a URL into its components (host, path, port, secure) and validate the format
@@ -182,7 +182,7 @@ Result<void, Error> HttpClient::SendPostRequest(PCCHAR host, PCCHAR path, Span<c
 /// @param secure Reference to store whether the connection is secure (true) or not (false)
 /// @return Ok on success, or Err with Http_ParseUrlFailed on failure
 
-Result<void, Error> HttpClient::ParseUrl(Span<const CHAR> url, CHAR (&host)[254], CHAR (&path)[2048], UINT16 &port, BOOL &secure)
+Result<VOID, Error> HttpClient::ParseUrl(Span<const CHAR> url, CHAR (&host)[254], CHAR (&path)[2048], UINT16 &port, BOOL &secure)
 {
 	CHAR portBuffer[6];
 
@@ -214,7 +214,7 @@ Result<void, Error> HttpClient::ParseUrl(Span<const CHAR> url, CHAR (&host)[254]
 	}
 	else
 	{
-		return Result<void, Error>::Err(Error::Http_ParseUrlFailed);
+		return Result<VOID, Error>::Err(Error::Http_ParseUrlFailed);
 	}
 
 	PCCHAR pHostStart = url.Data() + schemeLength;
@@ -232,7 +232,7 @@ Result<void, Error> HttpClient::ParseUrl(Span<const CHAR> url, CHAR (&host)[254]
 
 		USIZE hostLen = (USIZE)(pathStart - pHostStart);
 		if (hostLen == 0 || hostLen > 253)
-			return Result<void, Error>::Err(Error::Http_ParseUrlFailed);
+			return Result<VOID, Error>::Err(Error::Http_ParseUrlFailed);
 
 		Memory::Copy(host, pHostStart, hostLen);
 		host[hostLen] = '\0';
@@ -241,28 +241,28 @@ Result<void, Error> HttpClient::ParseUrl(Span<const CHAR> url, CHAR (&host)[254]
 	{
 		USIZE hostLen = (USIZE)(portStart - pHostStart);
 		if (hostLen == 0 || hostLen > 253)
-			return Result<void, Error>::Err(Error::Http_ParseUrlFailed);
+			return Result<VOID, Error>::Err(Error::Http_ParseUrlFailed);
 
 		Memory::Copy(host, pHostStart, hostLen);
 		host[hostLen] = '\0';
 
 		USIZE portLen = (USIZE)(pathStart - (portStart + 1));
 		if (portLen == 0 || portLen > 5)
-			return Result<void, Error>::Err(Error::Http_ParseUrlFailed);
+			return Result<VOID, Error>::Err(Error::Http_ParseUrlFailed);
 
 		Memory::Copy(portBuffer, portStart + 1, portLen);
 		portBuffer[portLen] = '\0';
 
 		for (USIZE i = 0; i < portLen; i++)
 			if (portBuffer[i] < '0' || portBuffer[i] > '9')
-				return Result<void, Error>::Err(Error::Http_ParseUrlFailed);
+				return Result<VOID, Error>::Err(Error::Http_ParseUrlFailed);
 
 		auto pnumResult = StringUtils::ParseInt64(portBuffer);
 		if (!pnumResult)
-			return Result<void, Error>::Err(pnumResult, Error::Http_ParseUrlFailed);
+			return Result<VOID, Error>::Err(pnumResult, Error::Http_ParseUrlFailed);
 		auto& pnum = pnumResult.Value();
 		if (pnum == 0 || pnum > 65535)
-			return Result<void, Error>::Err(Error::Http_ParseUrlFailed);
+			return Result<VOID, Error>::Err(Error::Http_ParseUrlFailed);
 		port = (UINT16)pnum;
 	}
 
@@ -276,12 +276,12 @@ Result<void, Error> HttpClient::ParseUrl(Span<const CHAR> url, CHAR (&host)[254]
 	else
 	{
 		if (pathLen > 2047)
-			return Result<void, Error>::Err(Error::Http_ParseUrlFailed);
+			return Result<VOID, Error>::Err(Error::Http_ParseUrlFailed);
 		Memory::Copy(path, pathStart, pathLen);
 		path[pathLen] = '\0';
 	}
 
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
 
 /// @brief Read HTTP response headers using a rolling 4-byte window

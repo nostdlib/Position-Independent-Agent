@@ -78,7 +78,7 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 // Screen::Capture
 // =============================================================================
 
-Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
 {
 	INT32 width = (INT32)device.Width;
 	INT32 height = (INT32)device.Height;
@@ -86,14 +86,14 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	// Get the screen device context (NULL = entire virtual screen)
 	PVOID screenDC = User32::GetDC(nullptr);
 	if (screenDC == nullptr)
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	// Create memory DC and compatible bitmap
 	PVOID memDC = Gdi32::CreateCompatibleDC(screenDC);
 	if (memDC == nullptr)
 	{
 		User32::ReleaseDC(nullptr, screenDC);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	PVOID bitmap = Gdi32::CreateCompatibleBitmap(screenDC, width, height);
@@ -101,7 +101,7 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	{
 		Gdi32::DeleteDC(memDC);
 		User32::ReleaseDC(nullptr, screenDC);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	PVOID oldBitmap = Gdi32::SelectObject(memDC, bitmap);
@@ -114,7 +114,7 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 		Gdi32::DeleteObject(bitmap);
 		Gdi32::DeleteDC(memDC);
 		User32::ReleaseDC(nullptr, screenDC);
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Allocate temporary 32bpp buffer for GetDIBits (BGRA format)
@@ -126,7 +126,7 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 		Gdi32::DeleteObject(bitmap);
 		Gdi32::DeleteDC(memDC);
 		User32::ReleaseDC(nullptr, screenDC);
-		return Result<void, Error>::Err(Error(Error::Screen_AllocFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_AllocFailed));
 	}
 
 	// Set up BITMAPINFOHEADER for 32bpp top-down
@@ -151,7 +151,7 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	if (scanLines == 0)
 	{
 		delete[] tempBuf;
-		return Result<void, Error>::Err(Error(Error::Screen_CaptureFailed));
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
 	// Convert BGRA → RGB
@@ -165,5 +165,5 @@ Result<void, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	}
 
 	delete[] tempBuf;
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }

@@ -42,9 +42,9 @@ Result<ShellProcess, Error> ShellProcess::Create() noexcept
 	if (!processResult)
 		return Result<ShellProcess, Error>::Err(Error::ShellProcess_CreateFailed);
 
-	(void)stdinPipe.CloseRead();
-	(void)stdoutPipe.CloseWrite();
-	(void)stderrPipe.CloseWrite();
+	(VOID)stdinPipe.CloseRead();
+	(VOID)stdoutPipe.CloseWrite();
+	(VOID)stderrPipe.CloseWrite();
 
 	return Result<ShellProcess, Error>::Ok(
 		ShellProcess(

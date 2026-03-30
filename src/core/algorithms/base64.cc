@@ -57,7 +57,7 @@ static constexpr UINT32 Base64DecodeChar(CHAR c)
  * @see RFC 4648 Section 3.5 — Canonical Encoding (padding rules)
  *      https://datatracker.ietf.org/doc/html/rfc4648#section-3.5
  */
-void Base64::Encode(Span<const CHAR> input, Span<CHAR> output)
+VOID Base64::Encode(Span<const CHAR> input, Span<CHAR> output)
 {
 	const UINT32 inputSize = (UINT32)input.Size();
 	const UINT32 outputSize = (UINT32)output.Size();
@@ -130,14 +130,14 @@ void Base64::Encode(Span<const CHAR> input, Span<CHAR> output)
  * @see RFC 4648 Section 3.3 — Interpretation of Non-Alphabet Characters
  *      https://datatracker.ietf.org/doc/html/rfc4648#section-3.3
  */
-Result<void, Error> Base64::Decode(Span<const CHAR> input, Span<CHAR> output)
+Result<VOID, Error> Base64::Decode(Span<const CHAR> input, Span<CHAR> output)
 {
 	const UINT32 inputSize = (UINT32)input.Size();
 	const UINT32 outputSize = (UINT32)output.Size();
 
 	/* Input must be a multiple of 4 characters — RFC 4648 Section 4 */
 	if (inputSize % 4u != 0)
-		return Result<void, Error>::Err(Error::Base64_DecodeFailed);
+		return Result<VOID, Error>::Err(Error::Base64_DecodeFailed);
 
 	UINT32 i = 0;
 	UINT32 o = 0;
@@ -152,36 +152,36 @@ Result<void, Error> Base64::Decode(Span<const CHAR> input, Span<CHAR> output)
 
 		/* Positions 0 and 1 must never be padding */
 		if (c0 == '=' || c1 == '=')
-			return Result<void, Error>::Err(Error::Base64_DecodeFailed);
+			return Result<VOID, Error>::Err(Error::Base64_DecodeFailed);
 
 		UINT32 a = Base64DecodeChar(c0);
 		UINT32 b = Base64DecodeChar(c1);
 
 		if (a > 63u || b > 63u)
-			return Result<void, Error>::Err(Error::Base64_DecodeFailed);
+			return Result<VOID, Error>::Err(Error::Base64_DecodeFailed);
 
 		BOOL pad2 = (c2 == '=');
 		BOOL pad3 = (c3 == '=');
 
 		/* If position 2 is padded, position 3 must also be padded */
 		if (pad2 && !pad3)
-			return Result<void, Error>::Err(Error::Base64_DecodeFailed);
+			return Result<VOID, Error>::Err(Error::Base64_DecodeFailed);
 
 		/* Padding must only appear in the last block */
 		if ((pad2 || pad3) && i + 4u < inputSize)
-			return Result<void, Error>::Err(Error::Base64_DecodeFailed);
+			return Result<VOID, Error>::Err(Error::Base64_DecodeFailed);
 
 		UINT32 c = pad2 ? 0u : Base64DecodeChar(c2);
 		UINT32 d = pad3 ? 0u : Base64DecodeChar(c3);
 
 		if ((!pad2 && c > 63u) || (!pad3 && d > 63u))
-			return Result<void, Error>::Err(Error::Base64_DecodeFailed);
+			return Result<VOID, Error>::Err(Error::Base64_DecodeFailed);
 
 		/* Reassemble 24-bit group from four 6-bit values */
 		UINT32 v = (a << 18) | (b << 12) | (c << 6) | d;
 
 		if (o + 3u > outputSize)
-			return Result<void, Error>::Err(Error::Base64_DecodeFailed);
+			return Result<VOID, Error>::Err(Error::Base64_DecodeFailed);
 
 		output[o++] = (CHAR)((v >> 16) & 0xFF);
 
@@ -195,5 +195,5 @@ Result<void, Error> Base64::Decode(Span<const CHAR> input, Span<CHAR> output)
 		i += 4u;
 	}
 
-	return Result<void, Error>::Ok();
+	return Result<VOID, Error>::Ok();
 }
