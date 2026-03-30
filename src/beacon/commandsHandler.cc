@@ -329,10 +329,17 @@ VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] US
 // Reset Shell command
 VOID Handle_ResetShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
+    LOG_INFO("Handling ResetShellCommand.");
+    
     if(context->shell != nullptr){
         delete context->shell;
         context->shell = nullptr;
         LOG_INFO("Shell instance resets successfully");
+    }
+    else {
+        LOG_INFO("No shell instance to reset");
+        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        return;
     }
 
     *responseLength = sizeof(UINT32);
