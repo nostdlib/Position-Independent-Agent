@@ -216,18 +216,18 @@ store in the value slot. The `VOID_TAG` struct handles this:
 struct VOID_TAG {};
 
 template <>
-struct VOID_TO_TAG<void>
+struct VOID_TO_TAG<VOID>
 {
     using Type = VOID_TAG;
 };
 ```
 
-But `Result<void, Error>` gets an even more aggressive optimization -- a full template
+But `Result<VOID, Error>` gets an even more aggressive optimization -- a full template
 specialization that eliminates the union and discriminator entirely:
 
 ```cpp
 template <>
-class [[nodiscard]] Result<void, Error>
+class [[nodiscard]] Result<VOID, Error>
 {
     struct Error m_error;
 
