@@ -198,8 +198,16 @@ VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused
     *responseLength = sizeof(UINT32) + sizeof(UINT64) + (USIZE)readCount;
     *response = new CHAR[*responseLength];
 
-    (VOID)file.SetOffset((USIZE)offset);
+    auto setOffsetResult = file.SetOffset((USIZE)offset);
+
+    if(!setOffsetResult){
+        LOG_ERROR("Failed to set file offset: %llu", offset);
+        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        return;
+    }
+
     auto readResult = file.Read(Span<UINT8>((UINT8 *)(*response + sizeof(UINT32) + sizeof(UINT64)), (USIZE)readCount));
+
     UINT32 bytesRead = readResult ? readResult.Value() : 0;
 
     *(PUINT32)*response = StatusCode::StatusSuccess;
