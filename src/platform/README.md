@@ -7,8 +7,8 @@ Cross-platform abstraction providing OS-independent interfaces for I/O, networki
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        platform.h  (aggregate header)                │
+┌─────────────────────────────────────────────────────────────────────┐
+│                        platform.h  (aggregate header)               │
 ├────────┬──────────┬─────────┬─────────┬──────────┬──────────────────┤
 │Console │Filesystem│ Memory  │ Screen  │ Socket   │     System       │
 │        │          │         │         │          │ DateTime Random  │
@@ -17,14 +17,14 @@ Cross-platform abstraction providing OS-independent interfaces for I/O, networki
 │        │ Iterator │         │         │ Read     │ Pty ShellProcess │
 │        │ Path     │         │         │ Write    │ SystemInfo       │
 ├────────┴──────────┴─────────┴─────────┴──────────┴──────────────────┤
-│                         Kernel Interface                             │
-│  ┌─────────┬─────────┬───────┬─────┬─────────┬────────┬──────────┐  │
-│  │ Windows │  Linux  │FreeBSD│macOS│ Solaris  │  UEFI  │ Android  │  │
-│  │ PEB/PE  │ syscall │syscall│ XNU │ int 0x91 │Protocol│ (Linux)  │  │
-│  │ Indirect│ svc/int │int 80 │svc80│ svc/ecall│ Tables │          │  │
-│  │ Syscall │ ecall   │ ecall │     │          │        │  iOS     │  │
-│  └─────────┴─────────┴───────┴─────┴─────────┴────────┴──────────┘  │
-└──────────────────────────────────────────────────────────────────────┘
+│                         Kernel Interface                            │
+│ ┌─────────┬─────────┬───────┬─────┬──────────┬────────┬──────────┐  │
+│ │ Windows │  Linux  │FreeBSD│macOS│ Solaris  │  UEFI  │ Android  │  │
+│ │ PEB/PE  │ syscall │syscall│ XNU │ int 0x91 │Protocol│ (Linux)  │  │
+│ │ Indirect│ svc/int │int 80 │svc80│ svc/ecall│ Tables │          │  │
+│ │ Syscall │ ecall   │ ecall │     │          │        │  iOS     │  │
+│ └─────────┴─────────┴───────┴─────┴──────────┴────────┴──────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Modules

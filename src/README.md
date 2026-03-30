@@ -5,25 +5,25 @@
 The codebase is organized in four layers, each building on the one below. No layer may depend on a higher layer.
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────────┐
 │  Layer 4: BEACON                                                     │
 │  Command dispatch, WebSocket message loop, shell management          │
 │  src/beacon/                                                         │
-├─────────────────────────────────────────────────────────────────────┤
+├──────────────────────────────────────────────────────────────────────┤
 │  Layer 3: LIBRARIES                                                  │
-│  Crypto (SHA-2, ChaCha20-Poly1305, ECC), TLS 1.3, HTTP, WebSocket, │
+│  Crypto (SHA-2, ChaCha20-Poly1305, ECC), TLS 1.3, HTTP, WebSocket,   │
 │  DNS-over-HTTPS, JPEG encoding                                       │
 │  src/lib/                                                            │
-├─────────────────────────────────────────────────────────────────────┤
+├──────────────────────────────────────────────────────────────────────┤
 │  Layer 2: PLATFORM                                                   │
 │  Console, Filesystem, Memory, Screen, Socket, System utilities       │
-│  → Kernel interfaces (Windows, Linux, FreeBSD, macOS, Solaris, UEFI)│
+│  → Kernel interfaces (Windows, Linux, FreeBSD, macOS, Solaris, UEFI) │
 │  src/platform/                                                       │
-├─────────────────────────────────────────────────────────────────────┤
+├──────────────────────────────────────────────────────────────────────┤
 │  Layer 1: CORE                                                       │
-│  Types, strings, memory ops, hashing, encoding, math, PRNG          │
+│  Types, strings, memory ops, hashing, encoding, math, PRNG           │
 │  src/core/                                                           │
-└─────────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Documentation Index

@@ -71,28 +71,28 @@ Complete TLS 1.3 client (RFC 8446):
 ### Handshake Flow
 
 ```
-Client                                        Server
-  │                                             │
+Client                                       Server
+  │                                            │
   ├─ ClientHello ─────────────────────────────►│
-  │  (random, cipher_suites,                    │
+  │  (random, cipher_suites,                   │
   │   key_share: ECDH public key,              │
-  │   supported_versions: 0x0304)               │
-  │                                             │
-  │◄───────────────────────── ServerHello ──────┤
-  │  (random, cipher_suite,                     │
-  │   key_share: ECDH public key)               │
-  │                                             │
-  │  ── derive handshake keys ──                │
-  │                                             │
+  │   supported_versions: 0x0304)              │
+  │                                            │
+  │◄──────────────────────── ServerHello ──────┤
+  │  (random, cipher_suite,                    │
+  │   key_share: ECDH public key)              │
+  │                                            │
+  │  ── derive handshake keys ──               │
+  │                                            │
   │◄──────────── EncryptedExtensions ──────────┤
   │◄──────────── Certificate ──────────────────┤
   │◄──────────── CertificateVerify ────────────┤
   │◄──────────── ServerFinished ───────────────┤
-  │                                             │
-  │  ── derive application keys ──              │
-  │                                             │
+  │                                            │
+  │  ── derive application keys ──             │
+  │                                            │
   ├─ ClientFinished ──────────────────────────►│
-  │                                             │
+  │                                            │
   │◄═══════════ Application Data ══════════════╡
 ```
 

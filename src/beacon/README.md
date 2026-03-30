@@ -8,34 +8,34 @@ Top-level application layer — connects to a relay server over WebSocket (TLS 1
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                          Beacon                              │
-│                                                              │
+│                          Beacon                             │
+│                                                             │
 │  entry_point() → DNS resolve → TLS handshake → WebSocket    │
-│       │                                            │         │
-│       │         ┌──────────────────────────────────┘         │
-│       │         │ Message Loop                               │
-│       │         │                                            │
-│       │         ├─ Read WebSocket message                    │
-│       │         ├─ Dispatch to command handler               │
-│       │         ├─ Send response                             │
-│       │         └─ Loop (reconnect on failure)               │
-│       │                                                      │
-│  ┌────┴────────────────────────────────────────────────┐     │
-│  │              Command Handlers                        │     │
-│  ├─ GetSystemInfo      → SystemInfo struct              │     │
-│  ├─ GetDirectoryContent → DirectoryIterator             │     │
-│  ├─ GetFileContent      → File::Open + Read             │     │
-│  ├─ WriteShell          → ShellProcess::Write           │     │
-│  ├─ ReadShell           → ShellProcess::Read            │     │
-│  ├─ GetDisplays         → Screen::GetDevices            │     │
-│  └─ GetScreenshot       → Screen::Capture + JPEG encode │     │
-│                                                              │
-└──────────────────────┬───────────────────────────────────────┘
+│       │                                            │        │
+│       │         ┌──────────────────────────────────┘        │
+│       │         │ Message Loop                              │
+│       │         │                                           │
+│       │         ├─ Read WebSocket message                   │
+│       │         ├─ Dispatch to command handler              │
+│       │         ├─ Send response                            │
+│       │         └─ Loop (reconnect on failure)              │
+│       │                                                     │
+│  ┌────┴─────────────────────────────────────────────────┐   │
+│  │              Command Handlers                        │   │
+│  ├─ GetSystemInfo      → SystemInfo struct              │   │
+│  ├─ GetDirectoryContent → DirectoryIterator             │   │
+│  ├─ GetFileContent      → File::Open + Read             │   │
+│  ├─ WriteShell          → ShellProcess::Write           │   │
+│  ├─ ReadShell           → ShellProcess::Read            │   │
+│  ├─ GetDisplays         → Screen::GetDevices            │   │
+│  └─ GetScreenshot       → Screen::Capture + JPEG encode │   │
+│                                                             │
+└──────────────────────┬──────────────────────────────────────┘
                        │
-              ┌────────┴────────┐
-              │   Platform Layer │
+              ┌────────┴─────────┐
+              │  Platform Layer  │
               │ (syscalls/protos)│
-              └─────────────────┘
+              └──────────────────┘
 ```
 
 ## Connection Pipeline
