@@ -456,7 +456,7 @@ Captures a JPEG-encoded screenshot of a specified display.
 
 ### `ResetShell` (0x08)
 
-Resets Shell instance nullifying the pointer and freeing resources
+Resets the shell instance, nullifying the pointer and freeing resources.
 
 - **Request**: No payload (command type byte only)
 - **Response**: `UINT32 status`
