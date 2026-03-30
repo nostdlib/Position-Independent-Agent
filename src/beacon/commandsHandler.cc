@@ -253,7 +253,16 @@ VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unus
     {
         UINT64 bytesToRead = Math::Min(bufferSize, chunkSize - totalRead);
         LOG_INFO("Reading file chunk with offset: %llu and count: %llu.", offset + totalRead, bytesToRead);
-        (VOID)file.SetOffset((USIZE)(offset + totalRead));
+        auto setOffsetResult = file.SetOffset((USIZE)(offset + totalRead));
+
+        if (!setOffsetResult)
+        {
+            LOG_ERROR("Failed to set file offset: %llu", offset + totalRead);
+            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+            delete[] buffer;
+            return;
+        }
+
         auto readResult = file.Read(Span<UINT8>(buffer, (USIZE)bytesToRead));
         UINT32 bytesRead = readResult ? readResult.Value() : 0;
         if (bytesRead == 0)
