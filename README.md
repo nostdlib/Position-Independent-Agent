@@ -59,6 +59,16 @@ This project solves that: a full C++23 codebase that compiles to position-indepe
 
 ## Building
 
+### Prerequisites
+
+- [Clang/LLVM](https://llvm.org/) 22+ (compiler, linker, and pic-transform pass)
+- [CMake](https://cmake.org/) 3.20+
+- [Ninja](https://ninja-build.org/) 1.10+
+
+> **Windows users:** Build under WSL. See [CONTRIBUTING.md](CONTRIBUTING.md#toolchain-installation) for detailed setup instructions.
+
+
+
 ```bash
 git clone https://github.com/nostdlib/Position-Independent-Agent.git
 cd Position-Independent-Agent
