@@ -284,6 +284,11 @@ VOID Handle_WriteShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] U
     {
         LOG_ERROR("Failed to write command to shell");
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+
+        // reset the process
+        delete context->shell;
+        context->shell = nullptr;
+
         return;
     }
     LOG_INFO("Command written to shell successfully, bytes written: %llu", writeResult.Value());
@@ -316,6 +321,10 @@ VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] US
     {
         LOG_ERROR("Failed to read from shell");
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        // reset the process
+        delete context->shell;
+        context->shell = nullptr;
+
         return;
     }
 
