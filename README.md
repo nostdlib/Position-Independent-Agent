@@ -40,7 +40,7 @@ This project solves that: a full C++23 codebase that compiles to position-indepe
 - **Position-Independent** - A custom LLVM pass ([pic-transform](tools/pic-transform/)) eliminates `.data`/`.rodata`/`.bss` sections at compile time, producing binaries with only a `.text` section — fully relocatable as raw shellcode, executable in RX-only memory with no writable pages required
 - **Cross-Platform** - 8 platforms (Windows, Linux, macOS, FreeBSD, Solaris, UEFI, Android, iOS) across 7 architectures (i386, x86_64, armv7a, aarch64, riscv32, riscv64, mips64) via direct syscalls
 - **TLS 1.3 + WebSocket** - Encrypted command-and-control over `wss://` using ChaCha20-Poly1305 AEAD (RFC 8446, RFC 6455)
-- **Binary Command Protocol** - 8 command types over WebSocket:
+- **Binary Command Protocol** - 9 command types over WebSocket:
   - `GetSystemInfo` - Machine UUID, hostname, CPU architecture, agent platform, OS version
   - `GetDirectoryContent` - Directory listing with metadata
   - `GetFileContent` - File read at offset
@@ -48,6 +48,7 @@ This project solves that: a full C++23 codebase that compiles to position-indepe
   - `WriteShell` / `ReadShell` - Interactive shell (PTY on POSIX, `cmd.exe` on Windows)
   - `GetDisplays` - Display enumeration with geometry
   - `GetScreenshot` - JPEG-encoded screenshot capture with dirty-rectangle diffing
+  - `ResetShell` - Resets Shell instance and nullify context
 
 ### Tested Features
 
@@ -105,7 +106,7 @@ The project is built on a clean layered abstraction that separates concerns and 
 ```
 +-------------------------------------------------------------+
 |  BEACON (Agent Layer)                                       |
-|  Command dispatcher, 8 command handlers, interactive shell   |
+|  Command dispatcher, 9 command handlers, interactive shell   |
 +-------------------------------------------------------------+
 |  LIB (Runtime Abstraction Layer)                            |
 |  Cryptography, TLS 1.3, HTTP, DNS, WebSocket, JPEG encoder  |
@@ -124,7 +125,7 @@ The project is built on a clean layered abstraction that separates concerns and 
 
 **LIB** provides high-level libraries: cryptography (SHA-256/384/512, HMAC, ChaCha20-Poly1305, ECC P-256), TLS 1.3, HTTP client, DNS resolution, WebSocket, and JPEG encoder.
 
-**BEACON** is the agent layer: command dispatcher, 8 command handlers, interactive shell (PTY on POSIX, `cmd.exe` on Windows), and screen capture context.
+**BEACON** is the agent layer: command dispatcher, 9 command handlers, interactive shell (PTY on POSIX, `cmd.exe` on Windows), and screen capture context.
 
 Upper layers depend on lower layers, never the reverse.
 
@@ -133,7 +134,7 @@ src/
 ├── core/        Layer 1 — Primitive types, Result<T,E>, Span<T>, strings, memory ops, math, base64, binary I/O
 ├── platform/    Layer 2 — OS abstraction: syscalls, allocator, console, file system, sockets, screen capture, processes
 ├── lib/         Layer 3 — Crypto (SHA-256, ChaCha20-Poly1305, ECC P-256), TLS 1.3, HTTP, DNS, WebSocket, JPEG encoder
-└── beacon/      Layer 4 — Agent: command dispatcher, 8 command handlers, interactive shell, screen capture context
+└── beacon/      Layer 4 — Agent: command dispatcher, 9 command handlers, interactive shell, screen capture context
 ```
 
 All system interaction is through direct syscalls (NT Native API on Windows, inline assembly on POSIX, Boot Services on UEFI). A custom LLVM pass ([pic-transform](tools/pic-transform/)) eliminates data sections at compile time, ensuring only a `.text` section in the final binary.

@@ -1336,6 +1336,18 @@
       "complexity": "simple"
     },
     {
+      "id": "function:src/beacon/commandsHandler.cc::Handle_ResetShellCommand",
+      "type": "function",
+      "name": "Handle_ResetShellCommand",
+      "filePath": "src/beacon/commandsHandler.cc",
+      "summary": "Resets the agent's shell process by destroying the existing Shell instance.",
+      "tags": [
+        "command-handler",
+        "shell"
+      ],
+      "complexity": "simple"
+    },
+    {
       "id": "function:src/beacon/commandsHandler.cc::Handle_GetDisplaysCommand",
       "type": "function",
       "name": "Handle_GetDisplaysCommand",
@@ -7995,6 +8007,13 @@
     },
     {
       "source": "file:src/beacon/commandsHandler.cc",
+      "target": "function:src/beacon/commandsHandler.cc::Handle_ResetShellCommand",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:src/beacon/commandsHandler.cc",
       "target": "function:src/beacon/commandsHandler.cc::Handle_GetDisplaysCommand",
       "type": "contains",
       "weight": 1.0,
@@ -12033,7 +12052,7 @@
     {
       "order": 10,
       "title": "The Beacon: Command Loop and Protocol",
-      "description": "The beacon is the top-level agent logic. main.cc::start() registers command handlers, connects via WebSocket to the relay server, and enters a receive-dispatch-respond loop with automatic reconnection. commands.h defines the binary protocol: 8 command types (system info, directory listing, file read, shell I/O, screenshots) with a CommandHandler function pointer dispatch table.",
+      "description": "The beacon is the top-level agent logic. main.cc::start() registers command handlers, connects via WebSocket to the relay server, and enters a receive-dispatch-respond loop with automatic reconnection. commands.h defines the binary protocol: 9 command types (system info, directory listing, file read, shell I/O, screenshots) with a CommandHandler function pointer dispatch table.",
       "nodeIds": [
         "file:src/beacon/main.cc",
         "file:src/beacon/commands.h",

@@ -103,7 +103,7 @@ DNS uses DNS-over-HTTPS (queries via TLS to Cloudflare/Google). `HttpClient` han
 ### 10. The Beacon: Command Loop
 **Read:** `src/beacon/main.cc`, `src/beacon/commands.h`, `src/beacon/commandsHandler.cc`
 
-The beacon is the top-level agent logic. `start()` registers command handlers as a function pointer array, connects via WebSocket to the relay server, and enters a receive-dispatch-respond loop with automatic reconnection. 8 command types: system info, directory listing, file read, file hash, shell I/O (write/read), display enumeration, screenshot. Each handler allocates a response buffer and returns ownership to the caller.
+The beacon is the top-level agent logic. `start()` registers command handlers as a function pointer array, connects via WebSocket to the relay server, and enters a receive-dispatch-respond loop with automatic reconnection. 9 command types: system info, directory listing, file read, file hash, shell I/O (write/read/reset), display enumeration, screenshot. Each handler allocates a response buffer and returns ownership to the caller.
 
 ### 11. Shell and Screen Capture
 **Read:** `src/beacon/shell.h`, `src/beacon/screen_capture.h`, `src/lib/image/jpeg_encoder.h`
@@ -200,7 +200,7 @@ These files are the most complex in the codebase. Approach them with care (and c
 |------|-------------|
 | `src/beacon/main.cc` | WebSocket connect, receive-dispatch-respond loop |
 | `src/beacon/commands.h` | CommandType enum, Context struct, handler typedef |
-| `src/beacon/commandsHandler.cc` | All 8 command handlers |
+| `src/beacon/commandsHandler.cc` | All 9 command handlers |
 | `src/beacon/shell.h` / `shell.cc` | Interactive shell wrapper |
 | `src/beacon/screen_capture.h` | Screen capture data structures and dirty-rect state |
 

@@ -75,7 +75,7 @@ details are what make it interesting.
 
 ---
 
-### What are the 8 command types?
+### What are the 9 command types?
 **File:** `README.md` **Line(s):** 42-50
 **Type:** QUESTION
 **Priority:** MEDIUM

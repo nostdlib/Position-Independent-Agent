@@ -196,7 +196,7 @@ High-level functionality built on Platform.
 The agent itself.
 
 - `main.cc` — `start()` function. Builds handler array, infinite reconnect loop, WebSocket receive-dispatch-respond.
-- `commands.h` — 8 command types, Context struct (holds Shell and ScreenCapture state), CommandHandler typedef.
+- `commands.h` — 9 command types, Context struct (holds Shell and ScreenCapture state), CommandHandler typedef.
 - `commandsHandler.cc` — Handler implementations. Wire format structs with `#pragma pack(push, 1)`. UTF-16 path decoding.
 - `shell.h/.cc` — Wraps ShellProcess. Polling read with 5s initial / 100ms subsequent timeout.
 - `screen_capture.h` — Graphics context with dual-buffer (current/previous) for dirty-rect diffing.
