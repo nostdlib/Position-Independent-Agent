@@ -186,7 +186,7 @@ VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused
     LOG_INFO("GetFileContent: %ws offset=%llu count=%llu", filePath, offset, readCount);
 
     auto openResult = File::Open(filePath, File::ModeRead);
-    if (!openResult)
+    if (!openResult.IsOk())
     {
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
@@ -200,7 +200,7 @@ VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused
 
     auto setOffsetResult = file.SetOffset((USIZE)offset);
 
-    if(!setOffsetResult){
+    if(!setOffsetResult.IsOk()){
         LOG_ERROR("Failed to set file offset: %llu, error: %e", offset, setOffsetResult.Error());
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
@@ -234,7 +234,7 @@ VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unus
 
     // Attempt to open the file and validate the result
     auto openResult = File::Open(filePath, File::ModeRead);
-    if (!openResult)
+    if (!openResult.IsOk())
     {
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
@@ -255,7 +255,7 @@ VOID Handle_GetFileChunkHashCommand([[maybe_unused]] PCHAR command, [[maybe_unus
         LOG_INFO("Reading file chunk with offset: %llu and count: %llu.", offset + totalRead, bytesToRead);
         auto setOffsetResult = file.SetOffset((USIZE)(offset + totalRead));
 
-        if (!setOffsetResult)
+        if (!setOffsetResult.IsOk())
         {
             LOG_ERROR("Failed to set file offset: %llu", offset + totalRead);
             WriteErrorResponse(response, responseLength, StatusCode::StatusError);
@@ -292,7 +292,7 @@ VOID Handle_WriteShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] U
     if (context->shell == nullptr)
     {
         auto shellResult = Shell::Create();
-        if (!shellResult)
+        if (!shellResult.IsOk())
         {
             LOG_ERROR("Failed to create shell instance");
             WriteErrorResponse(response, responseLength, StatusCode::StatusError);
@@ -307,7 +307,7 @@ VOID Handle_WriteShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] U
 
     // Write the command to the shell and validate the result
     auto writeResult = context->shell->Write(command, commandLength);
-    if (!writeResult)
+    if (!writeResult.IsOk())
     {
         LOG_ERROR("Failed to write command to shell");
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
@@ -334,7 +334,7 @@ VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] US
     if (context->shell == nullptr)
     {
         auto shellResult = Shell::Create();
-        if (!shellResult)
+        if (!shellResult.IsOk())
         {
             LOG_ERROR("Failed to create shell instance");
             WriteErrorResponse(response, responseLength, StatusCode::StatusError);
@@ -347,7 +347,7 @@ VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] US
     // Buffer to hold the data read from the shell
     CHAR buffer[4096];
     auto readResult = context->shell->Read(buffer, sizeof(buffer));
-    if (!readResult)
+    if (!readResult.IsOk())
     {
         LOG_ERROR("Failed to read from shell");
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
@@ -397,7 +397,7 @@ VOID Handle_GetDisplaysCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] 
 
     // Getting the list of display devices and validating the result
     auto displays = Screen::GetDevices();
-    if (!displays)
+    if (!displays.IsOk())
     {
         LOG_ERROR("Failed to enumerate display devices");
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
@@ -462,7 +462,7 @@ VOID Handle_GetScreenshotCommand([[maybe_unused]] PCHAR command, [[maybe_unused]
     if (context->screenCaptureContext->DeviceList.Count == 0)
     {
         auto displays = Screen::GetDevices();
-        if (!displays)
+        if (!displays.IsOk())
         {
             LOG_ERROR("Failed to enumerate display devices");
             WriteErrorResponse(response, responseLength, StatusCode::StatusError);
