@@ -8,9 +8,27 @@ struct JpegBuffer
     UINT32 offset = 0;
 
     /// @brief Reset offset for reuse without freeing the underlying buffer
+    /// @return void
     VOID Reset()
     {
         offset = 0;
+    }
+
+    /// @brief Check if the buffer is initialized and ready for use
+    /// @return true if initialized, false otherwise
+    BOOL isInitialized() const{
+        return outputBuffer != nullptr && size > 0;
+    }
+
+    /// @brief Initialize the buffer with a specified size if it is not already initialized
+    /// @param initSize New size for the buffer if initialization is needed
+    /// @return void
+    VOID Initialize(UINT32 initSize){
+        if(!isInitialized()){
+            outputBuffer = new UINT8[initSize];
+            size = initSize;
+            offset = 0;
+        }
     }
 
     ~JpegBuffer()
@@ -57,12 +75,17 @@ struct Graphics
         }
     }
 
+    /// @brief Check if the Graphics instance is initialized by verifying that all necessary buffers are allocated
+    /// @return true if initialized, false otherwise
     BOOL IsInitialized() const
     {
         return currentScreenshot != nullptr && screenshot != nullptr && bidiff != nullptr;
     }
 
-    Graphics& Init(const ScreenDevice &device)
+    /// @brief Initialize the Graphics instance by allocating necessary buffers based on the provided screen device's dimensions
+    /// @param device Screen device containing the dimensions for buffer allocation
+    /// @return void
+    VOID Init(const ScreenDevice &device)
     {
         USIZE pixelCount = (USIZE)device.Width * device.Height;
         if (currentScreenshot == nullptr)
@@ -81,7 +104,6 @@ struct Graphics
         {
             rectBuffer = new RGB[pixelCount];
         }
-        return *this;
     }
 };
 
@@ -103,11 +125,16 @@ struct GraphicsList
         count = 0;
     }
     
+    /// @brief Check if the GraphicsList is initialized by verifying that the graphics array is allocated and has a positive count
+    /// @return true if initialized, false otherwise
     BOOL IsInitialized() const
     {
         return graphicsArray != nullptr && count > 0;
     }
 
+    /// @brief Initialize the GraphicsList with a specified count of Graphics structures
+    /// @param Count Number of Graphics structures to allocate
+    /// @return void
     VOID Init(UINT32 Count)
     {
         if(graphicsArray != nullptr){
