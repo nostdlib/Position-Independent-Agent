@@ -312,7 +312,7 @@ VOID Handle_WriteShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] U
         LOG_ERROR("Failed to write command to shell");
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
 
-        // reset the process
+        // Reset the process
         delete context->shell;
         context->shell = nullptr;
 
@@ -351,7 +351,7 @@ VOID Handle_ReadShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] US
     {
         LOG_ERROR("Failed to read from shell");
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
-        // reset the process
+        // Reset the process
         delete context->shell;
         context->shell = nullptr;
 
@@ -372,9 +372,10 @@ VOID Handle_ResetShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] U
     LOG_INFO("Handling ResetShellCommand.");
 
     if(context->shell != nullptr){
+        // Delete the existing shell instance
         delete context->shell;
         context->shell = nullptr;
-        LOG_INFO("Shell instance resets successfully");
+        LOG_INFO("Shell instance reset successfully");
     }
     else {
         LOG_INFO("No shell instance to reset");
@@ -407,6 +408,7 @@ VOID Handle_GetDisplaysCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] 
 
     ScreenDeviceList &deviceList = displays.Value();
     context->screenCaptureContext->DeviceList = deviceList;
+
     // Prepare the response buffer - writing status code, device count and array of ScreenDevice structures
     *responseLength += sizeof(deviceList.Count) + (USIZE)(deviceList.Count * sizeof(ScreenDevice));
     *response = new CHAR[*responseLength];
@@ -423,13 +425,7 @@ VOID JpegCallback(PVOID context, PVOID data, INT32 size)
     JpegBuffer *jpegBuffer = (JpegBuffer *)context;
 
     if (data == nullptr)
-    {
-        if (jpegBuffer->outputBuffer == nullptr)
-        {
-            jpegBuffer->size = (UINT32)size;
-            jpegBuffer->outputBuffer = new UINT8[jpegBuffer->size];
-        }
-    }
+        jpegBuffer->Initialize(size);
 
     if (jpegBuffer->offset + size > jpegBuffer->size)
     {
