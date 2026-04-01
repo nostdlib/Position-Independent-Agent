@@ -9,7 +9,7 @@ VOID GetSystemInfo(SystemInfo *info)
 	Memory::Zero(info, sizeof(SystemInfo));
 
 	auto uuidResult = GetMachineUUID();
-	if (uuidResult.IsOk())
+	if (uuidResult)
 		info->MachineUUID = uuidResult.Value();
 	else
 		LOG_ERROR("Failed to retrieve machine UUID");

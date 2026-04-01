@@ -126,7 +126,7 @@ VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_u
 
     // Create a DirectoryIterator for the specified path and validate it
     auto result = DirectoryIterator::Create(directoryPath);
-    if (!result.IsOk())
+    if (!result)
     {
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;

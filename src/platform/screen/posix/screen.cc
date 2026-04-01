@@ -2414,7 +2414,7 @@ static Result<VOID, Error> FbCaptureFallback(const ScreenDevice &device, Span<RG
 	for (UINT32 i = 0; i < 8; i++)
 	{
 		auto result = FbCapture(i, device, buffer);
-		if (result.IsOk())
+		if (result)
 			return result;
 	}
 	return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
@@ -2431,7 +2431,7 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	if (device.Left <= -1000)
 	{
 		auto result = X11Capture(device, buffer);
-		if (result.IsOk())
+		if (result)
 			return result;
 
 		// X11 capture failed — fall through to DRM/framebuffer
@@ -2448,7 +2448,7 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	if (device.Left < 0)
 	{
 		auto result = DrmCapture(device, buffer);
-		if (result.IsOk())
+		if (result)
 		{
 			// DRM capture can "succeed" but return all-black data when the
 			// scanout buffer is GPU-allocated (not a dumb buffer). Sample

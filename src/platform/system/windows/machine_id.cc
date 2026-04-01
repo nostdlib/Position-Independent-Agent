@@ -40,7 +40,7 @@ Result<UUID, Error> GetMachineUUID()
 		requiredSize,
 		&requiredSize);
 
-	if (!queryResult.IsOk() || !NT_SUCCESS(queryResult.Value()))
+	if (!queryResult || !NT_SUCCESS(queryResult.Value()))
 	{
 		LOG_ERROR("Failed to query SMBIOS firmware table data");
 		delete[] buffer;

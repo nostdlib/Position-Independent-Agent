@@ -69,7 +69,7 @@ INT32 start()
         {
             LOG_DEBUG("Waiting for next WebSocket message...");
             auto readResult = wsClient.Read();
-            if (!readResult.IsOk())
+            if (!readResult)
             {
                 LOG_ERROR("WebSocket read failed after %u messages processed, reconnecting...", messageCount);
                 break;
