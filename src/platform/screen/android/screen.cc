@@ -70,7 +70,7 @@ static jint SafeCallIntMethod(JNIEnv *env, jobject obj, jmethodID mid)
 static VOID CallVoidMethod(JNIEnv *env, jobject obj, jmethodID mid)
 {
 	typedef void (*Fn)(PVOID, jobject, jmethodID, ...);
-	((Fn)((PVOID *)env)[61])((PVOID)env, obj, mid);
+	((Fn)((PVOID *)*env)[61])((PVOID)env, obj, mid);
 }
 
 /// @brief Call static object method with jvalue args
@@ -89,21 +89,21 @@ static jobject SafeCallStaticObjectMethodA(JNIEnv *env, jclass cls, jmethodID mi
 static jint *GetIntArrayElements(JNIEnv *env, jintArray arr, jboolean *isCopy)
 {
 	typedef jint *(*Fn)(PVOID, jintArray, jboolean *);
-	return ((Fn)((PVOID *)env)[187])((PVOID)env, arr, isCopy);
+	return ((Fn)((PVOID *)*env)[187])((PVOID)env, arr, isCopy);
 }
 
 /// @brief ReleaseIntArrayElements via raw JNI table (index 193)
 static VOID ReleaseIntArrayElements(JNIEnv *env, jintArray arr, jint *elems, jint mode)
 {
 	typedef void (*Fn)(PVOID, jintArray, jint *, jint);
-	((Fn)((PVOID *)env)[193])((PVOID)env, arr, elems, mode);
+	((Fn)((PVOID *)*env)[193])((PVOID)env, arr, elems, mode);
 }
 
 /// @brief NewIntArray via raw JNI table (index 176)
 static jintArray NewIntArray(JNIEnv *env, jsize len)
 {
 	typedef jintArray (*Fn)(PVOID, jsize);
-	return ((Fn)((PVOID *)env)[176])((PVOID)env, len);
+	return ((Fn)((PVOID *)*env)[176])((PVOID)env, len);
 }
 
 // =============================================================================
@@ -281,7 +281,7 @@ static BOOL SurfaceControlCapture(JNIEnv *env, UINT32 width, UINT32 height, PRGB
 
 	// Call getPixels via CallVoidMethodA (index 63)
 	typedef void (*FnCallVoidMethodA)(PVOID, jobject, jmethodID, const jvalue *);
-	FnCallVoidMethodA callVoidA = (FnCallVoidMethodA)((PVOID *)env)[63];
+	FnCallVoidMethodA callVoidA = (FnCallVoidMethodA)((PVOID *)*env)[63];
 
 	jvalue gpArgs[7];
 	gpArgs[0].l = pixelArray;
