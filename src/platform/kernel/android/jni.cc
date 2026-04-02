@@ -6,8 +6,7 @@
  *   1. FindLoadedLibrary("libart.so") → parse /proc/self/maps for base addr
  *   2. ResolveElfSymbol(base, "JNI_GetCreatedJavaVMs") → function pointer
  *   3. JNI_GetCreatedJavaVMs(&vm, 1, &count) → get the running ART VM
- *   4. vm->AttachCurrentThread(&env, NULL) → attach PIC thread to ART
- *   5. Return JNIEnv — ready for FindClass/GetMethodID/Call*Method
+ *   4. vm->GetEnv or AttachCurrentThreadAsDaemon → get JNIEnv
  */
 
 #include "platform/kernel/android/jni.h"
@@ -45,7 +44,8 @@ BOOL JniBridgeAttach(JNIEnv **outEnv, JavaVM **outVm)
 
 	// Step 4: Try GetEnv first (thread may already be attached)
 	JNIEnv *env = nullptr;
-	result = (*vm)->GetEnv((PVOID)vm, (PVOID *)&env, JNI_VERSION_1_6);
+	auto getEnv = JVM_FN(vm, JvmFn_GetEnv, JVM_IDX_GetEnv);
+	result = getEnv((PVOID)vm, (PVOID *)&env, JNI_VERSION_1_6);
 	if (result == JNI_OK && env != nullptr)
 	{
 		*outEnv = env;
@@ -55,7 +55,8 @@ BOOL JniBridgeAttach(JNIEnv **outEnv, JavaVM **outVm)
 	}
 
 	// Step 5: Attach current thread as daemon (won't prevent VM shutdown)
-	result = (*vm)->AttachCurrentThreadAsDaemon((PVOID)vm, (PVOID *)&env, nullptr);
+	auto attach = JVM_FN(vm, JvmFn_AttachCurrentThreadAsDaemon, JVM_IDX_AttachCurrentThreadAsDaemon);
+	result = attach((PVOID)vm, (PVOID *)&env, nullptr);
 	if (result != JNI_OK || env == nullptr)
 		return false;
 

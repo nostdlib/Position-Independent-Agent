@@ -3,22 +3,11 @@
  * @brief Android screen capture via SurfaceControl hidden API (JNI)
  *
  * @details Captures the screen by calling Android's hidden SurfaceControl
- * screenshot API via JNI reflection. The PIC agent thread is attached to
- * ART via AttachCurrentThreadAsDaemon (no classloader context), which
- * bypasses hidden API enforcement on Android 9+.
+ * screenshot API via JNI. Uses raw JNI table indices (JNI_FN macro)
+ * to avoid struct layout mismatches that cause SIGBUS crashes.
  *
- * Capture flow:
- *   1. JniBridgeAttach() → attach PIC thread to ART, get JNIEnv
- *   2. Reflect on android.view.SurfaceControl → find screenshot() method
- *   3. SurfaceControl.screenshot(Rect, width, height, rotation) → Bitmap
- *   4. Bitmap.getPixels() → int[] ARGB_8888 → convert to RGB
- *
- * This uses the same native path as screencap (SurfaceFlinger composites
- * all layers via GPU) but without spawning a child process.
- *
- * Permission: SurfaceFlinger checks calling UID at the Binder level.
- * Works when running as shell (UID 2000), system, graphics, or root.
- * Falls back to screencap/DRM/fbdev if SurfaceControl is unavailable.
+ * The PIC agent thread is attached to ART via AttachCurrentThreadAsDaemon
+ * (no classloader context), which bypasses hidden API enforcement.
  *
  * All state is stack-local — no static/global variables (PIC constraint).
  */
@@ -30,26 +19,59 @@
 #include "platform/kernel/android/system.h"
 
 // =============================================================================
-// JNI helpers
+// JNI helpers — safe wrappers that clear exceptions on failure
 // =============================================================================
 
 static jclass SafeFindClass(JNIEnv *env, const CHAR *name)
 {
-	jclass cls = (*env)->FindClass((PVOID)env, name);
-	if ((*env)->ExceptionOccurred((PVOID)env))
+	jclass cls = JNI_FN(env, JniFn_FindClass, JNI_IDX_FindClass)((PVOID)env, name);
+	if (JNI_FN(env, JniFn_ExceptionOccurred, JNI_IDX_ExceptionOccurred)((PVOID)env))
 	{
-		(*env)->ExceptionClear((PVOID)env);
+		JNI_FN(env, JniFn_ExceptionClear, JNI_IDX_ExceptionClear)((PVOID)env);
 		return nullptr;
 	}
 	return cls;
 }
 
-static jobject SafeCallStaticObjectMethod(JNIEnv *env, jclass cls, jmethodID mid)
+static jmethodID SafeGetMethodID(JNIEnv *env, jclass cls, const CHAR *name, const CHAR *sig)
 {
-	jobject result = (*env)->CallStaticObjectMethod((PVOID)env, cls, mid);
-	if ((*env)->ExceptionOccurred((PVOID)env))
+	jmethodID mid = JNI_FN(env, JniFn_GetMethodID, JNI_IDX_GetMethodID)((PVOID)env, cls, name, sig);
+	if (JNI_FN(env, JniFn_ExceptionOccurred, JNI_IDX_ExceptionOccurred)((PVOID)env))
 	{
-		(*env)->ExceptionClear((PVOID)env);
+		JNI_FN(env, JniFn_ExceptionClear, JNI_IDX_ExceptionClear)((PVOID)env);
+		return nullptr;
+	}
+	return mid;
+}
+
+static jmethodID SafeGetStaticMethodID(JNIEnv *env, jclass cls, const CHAR *name, const CHAR *sig)
+{
+	jmethodID mid = JNI_FN(env, JniFn_GetStaticMethodID, JNI_IDX_GetStaticMethodID)((PVOID)env, cls, name, sig);
+	if (JNI_FN(env, JniFn_ExceptionOccurred, JNI_IDX_ExceptionOccurred)((PVOID)env))
+	{
+		JNI_FN(env, JniFn_ExceptionClear, JNI_IDX_ExceptionClear)((PVOID)env);
+		return nullptr;
+	}
+	return mid;
+}
+
+static jobject SafeCallObjectMethod(JNIEnv *env, jobject obj, jmethodID mid)
+{
+	jobject result = JNI_FN(env, JniFn_CallObjectMethod, JNI_IDX_CallObjectMethod)((PVOID)env, obj, mid);
+	if (JNI_FN(env, JniFn_ExceptionOccurred, JNI_IDX_ExceptionOccurred)((PVOID)env))
+	{
+		JNI_FN(env, JniFn_ExceptionClear, JNI_IDX_ExceptionClear)((PVOID)env);
+		return nullptr;
+	}
+	return result;
+}
+
+static jobject SafeCallObjectMethodArg(JNIEnv *env, jobject obj, jmethodID mid, jobject arg)
+{
+	jobject result = JNI_FN(env, JniFn_CallObjectMethod, JNI_IDX_CallObjectMethod)((PVOID)env, obj, mid, arg);
+	if (JNI_FN(env, JniFn_ExceptionOccurred, JNI_IDX_ExceptionOccurred)((PVOID)env))
+	{
+		JNI_FN(env, JniFn_ExceptionClear, JNI_IDX_ExceptionClear)((PVOID)env);
 		return nullptr;
 	}
 	return result;
@@ -57,53 +79,35 @@ static jobject SafeCallStaticObjectMethod(JNIEnv *env, jclass cls, jmethodID mid
 
 static jint SafeCallIntMethod(JNIEnv *env, jobject obj, jmethodID mid)
 {
-	jint result = (*env)->CallIntMethod((PVOID)env, obj, mid);
-	if ((*env)->ExceptionOccurred((PVOID)env))
+	jint result = JNI_FN(env, JniFn_CallIntMethod, JNI_IDX_CallIntMethod)((PVOID)env, obj, mid);
+	if (JNI_FN(env, JniFn_ExceptionOccurred, JNI_IDX_ExceptionOccurred)((PVOID)env))
 	{
-		(*env)->ExceptionClear((PVOID)env);
+		JNI_FN(env, JniFn_ExceptionClear, JNI_IDX_ExceptionClear)((PVOID)env);
 		return -1;
 	}
 	return result;
 }
 
-/// @brief Call void instance method via raw JNI table (index 61)
-static VOID CallVoidMethod(JNIEnv *env, jobject obj, jmethodID mid)
+static jobject SafeCallStaticObjectMethod(JNIEnv *env, jclass cls, jmethodID mid)
 {
-	typedef void (*Fn)(PVOID, jobject, jmethodID, ...);
-	((Fn)((PVOID *)*env)[61])((PVOID)env, obj, mid);
-}
-
-/// @brief Call static object method with jvalue args
-static jobject SafeCallStaticObjectMethodA(JNIEnv *env, jclass cls, jmethodID mid, const jvalue *args)
-{
-	jobject result = (*env)->CallStaticObjectMethodA((PVOID)env, cls, mid, args);
-	if ((*env)->ExceptionOccurred((PVOID)env))
+	jobject result = JNI_FN(env, JniFn_CallStaticObjectMethod, JNI_IDX_CallStaticObjectMethod)((PVOID)env, cls, mid);
+	if (JNI_FN(env, JniFn_ExceptionOccurred, JNI_IDX_ExceptionOccurred)((PVOID)env))
 	{
-		(*env)->ExceptionClear((PVOID)env);
+		JNI_FN(env, JniFn_ExceptionClear, JNI_IDX_ExceptionClear)((PVOID)env);
 		return nullptr;
 	}
 	return result;
 }
 
-/// @brief GetIntArrayElements via raw JNI table (index 187)
-static jint *GetIntArrayElements(JNIEnv *env, jintArray arr, jboolean *isCopy)
+static jobject SafeCallStaticObjectMethodA(JNIEnv *env, jclass cls, jmethodID mid, const jvalue *args)
 {
-	typedef jint *(*Fn)(PVOID, jintArray, jboolean *);
-	return ((Fn)((PVOID *)*env)[187])((PVOID)env, arr, isCopy);
-}
-
-/// @brief ReleaseIntArrayElements via raw JNI table (index 193)
-static VOID ReleaseIntArrayElements(JNIEnv *env, jintArray arr, jint *elems, jint mode)
-{
-	typedef void (*Fn)(PVOID, jintArray, jint *, jint);
-	((Fn)((PVOID *)*env)[193])((PVOID)env, arr, elems, mode);
-}
-
-/// @brief NewIntArray via raw JNI table (index 176)
-static jintArray NewIntArray(JNIEnv *env, jsize len)
-{
-	typedef jintArray (*Fn)(PVOID, jsize);
-	return ((Fn)((PVOID *)*env)[176])((PVOID)env, len);
+	jobject result = JNI_FN(env, JniFn_CallStaticObjectMethodA, JNI_IDX_CallStaticObjectMethodA)((PVOID)env, cls, mid, args);
+	if (JNI_FN(env, JniFn_ExceptionOccurred, JNI_IDX_ExceptionOccurred)((PVOID)env))
+	{
+		JNI_FN(env, JniFn_ExceptionClear, JNI_IDX_ExceptionClear)((PVOID)env);
+		return nullptr;
+	}
+	return result;
 }
 
 // =============================================================================
@@ -119,8 +123,7 @@ static BOOL GetDisplayMetrics(JNIEnv *env, UINT32 &width, UINT32 &height)
 
 	auto currentAppName = "currentApplication";
 	auto currentAppSig = "()Landroid/app/Application;";
-	jmethodID currentApp = (*env)->GetStaticMethodID(
-		(PVOID)env, atClass, (const CHAR *)currentAppName, (const CHAR *)currentAppSig);
+	jmethodID currentApp = SafeGetStaticMethodID(env, atClass, (const CHAR *)currentAppName, (const CHAR *)currentAppSig);
 	if (currentApp == nullptr)
 		return false;
 
@@ -128,18 +131,17 @@ static BOOL GetDisplayMetrics(JNIEnv *env, UINT32 &width, UINT32 &height)
 	if (context == nullptr)
 		return false;
 
-	jclass ctxClass = (*env)->GetObjectClass((PVOID)env, context);
+	jclass ctxClass = JNI_FN(env, JniFn_GetObjectClass, JNI_IDX_GetObjectClass)((PVOID)env, context);
 	auto getSvcName = "getSystemService";
 	auto getSvcSig = "(Ljava/lang/String;)Ljava/lang/Object;";
-	jmethodID getSvc = (*env)->GetMethodID((PVOID)env, ctxClass,
-		(const CHAR *)getSvcName, (const CHAR *)getSvcSig);
+	jmethodID getSvc = SafeGetMethodID(env, ctxClass, (const CHAR *)getSvcName, (const CHAR *)getSvcSig);
 	if (getSvc == nullptr)
 		return false;
 
 	auto windowStr = "window";
-	jstring windowSvc = (*env)->NewStringUTF((PVOID)env, (const CHAR *)windowStr);
-	jobject wm = (*env)->CallObjectMethod((PVOID)env, context, getSvc, windowSvc);
-	(*env)->DeleteLocalRef((PVOID)env, windowSvc);
+	jstring windowSvc = JNI_FN(env, JniFn_NewStringUTF, JNI_IDX_NewStringUTF)((PVOID)env, (const CHAR *)windowStr);
+	jobject wm = SafeCallObjectMethodArg(env, context, getSvc, windowSvc);
+	JNI_FN(env, JniFn_DeleteLocalRef, JNI_IDX_DeleteLocalRef)((PVOID)env, windowSvc);
 	if (wm == nullptr)
 		return false;
 
@@ -150,24 +152,20 @@ static BOOL GetDisplayMetrics(JNIEnv *env, UINT32 &width, UINT32 &height)
 
 	auto getDisplayName = "getDefaultDisplay";
 	auto getDisplaySig = "()Landroid/view/Display;";
-	jmethodID getDisplay = (*env)->GetMethodID(
-		(PVOID)env, wmClass, (const CHAR *)getDisplayName, (const CHAR *)getDisplaySig);
+	jmethodID getDisplay = SafeGetMethodID(env, wmClass, (const CHAR *)getDisplayName, (const CHAR *)getDisplaySig);
 	if (getDisplay == nullptr)
 		return false;
 
-	jobject display = (*env)->CallObjectMethod((PVOID)env, wm, getDisplay);
+	jobject display = SafeCallObjectMethod(env, wm, getDisplay);
 	if (display == nullptr)
 		return false;
 
-	jclass displayClass = (*env)->GetObjectClass((PVOID)env, display);
+	jclass displayClass = JNI_FN(env, JniFn_GetObjectClass, JNI_IDX_GetObjectClass)((PVOID)env, display);
 	auto intRetSig = "()I";
-
 	auto getWidthName = "getWidth";
 	auto getHeightName = "getHeight";
-	jmethodID getWidth = (*env)->GetMethodID(
-		(PVOID)env, displayClass, (const CHAR *)getWidthName, (const CHAR *)intRetSig);
-	jmethodID getHeight = (*env)->GetMethodID(
-		(PVOID)env, displayClass, (const CHAR *)getHeightName, (const CHAR *)intRetSig);
+	jmethodID getWidth = SafeGetMethodID(env, displayClass, (const CHAR *)getWidthName, (const CHAR *)intRetSig);
+	jmethodID getHeight = SafeGetMethodID(env, displayClass, (const CHAR *)getHeightName, (const CHAR *)intRetSig);
 
 	if (getWidth == nullptr || getHeight == nullptr)
 		return false;
@@ -179,55 +177,38 @@ static BOOL GetDisplayMetrics(JNIEnv *env, UINT32 &width, UINT32 &height)
 }
 
 // =============================================================================
-// SurfaceControl.screenshot() via JNI reflection
+// SurfaceControl.screenshot() via JNI
 // =============================================================================
 
-/// @brief Attempt to capture screen via SurfaceControl hidden API
-/// @param env JNI environment
-/// @param width Display width
-/// @param height Display height
-/// @param rgbBuf Output RGB buffer (width * height elements)
-/// @return true on success
 static BOOL SurfaceControlCapture(JNIEnv *env, UINT32 width, UINT32 height, PRGB rgbBuf)
 {
-	// Find SurfaceControl class
 	auto scClassName = "android/view/SurfaceControl";
 	jclass scClass = SafeFindClass(env, (const CHAR *)scClassName);
 	if (scClass == nullptr)
 		return false;
 
-	// Try Android 9+ signature:
-	// static Bitmap screenshot(Rect sourceCrop, int width, int height, int rotation)
+	// Try Android 9+: screenshot(Rect, int, int, int) → Bitmap
 	auto screenshotName = "screenshot";
 	auto screenshotSig = "(Landroid/graphics/Rect;III)Landroid/graphics/Bitmap;";
-	jmethodID screenshotMethod = (*env)->GetStaticMethodID(
-		(PVOID)env, scClass, (const CHAR *)screenshotName, (const CHAR *)screenshotSig);
-
-	if ((*env)->ExceptionOccurred((PVOID)env))
-		(*env)->ExceptionClear((PVOID)env);
+	jmethodID screenshotMethod = SafeGetStaticMethodID(env, scClass, (const CHAR *)screenshotName, (const CHAR *)screenshotSig);
 
 	jobject bitmap = nullptr;
 
 	if (screenshotMethod != nullptr)
 	{
-		// Call: SurfaceControl.screenshot(null, width, height, 0)
 		jvalue args[4];
-		args[0].l = nullptr;          // null Rect = full screen
+		args[0].l = nullptr;
 		args[1].i = (jint)width;
 		args[2].i = (jint)height;
-		args[3].i = 0;                // ROTATION_0
+		args[3].i = 0;
 		bitmap = SafeCallStaticObjectMethodA(env, scClass, screenshotMethod, args);
 	}
 
-	// Try alternative signature (older Android):
-	// static Bitmap screenshot(int width, int height)
+	// Fallback: screenshot(int, int) → Bitmap
 	if (bitmap == nullptr)
 	{
 		auto altSig = "(II)Landroid/graphics/Bitmap;";
-		jmethodID altMethod = (*env)->GetStaticMethodID(
-			(PVOID)env, scClass, (const CHAR *)screenshotName, (const CHAR *)altSig);
-		if ((*env)->ExceptionOccurred((PVOID)env))
-			(*env)->ExceptionClear((PVOID)env);
+		jmethodID altMethod = SafeGetStaticMethodID(env, scClass, (const CHAR *)screenshotName, (const CHAR *)altSig);
 
 		if (altMethod != nullptr)
 		{
@@ -241,96 +222,82 @@ static BOOL SurfaceControlCapture(JNIEnv *env, UINT32 width, UINT32 height, PRGB
 	if (bitmap == nullptr)
 		return false;
 
-	// Bitmap.getWidth(), Bitmap.getHeight()
-	jclass bmpClass = (*env)->GetObjectClass((PVOID)env, bitmap);
+	// Read bitmap dimensions
+	jclass bmpClass = JNI_FN(env, JniFn_GetObjectClass, JNI_IDX_GetObjectClass)((PVOID)env, bitmap);
 	auto intRetSig = "()I";
-
 	auto bmpGetWidthName = "getWidth";
 	auto bmpGetHeightName = "getHeight";
-	jmethodID bmpGetWidth = (*env)->GetMethodID(
-		(PVOID)env, bmpClass, (const CHAR *)bmpGetWidthName, (const CHAR *)intRetSig);
-	jmethodID bmpGetHeight = (*env)->GetMethodID(
-		(PVOID)env, bmpClass, (const CHAR *)bmpGetHeightName, (const CHAR *)intRetSig);
-
+	jmethodID bmpGetWidth = SafeGetMethodID(env, bmpClass, (const CHAR *)bmpGetWidthName, (const CHAR *)intRetSig);
+	jmethodID bmpGetHeight = SafeGetMethodID(env, bmpClass, (const CHAR *)bmpGetHeightName, (const CHAR *)intRetSig);
 	if (bmpGetWidth == nullptr || bmpGetHeight == nullptr)
 		return false;
 
-	jint bmpW = SafeCallIntMethod(env, bitmap, bmpGetWidth);
-	jint bmpH = SafeCallIntMethod(env, bitmap, bmpGetHeight);
-
-	if (bmpW <= 0 || bmpH <= 0)
+	UINT32 bmpW = (UINT32)SafeCallIntMethod(env, bitmap, bmpGetWidth);
+	UINT32 bmpH = (UINT32)SafeCallIntMethod(env, bitmap, bmpGetHeight);
+	if (bmpW == 0 || bmpH == 0)
 		return false;
+	if (bmpW > width) bmpW = width;
+	if (bmpH > height) bmpH = height;
 
-	UINT32 bmpWidth = (UINT32)bmpW;
-	UINT32 bmpHeight = (UINT32)bmpH;
-	if (bmpWidth > width) bmpWidth = width;
-	if (bmpHeight > height) bmpHeight = height;
-
-	// Bitmap.getPixels(int[] pixels, int offset, int stride, int x, int y, int width, int height)
-	USIZE pixelCount = (USIZE)bmpWidth * (USIZE)bmpHeight;
-	jintArray pixelArray = NewIntArray(env, (jsize)pixelCount);
+	// Bitmap.getPixels(int[], offset, stride, x, y, width, height)
+	USIZE pixelCount = (USIZE)bmpW * (USIZE)bmpH;
+	jintArray pixelArray = JNI_FN(env, JniFn_NewIntArray, JNI_IDX_NewIntArray)((PVOID)env, (jsize)pixelCount);
 	if (pixelArray == nullptr)
 		return false;
 
 	auto getPixelsName = "getPixels";
 	auto getPixelsSig = "([IIIIIII)V";
-	jmethodID getPixels = (*env)->GetMethodID(
-		(PVOID)env, bmpClass, (const CHAR *)getPixelsName, (const CHAR *)getPixelsSig);
+	jmethodID getPixels = SafeGetMethodID(env, bmpClass, (const CHAR *)getPixelsName, (const CHAR *)getPixelsSig);
 	if (getPixels == nullptr)
 		return false;
 
-	// Call getPixels via CallVoidMethodA (index 63)
-	typedef void (*FnCallVoidMethodA)(PVOID, jobject, jmethodID, const jvalue *);
-	FnCallVoidMethodA callVoidA = (FnCallVoidMethodA)((PVOID *)*env)[63];
-
 	jvalue gpArgs[7];
 	gpArgs[0].l = pixelArray;
-	gpArgs[1].i = 0;                    // offset
-	gpArgs[2].i = (jint)bmpWidth;       // stride
-	gpArgs[3].i = 0;                    // x
-	gpArgs[4].i = 0;                    // y
-	gpArgs[5].i = (jint)bmpWidth;       // width
-	gpArgs[6].i = (jint)bmpHeight;      // height
+	gpArgs[1].i = 0;
+	gpArgs[2].i = (jint)bmpW;
+	gpArgs[3].i = 0;
+	gpArgs[4].i = 0;
+	gpArgs[5].i = (jint)bmpW;
+	gpArgs[6].i = (jint)bmpH;
 
-	callVoidA((PVOID)env, bitmap, getPixels, gpArgs);
+	JNI_FN(env, JniFn_CallVoidMethodA, JNI_IDX_CallVoidMethodA)((PVOID)env, bitmap, getPixels, gpArgs);
 
-	if ((*env)->ExceptionOccurred((PVOID)env))
+	if (JNI_FN(env, JniFn_ExceptionOccurred, JNI_IDX_ExceptionOccurred)((PVOID)env))
 	{
-		(*env)->ExceptionClear((PVOID)env);
+		JNI_FN(env, JniFn_ExceptionClear, JNI_IDX_ExceptionClear)((PVOID)env);
 		return false;
 	}
 
-	// Read pixel data: ARGB_8888 int array → RGB
-	jint *pixels = GetIntArrayElements(env, pixelArray, nullptr);
+	// Read ARGB_8888 → convert to RGB
+	jint *pixels = JNI_FN(env, JniFn_GetIntArrayElements, JNI_IDX_GetIntArrayElements)((PVOID)env, pixelArray, nullptr);
 	if (pixels == nullptr)
 		return false;
 
-	for (UINT32 y = 0; y < bmpHeight; y++)
+	for (UINT32 y = 0; y < bmpH; y++)
 	{
-		for (UINT32 x = 0; x < bmpWidth; x++)
+		for (UINT32 x = 0; x < bmpW; x++)
 		{
-			UINT32 argb = (UINT32)pixels[y * bmpWidth + x];
+			UINT32 argb = (UINT32)pixels[y * bmpW + x];
 			rgbBuf[y * width + x].Red   = (UINT8)((argb >> 16) & 0xFF);
 			rgbBuf[y * width + x].Green = (UINT8)((argb >> 8) & 0xFF);
 			rgbBuf[y * width + x].Blue  = (UINT8)(argb & 0xFF);
 		}
 	}
 
-	ReleaseIntArrayElements(env, pixelArray, pixels, 0);
+	JNI_FN(env, JniFn_ReleaseIntArrayElements, JNI_IDX_ReleaseIntArrayElements)((PVOID)env, pixelArray, pixels, 0);
 
 	// Recycle bitmap
 	auto recycleName = "recycle";
 	auto recycleSig = "()V";
-	jmethodID recycle = (*env)->GetMethodID(
-		(PVOID)env, bmpClass, (const CHAR *)recycleName, (const CHAR *)recycleSig);
+	jmethodID recycle = SafeGetMethodID(env, bmpClass, (const CHAR *)recycleName, (const CHAR *)recycleSig);
 	if (recycle != nullptr)
-		CallVoidMethod(env, bitmap, recycle);
+		JNI_FN(env, JniFn_CallVoidMethod, JNI_IDX_CallVoidMethod)((PVOID)env, bitmap, recycle);
 
 	return true;
 }
 
 // =============================================================================
-// Public API — called from posix/screen.cc
+// Public API
 // =============================================================================
 
 constexpr INT32 MEDIAPROJECTION_DEVICE_LEFT = -3000;
@@ -348,7 +315,6 @@ VOID MediaProjectionGetDevices(ScreenDevice *tempDevices, UINT32 &deviceCount, U
 	if (!GetDisplayMetrics(env, width, height))
 		return;
 
-	// Verify SurfaceControl class is accessible before reporting device
 	auto scClassName = "android/view/SurfaceControl";
 	jclass scClass = SafeFindClass(env, (const CHAR *)scClassName);
 	if (scClass == nullptr)
@@ -368,9 +334,7 @@ Result<VOID, Error> MediaProjectionCapture(const ScreenDevice &device, Span<RGB>
 	if (!JniBridgeAttach(&env, nullptr))
 		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
-	PRGB rgbBuf = buffer.Data();
-
-	if (!SurfaceControlCapture(env, device.Width, device.Height, rgbBuf))
+	if (!SurfaceControlCapture(env, device.Width, device.Height, buffer.Data()))
 		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	return Result<VOID, Error>::Ok();
