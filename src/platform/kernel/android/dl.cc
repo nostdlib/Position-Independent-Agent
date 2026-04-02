@@ -164,9 +164,7 @@ PVOID FindLoadedLibrary(const CHAR *nameSubstr)
 					if (*p == ' ')
 					{
 						p++;
-						// Check for executable mapping (r-xp or r--p with ELF header)
 						BOOL readable = (p[0] == 'r');
-						BOOL executable = (p[2] == 'x');
 
 						// Check if this line's path contains our target
 						if (readable && ContainsSubstr(line, lineLen, nameSubstr, needleLen))
