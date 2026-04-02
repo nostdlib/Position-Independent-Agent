@@ -188,23 +188,7 @@ static BOOL GetDisplayMetrics(JNIEnv *env, UINT32 &width, UINT32 &height, UINT32
 	// The void call is at function table index 61 (CallVoidMethod).
 	// For simplicity, read the fields directly instead.
 
-	// Read dm.widthPixels, dm.heightPixels, dm.densityDpi
-	auto widthFieldName = "widthPixels";
-	auto heightFieldName = "heightPixels";
-	auto dpiFieldName = "densityDpi";
-	auto intSig = "I";
-
-	jfieldID widthField = (*env)->GetStaticFieldID(
-		(PVOID)env, dmClass, (const CHAR *)widthFieldName, (const CHAR *)intSig);
-	jfieldID heightField = (*env)->GetStaticFieldID(
-		(PVOID)env, dmClass, (const CHAR *)heightFieldName, (const CHAR *)intSig);
-	jfieldID dpiField = (*env)->GetStaticFieldID(
-		(PVOID)env, dmClass, (const CHAR *)dpiFieldName, (const CHAR *)intSig);
-
-	// These are instance fields, not static — use GetIntField (index 100)
-	// Since our JNI table doesn't have GetIntField typed, we access via field approach
-	// Actually, let's use Display.getWidth/getHeight/getDensityDpi methods instead
-
+	// Use Display.getWidth()/getHeight() methods to read dimensions
 	auto getWidthName = "getWidth";
 	auto getHeightName = "getHeight";
 	auto intRetSig = "()I";

@@ -1847,7 +1847,7 @@ static BOOL PipeReadAll(Pipe &pipe, UINT8 *buf, USIZE len)
 /// @param buf Output buffer for the path (must be >= 24 bytes)
 /// @param bufSize Size of the output buffer
 /// @return true if screencap was found, false otherwise
-static BOOL FindScreencap(CHAR *buf, USIZE bufSize)
+static BOOL FindScreencap(CHAR *buf, [[maybe_unused]] USIZE bufSize)
 {
 	auto path1 = "/system/bin/screencap";
 	auto path2 = "/vendor/bin/screencap";
