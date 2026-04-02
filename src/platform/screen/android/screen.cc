@@ -79,13 +79,10 @@ static JNIEnv *g_env = nullptr;
 static JavaVM *g_vm = nullptr;
 
 // Cached global refs (survive across JNI calls)
-static jobject g_mediaProjection = nullptr;
-static jobject g_virtualDisplay = nullptr;
 static jobject g_imageReader = nullptr;
 static UINT32  g_displayWidth = 0;
 static UINT32  g_displayHeight = 0;
 static UINT32  g_displayDpi = 0;
-static BOOL    g_initialized = false;
 
 // =============================================================================
 // JNI initialization — attach to ART
@@ -219,18 +216,6 @@ static BOOL GetDisplayMetrics(JNIEnv *env, UINT32 &width, UINT32 &height, UINT32
 
 /// @brief MediaProjection device encoding in ScreenDevice::Left
 constexpr INT32 MEDIAPROJECTION_DEVICE_LEFT = -3000;
-
-/// @brief Check if MediaProjection is available (APK has permission + ART accessible)
-static BOOL MediaProjectionAvailable()
-{
-	if (!EnsureJniAttached())
-		return false;
-
-	// Check if MediaProjectionManager class is accessible
-	auto mpClassName = "android/media/projection/MediaProjectionManager";
-	jclass mpClass = SafeFindClass(g_env, (const CHAR *)mpClassName);
-	return (mpClass != nullptr);
-}
 
 // =============================================================================
 // Screen::GetDevices — MediaProjection backend
