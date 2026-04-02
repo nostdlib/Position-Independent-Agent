@@ -1835,8 +1835,14 @@ static BOOL PipeReadAll(Pipe &pipe, UINT8 *buf, USIZE len)
 }
 
 /// @brief Find the screencap binary path
-/// @return Path to screencap, or nullptr if not found
-static const CHAR *FindScreencap()
+/// @details Copies the found path into a caller-provided buffer.
+/// The path strings are PIC-transformed to stack allocas, so returning
+/// a pointer directly would be a dangling reference after this function
+/// returns. Copying into the caller's buffer avoids this.
+/// @param buf Output buffer for the path (must be >= 24 bytes)
+/// @param bufSize Size of the output buffer
+/// @return true if screencap was found, false otherwise
+static BOOL FindScreencap(CHAR *buf, USIZE bufSize)
 {
 	auto path1 = "/system/bin/screencap";
 	auto path2 = "/vendor/bin/screencap";
@@ -1850,7 +1856,8 @@ static const CHAR *FindScreencap()
 	if (fd >= 0)
 	{
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return (const CHAR *)path1;
+		Memory::Copy(buf, (const CHAR *)path1, 21); // "/system/bin/screencap\0"
+		return true;
 	}
 
 #if defined(ARCHITECTURE_AARCH64) || defined(ARCHITECTURE_RISCV64) || defined(ARCHITECTURE_RISCV32)
@@ -1861,10 +1868,11 @@ static const CHAR *FindScreencap()
 	if (fd >= 0)
 	{
 		System::Call(SYS_CLOSE, (USIZE)fd);
-		return (const CHAR *)path2;
+		Memory::Copy(buf, (const CHAR *)path2, 22); // "/vendor/bin/screencap\0"
+		return true;
 	}
 
-	return nullptr;
+	return false;
 }
 
 /// @brief Spawn screencap with optional -d display_id argument
@@ -2048,8 +2056,8 @@ static VOID ScreencapGetDevices(ScreenDevice *tempDevices, UINT32 &deviceCount, 
 	if (deviceCount >= maxDevices)
 		return;
 
-	const CHAR *screencapPath = FindScreencap();
-	if (screencapPath == nullptr)
+	CHAR screencapPath[24];
+	if (!FindScreencap(screencapPath, sizeof(screencapPath)))
 		return;
 
 	// Try to enumerate display IDs (needed for multi-display/foldable devices)
@@ -2128,8 +2136,8 @@ static VOID ScreencapPixelToRGB(const UINT8 *src, RGB &dst, UINT32 format)
 /// @return Ok on success, Err on failure
 static Result<VOID, Error> ScreencapCapture(const ScreenDevice &device, Span<RGB> buffer)
 {
-	const CHAR *screencapPath = FindScreencap();
-	if (screencapPath == nullptr)
+	CHAR screencapPath[24];
+	if (!FindScreencap(screencapPath, sizeof(screencapPath)))
 		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
 	// Determine display ID for screencap -d
