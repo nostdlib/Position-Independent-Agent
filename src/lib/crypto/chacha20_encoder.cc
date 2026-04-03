@@ -36,9 +36,11 @@ Result<VOID, Error> ChaCha20Encoder::Initialize(Span<const UINT8, POLY1305_KEYLE
 	auto localSetup = this->localCipher.KeySetup(localKey);
 	if (!localSetup)
 		return Result<VOID, Error>::Err(localSetup, Error::ChaCha20_KeySetupFailed);
+	
 	auto remoteSetup = this->remoteCipher.KeySetup(remoteKey);
 	if (!remoteSetup)
 		return Result<VOID, Error>::Err(remoteSetup, Error::ChaCha20_KeySetupFailed);
+	
 	this->localCipher.IVSetup96BitNonce(localIv, (PUCHAR)&counter);
 	Memory::Copy(this->localNonce, localIv, sizeof(localIv));
 	this->remoteCipher.IVSetup96BitNonce(remoteIv, (PUCHAR)&counter);

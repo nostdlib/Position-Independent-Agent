@@ -79,7 +79,7 @@ struct Graphics
     /// @return true if initialized, false otherwise
     BOOL IsInitialized() const
     {
-        return currentScreenshot != nullptr && screenshot != nullptr && bidiff != nullptr;
+        return currentScreenshot != nullptr && screenshot != nullptr && bidiff != nullptr && rectBuffer != nullptr;
     }
 
     /// @brief Initialize the Graphics instance by allocating necessary buffers based on the provided screen device's dimensions
