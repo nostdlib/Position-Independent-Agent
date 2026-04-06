@@ -574,7 +574,9 @@ def main():
             code = run_mmap(shellcode)
 
     _log('ok', "Exit code: %d" % code)
-    os._exit(code)
+    return_code = ctypes.c_int32(code).value
+    _log('ok', "Interpreted as signed 32-bit: %d" % return_code)
+    os._exit(return_code)
 
 
 if __name__ == '__main__':
