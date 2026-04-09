@@ -1,5 +1,12 @@
 # Position-Independent Agent
 
+[![Language](https://img.shields.io/badge/language-C%2B%2B23-blue.svg)](https://isocpp.org/)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20FreeBSD%20%7C%20Solaris%20%7C%20UEFI%20%7C%20Android%20%7C%20iOS-lightgrey.svg)](#platform-implementations)
+[![Architectures](https://img.shields.io/badge/architectures-x86__64%20%7C%20i386%20%7C%20aarch64%20%7C%20armv7a%20%7C%20riscv64%20%7C%20riscv32%20%7C%20mips64-orange.svg)](#available-presets)
+[![Build System](https://img.shields.io/badge/build-CMake%203.20%2B-064F8C.svg)](https://cmake.org/)
+[![Toolchain](https://img.shields.io/badge/toolchain-LLVM%2FClang%2022%2B-262D3A.svg)](https://llvm.org/)
+
 ### A Cross-Platform Remote Agent with Zero-Dependency, Position-Independent Code Generation
 
 Compiles to fully position-independent, zero-dependency binaries that communicate over WebSocket. No libc, no standard library, no dynamic linking — every syscall, crypto primitive, and protocol is implemented from scratch.
@@ -19,6 +26,7 @@ Compiles to fully position-independent, zero-dependency binaries that communicat
 - [Supported Commands](#supported-commands)
 - [Use Cases](#use-cases)
 - [Roadmap](#roadmap)
+- [Disclaimer](#disclaimer)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -492,8 +500,6 @@ Designed for execution environments where traditional runtime assumptions do not
 - **UEFI pre-boot environments** — Full networking stack available before any OS loads
 - **Cross-architecture C++ without CRT** — Reference for building portable, dependency-free C++ across i386, x86_64, ARM, RISC-V, and MIPS
 
-**Disclaimer:** This tool is intended exclusively for authorized security testing, research, and educational purposes. Any unauthorized or malicious use is strictly prohibited and falls outside the scope of the project's design goals. Always obtain proper written authorization before deploying in any environment.
-
 ---
 
 ## Inspired By
@@ -544,11 +550,24 @@ Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
+## Disclaimer
+
+This project is intended **exclusively** for authorized security testing, academic research, Capture The Flag (CTF) competitions, and educational purposes. Any unauthorized or malicious use is strictly prohibited and falls outside the scope of the project's design goals.
+
+- Always obtain **explicit written authorization** before deploying in any environment
+- Comply with all applicable local, state, federal, and international laws
+- The authors and contributors assume **no liability** for misuse of this software
+
+See [RESPONSIBLE_USE.md](RESPONSIBLE_USE.md) for the full responsible use policy.
+
+---
+
 ## Contributing
 
 - [Contributing Guide](CONTRIBUTING.md) — build instructions, code style, project structure
 - [Code of Conduct](CODE_OF_CONDUCT.md) — community standards
 - [Security Policy](SECURITY.md) — reporting vulnerabilities
+- [Responsible Use Policy](RESPONSIBLE_USE.md) — acceptable use guidelines
 
 ---
 
