@@ -26,6 +26,11 @@ jobs:
           - { platform: windows, arch: x86_64,  ext: exe }
           - { platform: windows, arch: aarch64, ext: exe }
           - { platform: windows, arch: armv7a,  ext: exe }
+          # Windows (no-syscall: direct ntdll exports)
+          - { platform: windows, arch: i386,    ext: exe, variant: nosyscall, cmake_extra: "-DNO_SYSCALL=ON" }
+          - { platform: windows, arch: x86_64,  ext: exe, variant: nosyscall, cmake_extra: "-DNO_SYSCALL=ON" }
+          - { platform: windows, arch: aarch64, ext: exe, variant: nosyscall, cmake_extra: "-DNO_SYSCALL=ON" }
+          - { platform: windows, arch: armv7a,  ext: exe, variant: nosyscall, cmake_extra: "-DNO_SYSCALL=ON" }
           # Linux
           - { platform: linux, arch: i386,    ext: elf }
           - { platform: linux, arch: x86_64,  ext: elf }
@@ -89,13 +94,14 @@ jobs:
         run: |
           BUILD_NUMBER=$(git rev-list --count HEAD)
           COMMIT_HASH=$(git rev-parse --short=8 HEAD)
-          cmake --preset ${{ matrix.platform }}-${{ matrix.arch }}-release -DOPTIMIZATION_LEVEL=Oz -DBUILD_NUMBER=${BUILD_NUMBER} -DCOMMIT_HASH=${COMMIT_HASH}
+          cmake --preset ${{ matrix.platform }}-${{ matrix.arch }}-release -DOPTIMIZATION_LEVEL=Oz -DBUILD_NUMBER=${BUILD_NUMBER} -DCOMMIT_HASH=${COMMIT_HASH} ${{ matrix.cmake_extra }}
           cmake --build --preset ${{ matrix.platform }}-${{ matrix.arch }}-release
 
       - name: Rename artifacts
         run: |
           ext="${{ matrix.ext }}"
-          name="${{ matrix.platform }}-${{ matrix.arch }}"
+          variant="${{ matrix.variant }}"
+          name="${{ matrix.platform }}-${{ matrix.arch }}${variant:+-$variant}"
           mkdir -p artifacts
 
           # Find and rename the main executable
@@ -114,7 +120,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.platform }}-${{ matrix.arch }}
+          name: release-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.variant && format('-{0}', matrix.variant) || '' }}
           retention-days: 1
           path: artifacts/
 

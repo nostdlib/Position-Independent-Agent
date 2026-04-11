@@ -46,9 +46,11 @@ Result<NTSTATUS, Error> NTDLL::ZwCreateFile(/* params */)
 ```
 
 **Why two paths?**
-- The indirect syscall path is the primary mechanism on x86_64 and i386
-- The `CALL_FUNCTION` fallback exists for architectures where indirect syscalls are not yet fully implemented (ARM64/ARM32 — marked as TODO)
-- Currently `CALL_FUNCTION` returns `-1` as a placeholder
+- The indirect syscall path is the primary mechanism — it avoids leaving a user-mode RIP inside the agent when the `syscall`/`svc` instruction executes
+- `CALL_FUNCTION` resolves the ntdll export via PEB walking and invokes it through a typed function-pointer cast — the same dispatch ntdll itself would do. Used as:
+  - **Fallback** when SSN resolution fails (e.g. hooked or stripped ntdll)
+  - **Primary** on ARM64/ARM32, where the kernel validates that `SVC` originates inside ntdll's address range
+  - **Primary** on every architecture when the build sets `-DNO_SYSCALL=ON` (see the `NO_SYSCALL` CMake option), which shadows `ResolveSyscall` at the top of [`ntdll.cc`](ntdll.cc) to always return an invalid entry, forcing every wrapper down the `CALL_FUNCTION` branch. LTO drops the unused indirect-dispatch code.
 
 ---
 

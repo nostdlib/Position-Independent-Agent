@@ -42,6 +42,11 @@ jobs:
           - { target: windows-x86_64,   artifact: windows-x86_64  }
           - { target: windows-armv7a,   artifact: windows-armv7a   }
           - { target: windows-aarch64,  artifact: windows-aarch64  }
+          # ── Windows (no-syscall: direct ntdll exports, Oz only) ──────────
+          - { target: windows-i386,     artifact: windows-i386-nosyscall,    opts: "Oz", cmake_extra: "-DNO_SYSCALL=ON" }
+          - { target: windows-x86_64,   artifact: windows-x86_64-nosyscall,  opts: "Oz", cmake_extra: "-DNO_SYSCALL=ON" }
+          - { target: windows-armv7a,   artifact: windows-armv7a-nosyscall,  opts: "Oz", cmake_extra: "-DNO_SYSCALL=ON" }
+          - { target: windows-aarch64,  artifact: windows-aarch64-nosyscall, opts: "Oz", cmake_extra: "-DNO_SYSCALL=ON" }
           # ── macOS / iOS ──────────────────────────────────────────────────
           - { target: macos-x86_64,     artifact: macos-x86_64    }
           - { target: macos-aarch64,    artifact: macos-aarch64   }
@@ -99,9 +104,9 @@ jobs:
             preset="test-${{ matrix.target }}-release"
             build_dir="build/release"
             out_dir="release/${opt}"
-            echo "=== Building -${opt} (${preset}) ==="
+            echo "=== Building -${opt} (${preset}) ${{ matrix.cmake_extra }} ==="
             rm -rf build
-            cmake --preset "${preset}" -DOPTIMIZATION_LEVEL=${opt}
+            cmake --preset "${preset}" -DOPTIMIZATION_LEVEL=${opt} ${{ matrix.cmake_extra }}
             cmake --build --preset "${preset}"
             mkdir -p "${out_dir}"
             find "${build_dir}" -type f -not -path "*/cmake/*" -exec cp {} "${out_dir}/" \;
@@ -209,6 +214,24 @@ jobs:
             }
           }
 
+  test-windows-i386-nosyscall:
+    needs: build
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: build-windows-i386-nosyscall, path: release }
+      - name: Test shellcode (PIC loader, no-syscall)
+        shell: pwsh
+        run: |
+          foreach ($dir in Get-ChildItem -Path release -Directory -ErrorAction SilentlyContinue) {
+            foreach ($bin in Get-ChildItem -Path $dir.FullName -Filter "*.bin") {
+              Write-Host "=== Testing PIC -$($dir.Name) (no-syscall) ==="
+              python loaders/python/loader.py --arch i386 $bin.FullName
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+            }
+          }
+
   test-windows-x86_64:
     needs: build
     runs-on: windows-2022
@@ -227,6 +250,24 @@ jobs:
             }
           }
 
+  test-windows-x86_64-nosyscall:
+    needs: build
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: build-windows-x86_64-nosyscall, path: release }
+      - name: Test shellcode (PIC loader, no-syscall)
+        shell: pwsh
+        run: |
+          foreach ($dir in Get-ChildItem -Path release -Directory -ErrorAction SilentlyContinue) {
+            foreach ($bin in Get-ChildItem -Path $dir.FullName -Filter "*.bin") {
+              Write-Host "=== Testing PIC -$($dir.Name) (no-syscall) ==="
+              python loaders/python/loader.py --arch x86_64 $bin.FullName
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+            }
+          }
+
   test-windows-aarch64:
     needs: build
     runs-on: windows-11-arm
@@ -240,6 +281,24 @@ jobs:
           foreach ($dir in Get-ChildItem -Path release -Directory -ErrorAction SilentlyContinue) {
             foreach ($bin in Get-ChildItem -Path $dir.FullName -Filter "*.bin") {
               Write-Host "=== Testing PIC -$($dir.Name) ==="
+              python loaders/python/loader.py --arch aarch64 $bin.FullName
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+            }
+          }
+
+  test-windows-aarch64-nosyscall:
+    needs: build
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: build-windows-aarch64-nosyscall, path: release }
+      - name: Test shellcode (PIC loader, no-syscall)
+        shell: pwsh
+        run: |
+          foreach ($dir in Get-ChildItem -Path release -Directory -ErrorAction SilentlyContinue) {
+            foreach ($bin in Get-ChildItem -Path $dir.FullName -Filter "*.bin") {
+              Write-Host "=== Testing PIC -$($dir.Name) (no-syscall) ==="
               python loaders/python/loader.py --arch aarch64 $bin.FullName
               if ($LASTEXITCODE -ne 0) { exit 1 }
             }
