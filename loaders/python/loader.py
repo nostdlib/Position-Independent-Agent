@@ -308,7 +308,9 @@ MACHINE_TYPE = {
 }
 
 HOST_PROCESS = {
-    'i386':    r'C:\Windows\SysWOW64\cmd.exe',
+    'i386':    r'C:\Windows\SysWOW64\cmd.exe'
+               if os.path.isdir(r'C:\Windows\SysWOW64') else
+               r'C:\Windows\System32\cmd.exe',
     'x86_64':  r'C:\Windows\System32\cmd.exe',
     'armv7a':  r'C:\Windows\SysArm32\cmd.exe',
     'aarch64': r'C:\Windows\System32\cmd.exe',
