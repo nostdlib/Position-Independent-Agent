@@ -522,7 +522,7 @@ def main():
     # including on Windows. This keeps arch validation and shellcode
     # selection consistent across both in-process mmap execution and the
     # Windows injection path, so do not substitute host_bits here.
-    exec_bits = python_bits 
+    exec_bits = python_bits
 
     _log('inf', "Host: %s/%s/%dbit" % (host_os, host_family, host_bits))
     _log('inf', "Python: %s (%dbit)" % (platform.python_version(), python_bits))
