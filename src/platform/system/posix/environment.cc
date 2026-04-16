@@ -168,6 +168,102 @@ USIZE Environment::GetVariable(const CHAR *name, Span<CHAR> buffer) noexcept
 #endif
 
 // =============================================================================
+// Command line argument parsing (shared across all POSIX platforms)
+// =============================================================================
+
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+
+USIZE Environment::GetCommandLineValue(const CHAR *flag, Span<CHAR> buffer) noexcept
+{
+	if (flag == nullptr || buffer.Size() == 0)
+		return 0;
+
+	// Read /proc/self/cmdline (NUL-separated arguments)
+	const CHAR *path = "/proc/self/cmdline";
+#if defined(ARCHITECTURE_AARCH64) || defined(ARCHITECTURE_RISCV64) || defined(ARCHITECTURE_RISCV32)
+	SSIZE fd = System::Call(SYS_OPENAT, (USIZE)-100, (USIZE)path, 0, 0);
+#else
+	SSIZE fd = System::Call(SYS_OPEN, (USIZE)path, 0 /* O_RDONLY */, 0);
+	if (fd < 0)
+		fd = System::Call(SYS_OPENAT, (USIZE)-100, (USIZE)path, 0, 0);
+#endif
+	if (fd < 0)
+	{
+		buffer[0] = '\0';
+		return 0;
+	}
+
+	CHAR cmdBuf[4096];
+	SSIZE bytesRead = System::Call(SYS_READ, (USIZE)fd, (USIZE)cmdBuf, sizeof(cmdBuf) - 1);
+	System::Call(SYS_CLOSE, (USIZE)fd);
+
+	if (bytesRead <= 0)
+	{
+		buffer[0] = '\0';
+		return 0;
+	}
+
+	// Walk NUL-separated arguments looking for the flag
+	USIZE flagLen = StringUtils::Length(flag);
+	const CHAR *ptr = cmdBuf;
+	const CHAR *end = cmdBuf + bytesRead;
+
+	while (ptr < end)
+	{
+		USIZE argLen = StringUtils::Length(ptr);
+
+		if (StringUtils::Compare(ptr, flag))
+		{
+			// Found the flag — advance to the next argument (the value)
+			ptr += argLen + 1; // skip past NUL
+			if (ptr >= end || *ptr == '\0')
+			{
+				buffer[0] = '\0';
+				return 0;
+			}
+
+			USIZE valueLen = StringUtils::Length(ptr);
+			if (valueLen >= buffer.Size())
+				valueLen = buffer.Size() - 1;
+			for (USIZE i = 0; i < valueLen; i++)
+				buffer[i] = ptr[i];
+			buffer[valueLen] = '\0';
+			return valueLen;
+		}
+
+		// Check if the flag is a prefix (e.g. "--relay=https://...")
+		if (argLen > flagLen && StringUtils::StartsWith(ptr, flag) && ptr[flagLen] == '=')
+		{
+			const CHAR *value = ptr + flagLen + 1;
+			USIZE valueLen = StringUtils::Length(value);
+			if (valueLen >= buffer.Size())
+				valueLen = buffer.Size() - 1;
+			for (USIZE i = 0; i < valueLen; i++)
+				buffer[i] = value[i];
+			buffer[valueLen] = '\0';
+			return valueLen;
+		}
+
+		// Advance to next argument
+		ptr += argLen + 1;
+	}
+
+	buffer[0] = '\0';
+	return 0;
+}
+
+#else // macOS, FreeBSD, Solaris — stub
+
+USIZE Environment::GetCommandLineValue([[maybe_unused]] const CHAR *flag, Span<CHAR> buffer) noexcept
+{
+	if (buffer.Size() > 0)
+		buffer[0] = '\0';
+	return 0;
+}
+
+#endif
+
+// =============================================================================
 // Platform identification (shared across all POSIX platforms)
 // =============================================================================
 

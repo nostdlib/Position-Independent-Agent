@@ -97,6 +97,20 @@ public:
 	 */
 	static USIZE GetArchitecture(Span<CHAR> buffer) noexcept;
 
+	/**
+	 * @brief Retrieves the value following a named flag in the OS command line.
+	 *
+	 * @param flag Flag name to search for (e.g. "--relay").
+	 * @param buffer Output buffer to receive the value string.
+	 * @return Length of the value written, or 0 if the flag was not found.
+	 *
+	 * @details Searches the process command line for the given flag and returns
+	 * the next whitespace-delimited token as the value. On Windows, the command
+	 * line is read from PEB->ProcessParameters->CommandLine. On Linux/Android,
+	 * it is read from /proc/self/cmdline. On other platforms, returns 0.
+	 */
+	static USIZE GetCommandLineValue(const CHAR* flag, Span<CHAR> buffer) noexcept;
+
 	// Prevent instantiation
 	VOID *operator new(USIZE) = delete;
 	VOID operator delete(VOID *) = delete;

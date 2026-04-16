@@ -123,6 +123,66 @@ USIZE Environment::GetVariable(const CHAR *name, Span<CHAR> buffer) noexcept
 	return 0;
 }
 
+USIZE Environment::GetCommandLineValue(const CHAR *flag, Span<CHAR> buffer) noexcept
+{
+	if (flag == nullptr || buffer.Size() == 0)
+		return 0;
+
+	PPEB peb = GetCurrentPEB();
+	if (peb == nullptr || peb->ProcessParameters == nullptr)
+		return 0;
+
+	// Access the CommandLine UNICODE_STRING from the extended process parameters
+	RTL_USER_PROCESS_PARAMETERS_EX *params = (RTL_USER_PROCESS_PARAMETERS_EX *)peb->ProcessParameters;
+	UNICODE_STRING cmdLine = params->CommandLine;
+
+	if (cmdLine.Buffer == nullptr || cmdLine.Length == 0)
+		return 0;
+
+	// Convert wide command line to narrow (ASCII-safe for flags and URLs)
+	USIZE cmdLen = cmdLine.Length / sizeof(WCHAR);
+	CHAR narrowCmd[2048];
+	if (cmdLen >= sizeof(narrowCmd))
+		cmdLen = sizeof(narrowCmd) - 1;
+
+	for (USIZE i = 0; i < cmdLen; i++)
+		narrowCmd[i] = (CHAR)cmdLine.Buffer[i];
+	narrowCmd[cmdLen] = '\0';
+
+	// Search for the flag
+	USIZE flagLen = StringUtils::Length(flag);
+	SSIZE idx = StringUtils::IndexOf(
+		Span<const CHAR>(narrowCmd, cmdLen),
+		Span<const CHAR>(flag, flagLen));
+
+	if (idx < 0)
+	{
+		buffer[0] = '\0';
+		return 0;
+	}
+
+	// Skip past the flag and any whitespace to get the value
+	USIZE pos = (USIZE)idx + flagLen;
+	while (pos < cmdLen && (narrowCmd[pos] == ' ' || narrowCmd[pos] == '\t'))
+		pos++;
+
+	if (pos >= cmdLen)
+	{
+		buffer[0] = '\0';
+		return 0;
+	}
+
+	// Copy value until whitespace or end
+	USIZE len = 0;
+	while (pos + len < cmdLen && narrowCmd[pos + len] != ' ' && narrowCmd[pos + len] != '\t' && len < buffer.Size() - 1)
+	{
+		buffer[len] = narrowCmd[pos + len];
+		len++;
+	}
+	buffer[len] = '\0';
+	return len;
+}
+
 USIZE Environment::GetAgentPlatform(Span<CHAR> buffer) noexcept
 {
 	StringUtils::Copy(buffer, Span<const CHAR>("windows"));

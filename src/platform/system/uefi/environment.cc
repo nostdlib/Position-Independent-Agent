@@ -19,6 +19,13 @@ USIZE Environment::GetVariable([[maybe_unused]] const CHAR* name, Span<CHAR> buf
 	return 0;
 }
 
+USIZE Environment::GetCommandLineValue([[maybe_unused]] const CHAR *flag, Span<CHAR> buffer) noexcept
+{
+	if (buffer.Size() > 0)
+		buffer[0] = '\0';
+	return 0;
+}
+
 USIZE Environment::GetAgentPlatform(Span<CHAR> buffer) noexcept
 {
 	StringUtils::Copy(buffer, Span<const CHAR>("uefi"));
