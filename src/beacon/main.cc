@@ -3,7 +3,7 @@
 #include "websocket_client.h"
 #include "shell.h"
 
-static const CHAR *CommandTypeName(UINT8 type)
+static const CHAR* CommandTypeName(UINT8 type)
 {
     switch (type)
     {

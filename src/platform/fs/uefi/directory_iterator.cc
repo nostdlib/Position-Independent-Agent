@@ -19,7 +19,7 @@ DirectoryIterator::DirectoryIterator()
 Result<DirectoryIterator, Error> DirectoryIterator::Create(PCWCHAR path)
 {
 	DirectoryIterator iter;
-	(VOID) iter.isFirst; // Suppress unused warning - UEFI uses Read to iterate
+	(VOID)iter.isFirst; // Suppress unused warning - UEFI uses Read to iterate
 
 	EFI_FILE_PROTOCOL *root = GetRootDirectory();
 	if (root == nullptr)

@@ -16,12 +16,12 @@ Result<Shell, Error> Shell::Create() noexcept
         Shell(static_cast<ShellProcess &&>(result.Value())));
 }
 
-Result<USIZE, Error> Shell::Write(const char *data, USIZE length) noexcept
+Result<USIZE, Error> Shell::Write(const CHAR* data, USIZE length) noexcept
 {
     return shellProcess.Write(data, length);
 }
 
-Result<USIZE, Error> Shell::Read(char *buffer, USIZE capacity) noexcept
+Result<USIZE, Error> Shell::Read(PCHAR buffer, USIZE capacity) noexcept
 {
     USIZE totalRead = 0;
 
@@ -54,7 +54,7 @@ Result<USIZE, Error> Shell::Read(char *buffer, USIZE capacity) noexcept
     return Result<USIZE, Error>::Ok(totalRead);
 }
 
-Result<USIZE, Error> Shell::ReadError(char *buffer, USIZE capacity) noexcept
+Result<USIZE, Error> Shell::ReadError(PCHAR buffer, USIZE capacity) noexcept
 {
     return shellProcess.ReadError(buffer, capacity);
 }
