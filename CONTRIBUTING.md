@@ -63,19 +63,36 @@ This project requires LLVM 22.1.1, which is not available as a native Windows pa
 
 #### Install build tools, download LLVM 22 from GitHub releases, and add to PATH
 
-Run as your normal user (not under `sudo bash -c`, which would write the PATH line to root's `~/.bashrc`). Paste the whole block — it stops on the first error so partial installs are easy to spot.
+Run the block below as your normal user (not under `sudo bash -c`, which would write the PATH line to root's home). `set -e` stops on the first failure so partial installs are easy to spot.
 
 ```bash
-sudo apt-get update && sudo apt-get install -y cmake ninja-build xz-utils libstdc++-14-dev zlib1g-dev libzstd-dev && LLVM_VER=22.1.1 && LLVM_ARCH=$(uname -m | sed 's/aarch64/ARM64/;s/x86_64/X64/') && wget --show-progress -q "https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VER}/LLVM-${LLVM_VER}-Linux-${LLVM_ARCH}.tar.xz" -O /tmp/llvm.tar.xz && sudo mkdir -p /usr/local/llvm && sudo tar -xf /tmp/llvm.tar.xz -C /usr/local/llvm --strip-components=1 && rm /tmp/llvm.tar.xz && echo 'export PATH="/usr/local/llvm/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+set -e
+sudo apt-get update
+sudo apt-get install -y cmake ninja-build xz-utils libstdc++-14-dev zlib1g-dev libzstd-dev
+LLVM_VER=22.1.1
+LLVM_ARCH=$(uname -m | sed 's/aarch64/ARM64/;s/x86_64/X64/')
+wget --show-progress -q "https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VER}/LLVM-${LLVM_VER}-Linux-${LLVM_ARCH}.tar.xz" -O /tmp/llvm.tar.xz
+sudo mkdir -p /usr/local/llvm
+sudo tar -xf /tmp/llvm.tar.xz -C /usr/local/llvm --strip-components=1
+rm /tmp/llvm.tar.xz
+LLVM_PATH_LINE='export PATH="/usr/local/llvm/bin:$PATH"'
+grep -qxF "$LLVM_PATH_LINE" ~/.profile || echo "$LLVM_PATH_LINE" >> ~/.profile
+export PATH="/usr/local/llvm/bin:$PATH"
 ```
 
+**Why `~/.profile` and not `~/.bashrc`?** On Ubuntu, `~/.bashrc` short-circuits in non-interactive shells (the default `case $- in *i*) ;; *) return;; esac` block at the top). VSCode tasks, SSH commands, and any `bash -lc` invocation are non-interactive login shells — they source `~/.profile` but never reach the PATH export inside `~/.bashrc`. Putting the export in `~/.profile` makes it visible to both interactive shells and IDE/CI build tasks.
+
 **Note:** To install a different LLVM version, change `LLVM_VER=22.1.1` to your desired version (e.g., `LLVM_VER=23.1.0`).
+
+**After install:** the `export PATH` line above only updates the shell that ran it. **Open a new terminal** (or `source ~/.profile`) before building, otherwise CMake will not find `clang`.
 
 Verify:
 
 ```bash
 clang --version && clang++ --version && lld --version && cmake --version && ninja --version
 ```
+
+If `clang --version` is not 22.x, your PATH was not updated — confirm `~/.profile` contains `export PATH="/usr/local/llvm/bin:$PATH"` and reopen your terminal.
 
 ### macOS
 
