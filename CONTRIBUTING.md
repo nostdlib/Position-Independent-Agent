@@ -51,7 +51,7 @@ This project requires LLVM 22.1.1, which is not available as a native Windows pa
 
 1. Install WSL if you haven't already:
    ```powershell
-   wsl --install
+   wsl --install -d Ubuntu
    ```
 2. Open your WSL terminal and follow the Linux instructions below.
 
