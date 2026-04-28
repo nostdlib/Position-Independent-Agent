@@ -29,12 +29,16 @@ Thank you for your interest in contributing to PIA! This guide covers everything
 
 > **Windows users:** This project must be built using WSL (Windows Subsystem for Linux). Install WSL, then follow the Linux instructions below to set up the toolchain inside your WSL distribution.
 
+#### Clone with submodules
+
 ```bash
-# Clone with submodules
 git clone https://github.com/nostdlib/Position-Independent-Agent.git
 cd Position-Independent-Agent
+```
 
-# Build
+#### Build
+
+```bash
 cmake --preset {platform}-{arch}-{build_type}
 cmake --build --preset {platform}-{arch}-{build_type}
 ```
@@ -57,8 +61,9 @@ This project requires LLVM 22.1.1, which is not available as a native Windows pa
 
 ### Linux (Ubuntu/Debian)
 
+#### Install build tools, download LLVM 22 from GitHub releases, and add to PATH
+
 ```bash
-# Install build tools, download LLVM 22 from GitHub releases, and add to PATH
 sudo apt-get update && sudo apt-get install -y cmake ninja-build xz-utils libstdc++-14-dev zlib1g-dev libzstd-dev && LLVM_VER=22.1.1 && LLVM_ARCH=$(uname -m | sed 's/aarch64/ARM64/;s/x86_64/X64/') && wget --show-progress -q "https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VER}/LLVM-${LLVM_VER}-Linux-${LLVM_ARCH}.tar.xz" -O /tmp/llvm.tar.xz && sudo mkdir -p /usr/local/llvm && sudo tar -xf /tmp/llvm.tar.xz -C /usr/local/llvm --strip-components=1 && rm /tmp/llvm.tar.xz && echo 'export PATH="/usr/local/llvm/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 ```
 
@@ -74,19 +79,24 @@ clang --version && clang++ --version && lld --version && cmake --version && ninj
 
 **Prerequisites:** [Homebrew](https://brew.sh/).
 
+#### Install all dependencies
+
 ```bash
-# Install all dependencies
 brew install llvm cmake ninja
 ```
 
 Add LLVM to your PATH:
 
+#### For Apple Silicon (M1/M2/M3/M4)
+
 ```bash
-# For Apple Silicon (M1/M2/M3/M4)
 echo 'export PATH="/opt/homebrew/opt/llvm/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
+```
 
-# For Intel Macs
+#### For Intel Macs
+
+```bash
 echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
@@ -341,8 +351,9 @@ To add a new command:
 
 The project has 31 test suites covering all layers (core, platform, lib). Tests are built as a separate executable using the same codebase.
 
+#### Build and run tests
+
 ```bash
-# Build and run tests
 cmake --preset linux-x86_64-debug -DBUILD_TESTS=ON -DENABLE_LOGGING=ON
 cmake --build --preset linux-x86_64-debug
 ./build/debug/linux/x86_64/cmake/output
