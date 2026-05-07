@@ -518,10 +518,11 @@ def main():
     host_os, host_family, host_bits = get_host()
     python_bits = struct.calcsize("P") * 8
 
-    # run_mmap executes shellcode in-process, so it must match the Python
-    # interpreter's bitness --not the CPU's.  run_injected (Windows) spawns
-    # a native-arch process, so it can use the true OS bitness.
-    exec_bits = python_bits if host_os != 'windows' else host_bits
+    # Execution bitness is always based on the current Python interpreter,
+    # including on Windows. This keeps arch validation and shellcode
+    # selection consistent across both in-process mmap execution and the
+    # Windows injection path, so do not substitute host_bits here.
+    exec_bits = python_bits
 
     _log('inf', "Host: %s/%s/%dbit" % (host_os, host_family, host_bits))
     _log('inf', "Python: %s (%dbit)" % (platform.python_version(), python_bits))
