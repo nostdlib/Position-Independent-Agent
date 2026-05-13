@@ -161,7 +161,7 @@ VOID Handle_GetDirectoryContentCommand([[maybe_unused]] PCHAR command, [[maybe_u
     *(PUINT32)*response = StatusCode::StatusSuccess;
     Memory::Copy(*response + sizeof(UINT32), &entryCount, sizeof(UINT64));
 
-    WireDirectoryEntry *wireEntries = (WireDirectoryEntry *)(*response + sizeof(UINT32) + sizeof(UINT64));
+    WireDirectoryEntry* wireEntries = (WireDirectoryEntry*)(*response + sizeof(UINT32) + sizeof(UINT64));
     for (UINT64 i = 0; i < entryCount; i++)
     {
         Memory::Zero(&wireEntries[i], sizeof(WireDirectoryEntry));
@@ -206,7 +206,7 @@ VOID Handle_GetFileContentCommand([[maybe_unused]] PCHAR command, [[maybe_unused
         return;
     }
 
-    auto readResult = file.Read(Span<UINT8>((UINT8 *)(*response + sizeof(UINT32) + sizeof(UINT64)), (USIZE)readCount));
+    auto readResult = file.Read(Span<UINT8>((UINT8*)(*response + sizeof(UINT32) + sizeof(UINT64)), (USIZE)readCount));
 
     UINT32 bytesRead = readResult ? readResult.Value() : 0;
 

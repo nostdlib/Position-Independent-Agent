@@ -15,8 +15,8 @@ public:
 
 		// Test 1: Basic instantiation
 		LOG_INFO("  Creating Random object...");
-		Random rng;
-		(VOID)rng;
+		[[maybe_unused]] Random rng;
+
 		LOG_INFO("  Random object created!");
 
 		RunTest(allPassed, &TestGenerationSuite, "Generation suite");
