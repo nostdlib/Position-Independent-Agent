@@ -26,6 +26,14 @@ Thank you for your interest in contributing to PIA! This guide covers everything
 ## Quick Start
 
 **Requirements:** Clang/LLVM 22+, CMake 3.20+, Ninja 1.10+, C++23. See [Toolchain Installation](#toolchain-installation) below.
+**Python Compatibility:** Python required for running PIA under PIC. The required Python version depends on the operating system:
+
+| Platform         | Python Version |
+|------------------|----------------|
+| Windows 7        | 3.6            |
+| Windows 8.1 / 10 | 3.13 +         |
+
+> ⚠️ Due to platform limitations, Windows 7 is restricted to Python 3.6, as newer Python versions no longer support this OS. 
 
 > **Windows users:** This project must be built using WSL (Windows Subsystem for Linux). Install WSL, then follow the Linux instructions below to set up the toolchain inside your WSL distribution.
 
