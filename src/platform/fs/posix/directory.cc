@@ -28,7 +28,7 @@
 
 Result<VOID, Error> Directory::Create(PCWCHAR path)
 {
-	CHAR utf8Path[1024];
+	CHAR utf8Path[8192];
 	NormalizePathToUtf8(path, Span<CHAR>(utf8Path));
 
 	// Mode 0755 (rwxr-xr-x)
@@ -46,7 +46,7 @@ Result<VOID, Error> Directory::Create(PCWCHAR path)
 
 Result<VOID, Error> Directory::Delete(PCWCHAR path)
 {
-	CHAR utf8Path[1024];
+	CHAR utf8Path[8192];
 	NormalizePathToUtf8(path, Span<CHAR>(utf8Path));
 
 #if (defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID) || defined(PLATFORM_FREEBSD)) && (defined(ARCHITECTURE_AARCH64) || defined(ARCHITECTURE_RISCV64) || defined(ARCHITECTURE_RISCV32)) || defined(PLATFORM_SOLARIS)

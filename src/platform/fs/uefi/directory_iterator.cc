@@ -81,19 +81,50 @@ Result<VOID, Error> DirectoryIterator::Next()
 
 	EFI_FILE_PROTOCOL *fp = (EFI_FILE_PROTOCOL *)handle;
 
-	// Allocate buffer for EFI_FILE_INFO (needs to include variable-length filename)
-	// Use a fixed buffer size that should be large enough for most filenames
-	UINT8 buffer[512];
-	USIZE bufferSize = sizeof(buffer);
+	// Read one EFI_FILE_INFO. A failed read transfers nothing and does not
+	// advance the directory position, so EFI_BUFFER_TOO_SMALL (name longer
+	// than the buffer) is retried with a heap buffer of the reported size —
+	// an over-long name must land IN the listing, not silently end it. The
+	// growth is capped (a FAT name is <= 255 UTF-16 units ≈ 600 bytes; a
+	// firmware size beyond the cap is bogus, not a name) so a bad required-
+	// size cannot force a huge allocation.
+	constexpr USIZE MAX_UEFI_READ_BUFFER = 64 * 1024;
+	UINT8 stackBuffer[512];
+	UINT8 *buffer = stackBuffer;
+	USIZE bufferSize = sizeof(stackBuffer);
 
-	EFI_STATUS status = fp->Read(fp, &bufferSize, buffer);
+	EFI_STATUS status;
+	while (true)
+	{
+		status = fp->Read(fp, &bufferSize, buffer);
+
+		if (!EFI_ERROR_CHECK(status))
+			break;
+		if (status != (EFI_STATUS)EFI_BUFFER_TOO_SMALL || buffer != stackBuffer)
+			break;
+
+		// Read reported the required size in bufferSize — grow (capped) and retry.
+		if (bufferSize > MAX_UEFI_READ_BUFFER)
+			break; // bogus required size — surface the original status
+		UINT8 *grown = new UINT8[bufferSize];
+		if (grown == nullptr)
+			break;
+		buffer = grown;
+	}
+
+	// The heap buffer (when taken) is released at the end of this iteration.
+	struct HeapGuard
+	{
+		UINT8 *ptr;
+		~HeapGuard() { delete[] ptr; }
+	} heapGuard{buffer == stackBuffer ? nullptr : buffer};
 
 	if (EFI_ERROR_CHECK(status))
 		return Result<VOID, Error>::Err(Error::Uefi((UINT32)status), Error::Fs_ReadFailed);
 
-	// End of directory
+	// End of directory — the CLEAN-end sentinel, not a failure.
 	if (bufferSize == 0)
-		return Result<VOID, Error>::Err(Error::Fs_ReadFailed);
+		return Result<VOID, Error>::Err(Error::Fs_NoMoreEntries);
 
 	EFI_FILE_INFO *fileInfo = (EFI_FILE_INFO *)buffer;
 

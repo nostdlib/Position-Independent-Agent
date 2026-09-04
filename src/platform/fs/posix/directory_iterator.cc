@@ -22,6 +22,20 @@
 #endif
 #include "core/string/string.h"
 
+// fstatat flag: stat the link itself, never its target. Symlinked directories
+// must not be descended into by operator-driven recursion (a symlink cycle
+// would loop the scan forever), and a broken link must still stat so its
+// entry survives. Values per-OS fcntl.h; not declared in the kernel headers.
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+constexpr UINT32 FSTATAT_NOFOLLOW = 0x100;
+#elif defined(PLATFORM_SOLARIS)
+constexpr UINT32 FSTATAT_NOFOLLOW = 0x1000;
+#elif defined(PLATFORM_MACOS) || defined(PLATFORM_IOS)
+constexpr UINT32 FSTATAT_NOFOLLOW = 0x20;
+#elif defined(PLATFORM_FREEBSD)
+constexpr UINT32 FSTATAT_NOFOLLOW = 0x400;
+#endif
+
 // =============================================================================
 // DirectoryIterator Implementation
 // =============================================================================
@@ -35,7 +49,7 @@ DirectoryIterator::DirectoryIterator()
 Result<DirectoryIterator, Error> DirectoryIterator::Create(PCWCHAR path)
 {
 	DirectoryIterator iter;
-	CHAR utf8Path[1024];
+	CHAR utf8Path[8192];
 
 	if (path && path[0] != L'\0')
 	{
@@ -132,7 +146,7 @@ Result<VOID, Error> DirectoryIterator::Next()
 		if (bytesRead < 0)
 			return Result<VOID, Error>::Err(Error::Posix((UINT32)(-bytesRead)), Error::Fs_ReadFailed);
 		if (bytesRead == 0)
-			return Result<VOID, Error>::Err(Error::Fs_ReadFailed);
+			return Result<VOID, Error>::Err(Error::Fs_NoMoreEntries); // clean end of directory
 		bufferPosition = 0;
 	}
 
@@ -146,22 +160,27 @@ Result<VOID, Error> DirectoryIterator::Next()
 	FreeBsdDirent *d = (FreeBsdDirent *)(buffer + bufferPosition);
 #endif
 
-	StringUtils::Utf8ToWide(Span<const CHAR>(d->Name, StringUtils::Length(d->Name)), Span<WCHAR>(currentEntry.Name, 256));
+	// Lossless conversion: undecodable filename bytes become U+DC80+byte
+	// escape units instead of being skipped, so no entry name is ever
+	// corrupted or collapsed (round-trips via UTF16::ToUTF8Lossless).
+	StringUtils::Utf8ToWideLossless(Span<const CHAR>(d->Name, StringUtils::Length(d->Name)), Span<WCHAR>(currentEntry.Name, 256));
 
 	// --- Populate metadata via fstatat (Linux/Android/Solaris) ---
 	// getdents does not return size/timestamps; fstatat fills them in.
 	// Also provides reliable IsDirectory (d_type can be DT_UNKNOWN on some filesystems).
+	// AT_SYMLINK_NOFOLLOW (FSTATAT_NOFOLLOW): links are reported as links —
+	// lstat needs no target to exist, so only a vanished entry can fail here.
 #if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID) || defined(PLATFORM_SOLARIS)
 	{
 		UINT8 statbuf[256];
 		Memory::Zero(statbuf, sizeof(statbuf));
 
 #if defined(ARCHITECTURE_X86_64) && !defined(PLATFORM_SOLARIS)
-		SSIZE statResult = System::Call(SYS_NEWFSTATAT, (USIZE)handle, (USIZE)d->Name, (USIZE)statbuf, 0);
+		SSIZE statResult = System::Call(SYS_NEWFSTATAT, (USIZE)handle, (USIZE)d->Name, (USIZE)statbuf, FSTATAT_NOFOLLOW);
 #elif (defined(ARCHITECTURE_I386) || defined(ARCHITECTURE_ARMV7A)) && !defined(PLATFORM_SOLARIS)
-		SSIZE statResult = System::Call(SYS_FSTATAT64, (USIZE)handle, (USIZE)d->Name, (USIZE)statbuf, 0);
+		SSIZE statResult = System::Call(SYS_FSTATAT64, (USIZE)handle, (USIZE)d->Name, (USIZE)statbuf, FSTATAT_NOFOLLOW);
 #else // aarch64, riscv64, riscv32, mips64, Solaris
-		SSIZE statResult = System::Call(SYS_FSTATAT, (USIZE)handle, (USIZE)d->Name, (USIZE)statbuf, 0);
+		SSIZE statResult = System::Call(SYS_FSTATAT, (USIZE)handle, (USIZE)d->Name, (USIZE)statbuf, FSTATAT_NOFOLLOW);
 #endif
 
 		if (statResult == 0)
@@ -218,13 +237,18 @@ Result<VOID, Error> DirectoryIterator::Next()
 		}
 		else
 		{
+			// Stat failed: the entry vanished between getdents and lstat.
+			// Keep the entry (its name is data) with zeroed metadata, and
+			// classify loss-averse: a directory mislabeled as a file silently
+			// skips a whole subtree, while a file mislabeled as a directory
+			// only costs one listing that now fails visibly C2-side.
 			currentEntry.Size = 0;
 			currentEntry.CreationTime = 0;
 			currentEntry.LastModifiedTime = 0;
 #if defined(PLATFORM_SOLARIS)
-			currentEntry.IsDirectory = false;
+			currentEntry.IsDirectory = true; // Solaris getdents carries no d_type
 #else
-			currentEntry.IsDirectory = (d->Type == DT_DIR);
+			currentEntry.IsDirectory = (d->Type == DT_DIR || d->Type == 0); // 0 = DT_UNKNOWN
 #endif
 		}
 	}
@@ -239,9 +263,9 @@ Result<VOID, Error> DirectoryIterator::Next()
 		Memory::Zero(statbuf, sizeof(statbuf));
 
 #if defined(PLATFORM_MACOS) || defined(PLATFORM_IOS)
-		SSIZE statResult = System::Call(SYS_FSTATAT64, (USIZE)handle, (USIZE)d->Name, (USIZE)statbuf, 0);
+		SSIZE statResult = System::Call(SYS_FSTATAT64, (USIZE)handle, (USIZE)d->Name, (USIZE)statbuf, FSTATAT_NOFOLLOW);
 #elif defined(PLATFORM_FREEBSD)
-		SSIZE statResult = System::Call(SYS_FSTATAT, (USIZE)handle, (USIZE)d->Name, (USIZE)statbuf, 0);
+		SSIZE statResult = System::Call(SYS_FSTATAT, (USIZE)handle, (USIZE)d->Name, (USIZE)statbuf, FSTATAT_NOFOLLOW);
 #endif
 
 		if (statResult == 0)
@@ -284,7 +308,9 @@ Result<VOID, Error> DirectoryIterator::Next()
 		}
 		else
 		{
-			currentEntry.IsDirectory = (d->Type == DT_DIR);
+			// Stat failed (entry vanished): keep the entry, classify
+			// loss-averse — see the Solaris/Linux branch above.
+			currentEntry.IsDirectory = (d->Type == DT_DIR || d->Type == 0); // 0 = DT_UNKNOWN
 			currentEntry.Size = 0;
 			currentEntry.CreationTime = 0;
 			currentEntry.LastModifiedTime = 0;

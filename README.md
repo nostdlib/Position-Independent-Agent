@@ -416,8 +416,10 @@ Which feature categories are supported is fixed at **compile time** by the `SUPP
 
 Lists all entries in a directory (excluding `.` and `..`). An empty path enumerates drive roots on Windows; POSIX platforms list `/`, and UEFI lists the EFI volume root.
 
-- **Request**: `CHAR16[] directoryPath` (null-terminated UTF-16LE string)
+- **Request**: `CHAR16[] directoryPath` (null-terminated UTF-16LE string; paths longer than 2047 UTF-16 units are rejected with `Fs_PathTooLong`)
 - **Response**: `UINT32 status` + `UINT64 entryCount` + `DirectoryEntry[entryCount]`
+
+**Error responses carry a detail tail.** Any filesystem command that fails responds with `UINT32 status (=1)` + `UINT32 errorCode` (8 bytes), where `errorCode` is a **platform-independent `ErrorCodes` value** — the beacon classifies its own OS error (errno / NTSTATUS / EFI status) at the failure site into a stable cause code, so consumers never need per-OS code tables: `67` = access denied (`Fs_AccessDenied`), `68` = path not found (`Fs_PathNotFound`), `69` = device/volume removed (`Fs_DeviceGone`), plus the existing failure-site codes (e.g. `59` = path too long, `66` = malformed command, `50` = open failed) when no more specific cause applies. Success responses are unchanged; older C2 parsers stop at the status word and ignore the tail. A listing that fails mid-iteration (volume removed, access revoked) is returned as an error, never as a truncated success.
 
 `DirectoryEntry` layout (packed, 553 bytes; `BOOL` is 1 byte on the wire):
 
@@ -437,12 +439,14 @@ Lists all entries in a directory (excluding `.` and `..`). An empty path enumera
 
 The volume serial is the value `vol X:` reports (`FileFsVolumeInformation.VolumeSerialNumber` on Windows). It is stable across drive-letter changes when a removable drive is replugged, so the C2 can recognize a previously scanned drive by comparing serials. `0` means unknown — the drive is still listed. Remote drives (`DRIVE_REMOTE`) skip the query so an unreachable share cannot stall the listing; unknown-type and local drives are still queried.
 
+**Filenames that are not valid UTF-8** (POSIX agents): each undecodable byte (0x80–0xFF) is mapped to the lone low surrogate `U+DC00 + byte` (i.e. U+DC80..U+DCFF) instead of being dropped, so no entry name is mangled or lost; the mapping is reversed exactly when the path is handed back to the OS. C# strings hold lone surrogates, so the C2 round-trips such names transparently.
+
 ### `GetFileContent` (0x02)
 
 Reads file content at a specified offset.
 
-- **Request**: `UINT64 readCount` + `UINT64 offset` + `CHAR16[] filePath`
-- **Response**: `UINT32 status` + `UINT64 bytesRead` + `UINT8[bytesRead]` (file data)
+- **Request**: `UINT64 readCount` + `UINT64 offset` + `CHAR16[] filePath` (readCount is clamped to 16 MiB — a heap guard; reads may always return fewer bytes than requested)
+- **Response**: `UINT32 status` + `UINT64 bytesRead` + `UINT8[bytesRead]` (file data — the frame carries exactly the bytes read; a read failure is an error response, never a short success)
 
 ### `GetFileChunkHash` (0x03)
 

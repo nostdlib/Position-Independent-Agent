@@ -130,7 +130,7 @@ struct Error
 		Http_ParseUrlFailed = 48,			// URL format invalid
 
 		// -------------------------
-		// FileSystem errors (50–57)
+		// FileSystem errors (50–59)
 		// -------------------------
 		Fs_OpenFailed = 50,		   // file open syscall failed
 		Fs_DeleteFailed = 51,	   // file delete syscall failed
@@ -140,6 +140,26 @@ struct Error
 		Fs_DeleteDirFailed = 55,   // directory delete syscall failed
 		Fs_PathResolveFailed = 56, // path name resolution failed
 		Fs_SeekFailed = 57,		   // file seek/offset syscall failed
+		Fs_NoMoreEntries = 58,	   // clean end of directory iteration — sentinel, NOT a failure
+		Fs_PathTooLong = 59,	   // decoded command path exceeds the handler path buffer
+
+		/// Command-length validation failure — a command arrived without the
+		/// bytes its wire layout requires (truncated frame). Not FS-specific:
+		/// any handler that parses a fixed-size prefix uses it. Value sits
+		/// outside the FS block because 58/59 are the last free 50s slots.
+		Command_Invalid = 66,
+
+		// -------------------------
+		// FileSystem CAUSE codes (67–69) — platform-independent failure
+		// classifications the beacon derives from the raw OS error at the
+		// failure site (errno / NTSTATUS / EFI status → cause). These are what
+		// error responses carry on the wire: consumers branch on a stable
+		// enum instead of mirroring per-OS code tables. Block placement is a
+		// gap fill — the 50s range is exhausted.
+		// -------------------------
+		Fs_AccessDenied = 67,  // permission denied (EACCES/EPERM, STATUS_ACCESS_DENIED, EFI_ACCESS_DENIED)
+		Fs_PathNotFound = 68,  // the path no longer exists (ENOENT/ENOTDIR, STATUS_OBJECT_*_NOT_FOUND, EFI_NOT_FOUND)
+		Fs_DeviceGone = 69,	// volume/device removed or dismounted mid-operation
 
 		// -------------------------
 		// Crypto errors (60–63)

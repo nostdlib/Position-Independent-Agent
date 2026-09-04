@@ -189,6 +189,64 @@ public:
 
 		return outputIndex;
 	}
+
+	/**
+	 * @brief Convert a UTF-16 string to UTF-8, reversing surrogate escapes
+	 * @param input UTF-16 input span (may contain U+DC80..U+DCFF escape units)
+	 * @param output Buffer to receive UTF-8 output
+	 * @return Total number of UTF-8 bytes written (excluding null terminator)
+	 *
+	 * @details Identical to ToUTF8 for well-formed input, except that a LONE
+	 * low surrogate in U+DC80..U+DCFF — the surrogateescape encoding produced
+	 * by StringUtils::Utf8ToWideLossless for undecodable filename bytes (each
+	 * escaped byte b >= 0x80 maps to and from U+DC00 + b) — is
+	 * converted back to the single raw byte it stands for instead of being
+	 * rejected. A low surrogate in that window is treated as an escape only
+	 * when it is NOT the second half of a valid surrogate pair: pairs are
+	 * consumed atomically by CodepointToUTF8, so a unit reached at the top of
+	 * the loop is necessarily unpaired. This makes the UTF-8 → wide → UTF-16
+	 * → wide → UTF-8 round trip byte-exact for arbitrary filenames.
+	 *
+	 * @warning Does not null-terminate the output. Caller must add null
+	 * terminator if needed.
+	 *
+	 * @see StringUtils::Utf8ToWideLossless — the encoding half of the contract
+	 */
+	static constexpr USIZE ToUTF8Lossless(Span<const WCHAR> input, Span<CHAR> output)
+	{
+		USIZE inputIndex = 0;
+		USIZE outputIndex = 0;
+
+		while (inputIndex < input.Size() && outputIndex + 4 <= output.Size())
+		{
+			WCHAR unit = input[inputIndex];
+
+			// Valid pair (any high surrogate followed by any low surrogate):
+			// consume both units through the normal path so an astral
+			// codepoint whose low half lands inside the escape window —
+			// U+1E400..U+1FFFF and friends — is encoded, not unescaped.
+			BOOL isPair = unit >= 0xD800 && unit <= 0xDBFF
+						  && inputIndex + 1 < input.Size()
+						  && input[inputIndex + 1] >= 0xDC00 && input[inputIndex + 1] <= 0xDFFF;
+
+			if (!isPair && unit >= 0xDC80 && unit <= 0xDCFF)
+			{
+				output[outputIndex++] = (CHAR)(unit & 0xFF);
+				inputIndex++;
+				continue;
+			}
+
+			USIZE bytesWritten = CodepointToUTF8(input, inputIndex, output.Subspan(outputIndex));
+			outputIndex += bytesWritten;
+
+			// CodepointToUTF8 always consumes at least one input unit, so an
+			// unpaired surrogate outside the escape window (rejected by
+			// CodepointToUTF8Bytes, zero bytes written) still advances the
+			// loop — dropped, exactly like ToUTF8 drops corrupt input.
+		}
+
+		return outputIndex;
+	}
 };
 
 /** @} */ // end of utf16 group

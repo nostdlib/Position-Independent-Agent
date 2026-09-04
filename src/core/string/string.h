@@ -398,6 +398,28 @@ public:
 	static USIZE Utf8ToWide(Span<const CHAR> utf8, Span<WCHAR> wide);
 
 	/**
+	 * @brief Convert UTF-8 string to wide string, never dropping a byte
+	 * @param utf8 Source UTF-8 string span
+	 * @param wide Destination wide string buffer span
+	 * @return Number of wide characters written (excluding null terminator)
+	 *
+	 * @details Unlike Utf8ToWide — which silently skips invalid UTF-8 bytes,
+	 * corrupting on-disk filenames — this variant maps every byte that is not
+	 * part of a well-formed UTF-8 sequence (RFC 3629 Section 3: invalid leads,
+	 * missing/invalid continuations, overlong encodings, CESU-8 surrogates,
+	 * codepoints above U+10FFFF) to the lone low surrogate 0xDC00 + byte —
+	 * bytes 0x80..0xFF map onto U+DC80..U+DCFF (Python "surrogateescape"). The
+	 * mapping is bijective over that range, so
+	 * UTF16::ToUTF8Lossless() reverses it exactly and the original filename
+	 * bytes can be rebuilt byte-for-byte when the path is handed back to the OS.
+	 * Valid UTF-8 (including astral codepoints) converts identically to
+	 * Utf8ToWide.
+	 *
+	 * @see UTF16::ToUTF8Lossless — the inverse for surrogate-escaped paths
+	 */
+	static USIZE Utf8ToWideLossless(Span<const CHAR> utf8, Span<WCHAR> wide);
+
+	/**
 	 * @brief Convert CHAR16 (wire-format UTF-16) string to native WCHAR string
 	 * @param src Source CHAR16 span (UTF-16LE from wire protocol)
 	 * @param dst Destination WCHAR buffer span

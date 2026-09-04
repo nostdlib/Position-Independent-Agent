@@ -61,7 +61,7 @@ File::File(PVOID handle, USIZE size) : fileHandle(handle), fileSize(size) {}
 // --- Factory & Static Operations ---
 Result<File, Error> File::Open(PCWCHAR path, INT32 flags)
 {
-	CHAR utf8Path[1024];
+	CHAR utf8Path[8192];
 	NormalizePathToUtf8(path, Span<CHAR>(utf8Path));
 
 	INT32 openFlags = 0;
@@ -107,7 +107,7 @@ Result<File, Error> File::Open(PCWCHAR path, INT32 flags)
 
 Result<VOID, Error> File::Delete(PCWCHAR path)
 {
-	CHAR utf8Path[1024];
+	CHAR utf8Path[8192];
 	NormalizePathToUtf8(path, Span<CHAR>(utf8Path));
 
 #if (defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID) || defined(PLATFORM_FREEBSD)) && (defined(ARCHITECTURE_AARCH64) || defined(ARCHITECTURE_RISCV64) || defined(ARCHITECTURE_RISCV32)) || defined(PLATFORM_SOLARIS)
@@ -122,7 +122,7 @@ Result<VOID, Error> File::Delete(PCWCHAR path)
 
 Result<VOID, Error> File::Exists(PCWCHAR path)
 {
-	CHAR utf8Path[1024];
+	CHAR utf8Path[8192];
 	NormalizePathToUtf8(path, Span<CHAR>(utf8Path));
 
 	UINT8 statbuf[144];

