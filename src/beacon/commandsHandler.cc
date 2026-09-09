@@ -119,6 +119,19 @@ static UINT32 ClassifyError(const Error &error)
         case 0xC00002B6u: // STATUS_DEVICE_REMOVED
         case 0xC000026Eu: // STATUS_VOLUME_DISMOUNTED
             return Error::Fs_DeviceGone;
+        // HRESULTs from the COM/WPD layer. NTSTATUS warnings share the
+        // 0x80000000 severity bit with HRESULT failures, but every NTSTATUS
+        // case above is 0xC000xxxx — the two sets cannot collide.
+        case 0x80070005u: // E_ACCESSDENIED
+            return Error::Fs_AccessDenied;
+        case 0x80070002u: // HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)
+        case 0x80070003u: // HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND)
+        case 0x80070490u: // HRESULT_FROM_WIN32(ERROR_NOT_FOUND)
+            return Error::Fs_PathNotFound;
+        case 0x80070037u: // HRESULT_FROM_WIN32(ERROR_DEV_NOT_EXIST 55)
+        case 0x8007048Fu: // HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED 1167)
+        case 0x80070651u: // HRESULT_FROM_WIN32(ERROR_DEVICE_REMOVED 1617)
+            return Error::Fs_DeviceGone;
         default:
             break;
         }

@@ -104,6 +104,53 @@ ZwOpenFile("\??\X:\", FILE_READ_ATTRIBUTES | SYNCHRONIZE, ..., FILE_DIRECTORY_FI
 
 This is the same value `vol X:` prints, and it is stable across drive-letter changes when a removable drive is replugged. The query is best-effort: an empty card-reader slot or a BitLocker-locked volume yields `VolumeSerial = 0`, but the drive entry is still emitted. Only drives the device map positively identifies as `DRIVE_REMOTE` skip the query — opening an unreachable network share can block for the redirector timeout (seconds per drive) inside the synchronous `Next()` call. A degraded device-map query (`Type == DRIVE_UNKNOWN`) still queries: that value means "type unknown", not "unopenable volume".
 
+## Portable Device Pseudo-Roots
+
+MTP/PTP portable devices (phones, cameras) are invisible to the drive bitmask and to kernel mounts — Windows exposes them through the WPD COM API, Linux through GVFS/udisks mounts. Both surfaces below feed the **empty-path root listing** and are then browsed/read through the ordinary `DirectoryIterator`/`File` APIs: no wire-format change, no new opcode, no capability bit.
+
+### Windows: the `::mtp-` scheme (`fs/windows/wpd.cc`)
+
+A device root entry is emitted as:
+
+```
+::mtp-<16 lowercase hex>[-<friendly name>]
+```
+
+- The 64-bit **token** is `Djb2::Hash` of the PnP device id. Navigation (`WPD::TryParsePath` → `BeginObjectEnumeration`) re-enumerates `GetDevices` and hash-matches the token — first match wins; no match classifies as `Fs_DeviceGone`.
+- The **friendly name** is display-only and never parsed (grammar-unsafe characters become `_`). Path parsing validates the hex strictly; anything else falls through to the NT layer and fails exactly as before.
+- Subpaths split on `\` only and are matched segment by segment (exact match first, then case-insensitive) from `WPD_DEVICE_OBJECT_ID` (`"DEVICE"`); an empty subpath lists the device's storages.
+- Entries classify as directories when their `WPD_OBJECT_CONTENT_TYPE` is `WPD_CONTENT_TYPE_FOLDER` **or** `WPD_CONTENT_TYPE_FUNCTIONAL_OBJECT`; device-root children (the storages) are always directories, with or without the property present.
+
+COM is hand-declared C-style (plain structs + full SDK-order vtables, the UEFI protocol idiom) — no SDK headers, no imports. Exports resolve per call via `Com` (`combase.dll` first, `ole32.dll` fallback). COM init/uninit is balanced per iterator/stream state object; device open sends neutral client values (`WPD_CLIENT_NAME/MAJOR/MINOR/REVISION`).
+
+Scope is **read-only**: `File::Open` with any write/create/truncate flag on a `::mtp-` path fails with `0x80070005` (`E_ACCESSDENIED`). `File::Exists`/`File::Delete` are not routed and fail at the NT layer.
+
+| HRESULT (root cause) | Condition | Wire cause |
+|---|---|---|
+| `0x80070651` (`ERROR_DEVICE_REMOVED`) | device id no longer present | `Fs_DeviceGone` |
+| `0x8007048F` (`ERROR_DEVICE_NOT_CONNECTED`) | device disconnected | `Fs_DeviceGone` |
+| `0x80070037` (`ERROR_DEV_NOT_EXIST`) | device no longer exists | `Fs_DeviceGone` |
+| `0x80070002`/`0x80070003` | object/path segment not found | `Fs_PathNotFound` |
+| `0x80070490` (`ERROR_NOT_FOUND`) | element not found | `Fs_PathNotFound` |
+| `0x80070005` (`E_ACCESSDENIED`) | write on read-only pseudo-root | `Fs_AccessDenied` |
+
+Known limitations (deliberate): object names containing `\` or `/` render in listings but are not addressable (the separator *is* the grammar); duplicate names resolve to the first match; an object whose properties cannot be read is still listed, under its raw object id as the name, but is not navigable (path resolution matches by name); a device removed mid-session classifies as `Fs_DeviceGone` on the next operation.
+
+Devices with non-seekable WPD resource streams are supported: the stream position is tracked internally, and a backward seek re-opens the resource stream and discards forward to the requested offset.
+
+### Linux: GVFS/udisks mount roots (`fs/posix/portable_roots.cc`)
+
+The empty-path root listing appends portable mounts after the real `/` entries (drained one per `Next()` at the clean end):
+
+- `CollectMountedMedia`: depth-2 scan of `/media` and `/run/media` (`/media/<user>/<label>/`, the udisks layout), iterated with `DirectoryIterator` itself.
+- `CollectGvfsMounts`: `/run/user/<numeric-uid>/gvfs/` children named `mtp:*` or `gphoto2:*` (GVFS FUSE mounts). Other users' directories fail with EACCES and are skipped silently; non-numeric uid names are ignored.
+
+Entries are real paths with a trailing `/` (e.g. `/run/user/1000/gvfs/mtp:host=.../`), flagged `IsDrive=TRUE`, `Type=2` (removable), `VolumeSerial=0`. Because they are real paths, browsing/reading them flows through the ordinary POSIX iterator unchanged; a stale mount fails like any missing path.
+
+### Other platforms
+
+macOS, iOS, UEFI, Solaris, FreeBSD, Android: out of scope — no portable-device roots are collected and the root listing is unchanged.
+
 ## Path Manipulation
 
 All `Path` methods are `static constexpr` — no heap allocations, no syscalls. Platform separator (`/` vs `\`) is a compile-time constant:

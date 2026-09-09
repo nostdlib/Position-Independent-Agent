@@ -414,7 +414,7 @@ Which feature categories are supported is fixed at **compile time** by the `SUPP
 
 ### `GetDirectoryContent` (0x05)
 
-Lists all entries in a directory (excluding `.` and `..`). An empty path enumerates drive roots on Windows; POSIX platforms list `/`, and UEFI lists the EFI volume root.
+Lists all entries in a directory (excluding `.` and `..`). An empty path enumerates drive roots on Windows (plus portable-device pseudo-roots, below); POSIX platforms list `/` (plus GVFS/udisks portable mounts on Linux), and UEFI lists the EFI volume root.
 
 - **Request**: `CHAR16[] directoryPath` (null-terminated UTF-16LE string; paths longer than 2047 UTF-16 units are rejected with `Fs_PathTooLong`)
 - **Response**: `UINT32 status` + `UINT64 entryCount` + `DirectoryEntry[entryCount]`
@@ -425,7 +425,7 @@ Lists all entries in a directory (excluding `.` and `..`). An empty path enumera
 
 | Field              | Type          | Description                                                          |
 |--------------------|---------------|----------------------------------------------------------------------|
-| `Name`             | `CHAR16[256]` | Entry name; drive roots are `"X:\"`                                   |
+| `Name`             | `CHAR16[256]` | Entry name; drive roots are `"X:\"` (Windows) or a portable-device pseudo-root/absolute mount path (see below) |
 | `CreationTime`     | `UINT64`      | Creation timestamp in platform filetime format                        |
 | `LastModifiedTime` | `UINT64`      | Last modification timestamp                                           |
 | `Size`             | `UINT64`      | File size in bytes (0 for drives)                                     |
@@ -440,6 +440,14 @@ Lists all entries in a directory (excluding `.` and `..`). An empty path enumera
 The volume serial is the value `vol X:` reports (`FileFsVolumeInformation.VolumeSerialNumber` on Windows). It is stable across drive-letter changes when a removable drive is replugged, so the C2 can recognize a previously scanned drive by comparing serials. `0` means unknown — the drive is still listed. Remote drives (`DRIVE_REMOTE`) skip the query so an unreachable share cannot stall the listing; unknown-type and local drives are still queried.
 
 **Filenames that are not valid UTF-8** (POSIX agents): each undecodable byte (0x80–0xFF) is mapped to the lone low surrogate `U+DC00 + byte` (i.e. U+DC80..U+DCFF) instead of being dropped, so no entry name is mangled or lost; the mapping is reversed exactly when the path is handed back to the OS. C# strings hold lone surrogates, so the C2 round-trips such names transparently.
+
+**Portable devices (MTP phones/cameras)** appear in the root listing as additional drive-shaped entries, browsable/readable through `GetDirectoryContent`/`GetFileContent`/`GetFileChunkHash` with no protocol change:
+
+- **Windows** — `Name` is the pseudo-root `::mtp-<16 lowercase hex>[-<friendly name>]`. The hex token is a hash of the device's PnP id and is the only parsed part (the friendly name is display-only); `VolumeSerial` carries the same token and `Type` is `2` (removable). Subpaths are addressed as `::mtp-<token>\<object path>`. These paths are served by the WPD COM layer (`src/platform/fs/windows/wpd.cc`) and are **read-only**: write-mode opens fail (`0x80070005` → `Fs_AccessDenied`), a vanished/disconnected device classifies as `Fs_DeviceGone` (`0x80070651`/`0x8007048F`/`0x80070037`), and a missing object as `Fs_PathNotFound`. Names containing `\` or `/` render but are not addressable; duplicate names resolve to the first match.
+- **Linux** — GVFS device mounts (`/run/user/<uid>/gvfs/mtp:*, gphoto2:*`) and udisks media mounts (`/media/<user>/<label>/`) are appended after the real `/` entries as drive-shaped entries whose `Name` is the real absolute path with a trailing `/` (e.g. `/run/user/1000/gvfs/mtp:host=.../`), so they browse like any other directory.
+- **Other platforms** — unchanged (no portable-device roots are collected).
+
+When no portable device is present, the root listing is byte-for-byte what it was before (the WPD device phase degrades to a log line, never an error).
 
 ### `GetFileContent` (0x06)
 

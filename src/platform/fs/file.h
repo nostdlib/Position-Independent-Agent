@@ -20,9 +20,13 @@ class File
 private:
 	PVOID fileHandle; ///< Platform-specific file handle (HANDLE on Windows, fd cast to PVOID on POSIX)
 	USIZE fileSize;   ///< Cached file size in bytes, set at open time
+#ifdef PLATFORM_WINDOWS
+	BOOL isWpd = false;      ///< TRUE when this File wraps a portable-device stream (::mtp- path)
+	PVOID wpdState = nullptr; ///< WpdStreamState* owning the WPD session and stream
+#endif
 
 	/// Private constructor (trivial -- never fails)
-	File(PVOID handle, USIZE size);
+	File(PVOID handle, USIZE size, BOOL isWpd = false, PVOID wpdState = nullptr);
 
 public:
 	static constexpr INT32 ModeRead = 0x0001;     ///< Open for reading
@@ -36,6 +40,8 @@ public:
 	 * @brief Opens a file at the given path with the specified mode flags.
 	 * @details On Windows, uses NtCreateFile via indirect syscall. On POSIX, uses
 	 * the open() syscall with translated flags. On UEFI, uses EFI_FILE_PROTOCOL::Open.
+	 * On Windows, portable-device pseudo-paths (::mtp-...) open read-only through
+	 * the WPD layer instead; write-mode flags on them are rejected.
 	 * The returned File owns the handle and closes it on destruction (RAII).
 	 * @param path Null-terminated wide string file path.
 	 * @param flags Bitmask of ModeRead, ModeWrite, ModeAppend, ModeCreate, ModeTruncate, ModeBinary.

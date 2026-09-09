@@ -14,6 +14,7 @@
 #include "core/types/span.h"
 #include "core/types/error.h"
 #include "core/types/result.h"
+#include "core/containers/vector.h"
 #include "platform/fs/directory_entry.h"
 class DirectoryIterator
 {
@@ -23,12 +24,21 @@ private:
 	BOOL isFirst;                ///< TRUE before the first call to Next()
 #ifdef PLATFORM_WINDOWS
 	BOOL isBitMaskMode = false;  ///< TRUE when enumerating logical drives via bitmask on Windows
+	BOOL isWpdMode = false;      ///< TRUE when iterating a portable-device pseudo-root (::mtp-)
+	PVOID wpdState = nullptr;    ///< WpdIteratorState*; non-null sentinel marks a failed root phase
 #endif
 
 #if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID) || defined(PLATFORM_MACOS) || defined(PLATFORM_IOS) || defined(PLATFORM_SOLARIS) || defined(PLATFORM_FREEBSD)
 	CHAR buffer[1024]; ///< Kernel entry buffer for getdents64/getdirentries64
 	INT32 bytesRead;       ///< Number of bytes returned by the last syscall
 	INT32 bufferPosition;  ///< Current byte position within the buffer
+#endif
+
+#if defined(PLATFORM_LINUX)
+	// Portable-device mount roots (udisks/GVFS), drained after the real `/`
+	// entries reach the clean-end sentinel.
+	Vector<DirectoryEntry> portableRoots;
+	USIZE portableRootsCursor = 0;
 #endif
 
 	/// Private constructor for factory use only.

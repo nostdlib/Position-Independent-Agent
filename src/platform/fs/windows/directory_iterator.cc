@@ -3,6 +3,8 @@
 #include "core/memory/memory.h"
 #include "platform/kernel/windows/windows_types.h"
 #include "platform/kernel/windows/ntdll.h"
+#include "platform/fs/windows/wpd.h"
+#include "platform/console/logger.h"
 
 // NTSTATUS values used by the iterator but absent from ntdll.h
 constexpr UINT32 STATUS_NO_MORE_FILES_NT = 0x80000006u;	  // clean end of enumeration (verified on Win10)
@@ -20,6 +22,14 @@ static BOOL IsEndOfEnumeration(UINT32 status)
 /// Longest filename the grow-retry will accommodate (NTFS caps components at
 /// 255 WCHARs; 512 leaves margin for odd reparse providers) — 64 KiB cap.
 constexpr USIZE MAX_QUERY_BUFFER_SIZE = 64 * 1024;
+
+// Non-null sentinel for "portable-device root phase was attempted and failed"
+// so the lazily-started phase is tried at most once per root listing. Not
+// constexpr: integer-to-pointer casts are not constant expressions.
+static FORCE_INLINE PVOID WpdFailedSentinel()
+{
+	return (PVOID)1;
+}
 
 // Helper to fill the entry from FILE_BOTH_DIR_INFORMATION
 static VOID FillEntry(DirectoryEntry &entry, const FILE_BOTH_DIR_INFORMATION &data)
@@ -223,6 +233,21 @@ Result<DirectoryIterator, Error> DirectoryIterator::Create(PCWCHAR path)
 		return Result<DirectoryIterator, Error>::Ok(static_cast<DirectoryIterator &&>(iter));
 	}
 
+	// CASE: Portable device pseudo-path (::mtp-...) — route before NT path
+	// conversion; anything else falls through to the NT layer unchanged.
+	UINT64 wpdToken = 0;
+	const WCHAR *wpdSubpath = nullptr;
+	USIZE wpdSubpathLen = 0;
+	if (WPD::TryParsePath(path, wpdToken, wpdSubpath, wpdSubpathLen))
+	{
+		auto wpdResult = WPD::BeginObjectEnumeration(path);
+		if (!wpdResult)
+			return Result<DirectoryIterator, Error>::Err(wpdResult, Error::Fs_OpenFailed);
+		iter.isWpdMode = true;
+		iter.wpdState = wpdResult.Value();
+		return Result<DirectoryIterator, Error>::Ok(static_cast<DirectoryIterator &&>(iter));
+	}
+
 	// Convert path to NT path and open directory handle
 	UNICODE_STRING uniPath;
 	auto pathResult = NTDLL::RtlDosPathNameToNtPathName_U(path, &uniPath, nullptr, nullptr);
@@ -292,14 +317,53 @@ Result<VOID, Error> DirectoryIterator::Next()
 	IO_STATUS_BLOCK ioStatusBlock;
 	Memory::Zero(&ioStatusBlock, sizeof(IO_STATUS_BLOCK));
 
+	// --- MODE 0: Portable Device Mode (::mtp- pseudo-root) ---
+	if (isWpdMode)
+	{
+		auto entryResult = WPD::NextEntry((WpdIteratorState *)wpdState, currentEntry);
+		if (entryResult && entryResult.Value())
+			return Result<VOID, Error>::Ok();
+		if (entryResult)
+			return Result<VOID, Error>::Err(Error::Fs_NoMoreEntries); // clean end
+		return Result<VOID, Error>::Err(entryResult.Error(), Error::Fs_ReadFailed);
+	}
+
 	// --- MODE 1: Drive Bitmask Mode (isFirst is true and handle is small) ---
 	// We treat handles < 0x1000000 as bitmasks (drives)
 	if (isBitMaskMode)
 	{
 		USIZE mask = (USIZE)handle;
 
+		// Drive bitmask exhausted: lazily start the portable-device phase
+		// ONCE, then drain it. Failures degrade to a clean end — the drives
+		// already emitted must not turn the listing into an error.
 		if (mask == 0)
-			return Result<VOID, Error>::Err(Error::Fs_NoMoreEntries); // clean end of drive list
+		{
+			if (wpdState == nullptr)
+			{
+				auto rootResult = WPD::BeginRootEnumeration();
+				if (rootResult)
+					wpdState = rootResult.Value();
+				else
+				{
+					wpdState = WpdFailedSentinel();
+					LOG_WARNING("Portable device enumeration unavailable");
+				}
+			}
+			if (wpdState == WpdFailedSentinel())
+				return Result<VOID, Error>::Err(Error::Fs_NoMoreEntries);
+
+			auto entryResult = WPD::NextEntry((WpdIteratorState *)wpdState, currentEntry);
+			if (entryResult && entryResult.Value())
+				return Result<VOID, Error>::Ok();
+			if (entryResult)
+				return Result<VOID, Error>::Err(Error::Fs_NoMoreEntries); // clean end of devices
+			// Hard failure mid-device-list: end cleanly, never re-enter.
+			LOG_WARNING("Portable device enumeration failed mid-listing");
+			WPD::EndEnumeration((WpdIteratorState *)wpdState);
+			wpdState = WpdFailedSentinel();
+			return Result<VOID, Error>::Err(Error::Fs_NoMoreEntries);
+		}
 
 		// Query the process device map to get drive types
 		PROCESS_DEVICEMAP_INFORMATION devMapInfo;
@@ -385,9 +449,11 @@ Result<VOID, Error> DirectoryIterator::Next()
 
 // Move constructor
 DirectoryIterator::DirectoryIterator(DirectoryIterator &&other) noexcept
-	: handle(other.handle), currentEntry(other.currentEntry), isFirst(other.isFirst), isBitMaskMode(other.isBitMaskMode)
+	: handle(other.handle), currentEntry(other.currentEntry), isFirst(other.isFirst), isBitMaskMode(other.isBitMaskMode), isWpdMode(other.isWpdMode), wpdState(other.wpdState)
 {
 	other.handle = (PVOID)-1;
+	other.isWpdMode = false;
+	other.wpdState = nullptr;
 }
 
 DirectoryIterator &DirectoryIterator::operator=(DirectoryIterator &&other) noexcept
@@ -400,13 +466,26 @@ DirectoryIterator &DirectoryIterator::operator=(DirectoryIterator &&other) noexc
 		currentEntry = other.currentEntry;
 		isFirst = other.isFirst;
 		isBitMaskMode = other.isBitMaskMode;
+		isWpdMode = other.isWpdMode;
+		wpdState = other.wpdState;
 		other.handle = (PVOID)-1;
+		other.isWpdMode = false;
+		other.wpdState = nullptr;
 	}
 	return *this;
 }
 
 VOID DirectoryIterator::Close()
 {
+	// Portable-device state (object phase or the lazily-started root phase)
+	// must be released regardless of the NT handle's validity.
+	if (wpdState != nullptr)
+	{
+		if (wpdState != WpdFailedSentinel())
+			WPD::EndEnumeration((WpdIteratorState *)wpdState);
+		wpdState = nullptr;
+		isWpdMode = false;
+	}
 	if (IsValid())
 	{
 		if (!isBitMaskMode)
@@ -418,6 +497,9 @@ VOID DirectoryIterator::Close()
 // Check if the iterator is valid
 BOOL DirectoryIterator::IsValid() const
 {
+	// Portable-device iterators carry no NT handle; the state is the validity.
+	if (isWpdMode)
+		return wpdState != nullptr && wpdState != WpdFailedSentinel();
 	// Bitmask iterators: a zero mask is the valid "no drives" state, but the
 	// closed/moved sentinel must still read invalid.
 	if (isBitMaskMode)

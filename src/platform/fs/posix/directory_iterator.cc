@@ -2,6 +2,7 @@
 #include "platform/fs/posix/posix_path.h"
 #include "core/memory/memory.h"
 #if defined(PLATFORM_LINUX)
+#include "platform/fs/posix/portable_roots.h"
 #include "platform/kernel/linux/syscall.h"
 #include "platform/kernel/linux/system.h"
 #elif defined(PLATFORM_ANDROID)
@@ -85,14 +86,30 @@ Result<DirectoryIterator, Error> DirectoryIterator::Create(PCWCHAR path)
 
 	iter.handle = (PVOID)fd;
 	iter.isFirst = true;
+#if defined(PLATFORM_LINUX)
+	// The root listing gains portable-device mounts (udisks/GVFS) after the
+	// real / entries; the vector must be Init()'ed before Add. Best-effort:
+	// Init/alloc failure just adds nothing.
+	if (!path || path[0] == L'\0')
+	{
+		if (iter.portableRoots.Init())
+			PortableRoots::CollectPortableRoots(iter.portableRoots);
+	}
+#endif
 	return Result<DirectoryIterator, Error>::Ok(static_cast<DirectoryIterator &&>(iter));
 }
 
 DirectoryIterator::DirectoryIterator(DirectoryIterator &&other) noexcept
 	: handle(other.handle), currentEntry(other.currentEntry), isFirst(other.isFirst), bytesRead(other.bytesRead), bufferPosition(other.bufferPosition)
+#if defined(PLATFORM_LINUX)
+	, portableRoots(static_cast<Vector<DirectoryEntry> &&>(other.portableRoots)), portableRootsCursor(other.portableRootsCursor)
+#endif
 {
 	Memory::Copy(buffer, other.buffer, sizeof(buffer));
 	other.handle = (PVOID)INVALID_FD;
+#if defined(PLATFORM_LINUX)
+	other.portableRootsCursor = 0;
+#endif
 }
 
 DirectoryIterator &DirectoryIterator::operator=(DirectoryIterator &&other) noexcept
@@ -106,6 +123,11 @@ DirectoryIterator &DirectoryIterator::operator=(DirectoryIterator &&other) noexc
 		isFirst = other.isFirst;
 		bytesRead = other.bytesRead;
 		bufferPosition = other.bufferPosition;
+#if defined(PLATFORM_LINUX)
+		portableRoots = static_cast<Vector<DirectoryEntry> &&>(other.portableRoots);
+		portableRootsCursor = other.portableRootsCursor;
+		other.portableRootsCursor = 0;
+#endif
 		Memory::Copy(buffer, other.buffer, sizeof(buffer));
 		other.handle = (PVOID)INVALID_FD;
 	}
@@ -146,7 +168,17 @@ Result<VOID, Error> DirectoryIterator::Next()
 		if (bytesRead < 0)
 			return Result<VOID, Error>::Err(Error::Posix((UINT32)(-bytesRead)), Error::Fs_ReadFailed);
 		if (bytesRead == 0)
+		{
+#if defined(PLATFORM_LINUX)
+			// Real entries done: drain the portable-device mounts one per call.
+			if (portableRootsCursor < (USIZE)portableRoots.Count)
+			{
+				currentEntry = portableRoots.Data[portableRootsCursor++];
+				return Result<VOID, Error>::Ok();
+			}
+#endif
 			return Result<VOID, Error>::Err(Error::Fs_NoMoreEntries); // clean end of directory
+		}
 		bufferPosition = 0;
 	}
 

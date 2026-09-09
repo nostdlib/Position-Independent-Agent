@@ -23,6 +23,7 @@
  *   MemoryTests            - Memory operations tests
  *   PrngTests              - Pseudorandom number generator tests
  *   ProcessTests           - Process creation, wait, terminate tests
+ *   PortableDeviceTests    - Portable-device pseudo-root tests (WPD/GVFS roots)
  *   RandomTests            - Random number generation tests
  *   ShellManagerTests      - ShellManager slot assignment / reuse tests
  *   ResultTests            - Result<T,E> type tests
@@ -70,6 +71,7 @@
 #include "double_tests.h"
 #include "ecc_tests.h"
 #include "file_system_tests.h"
+#include "portable_device_tests.h"
 #include "image_tests.h"
 #include "ip_address_tests.h"
 #include "jpeg_tests.h"
@@ -126,6 +128,7 @@ static BOOL RunPIRTests()
 #if !defined(ARCHITECTURE_MIPS)
 	// MIPS32: getdents64 returns "." and ".." under qemu (dirent-layout investigation pending).
 	RunTestSuite<FileSystemTests>(allPassed);
+	RunTestSuite<PortableDeviceTests>(allPassed);
 #endif
 	RunTestSuite<MemoryTests>(allPassed);
 	RunTestSuite<ProcessTests>(allPassed);

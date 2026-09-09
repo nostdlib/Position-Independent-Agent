@@ -56,7 +56,14 @@ static SSIZE PosixLseek(USIZE fd, SSIZE offset, INT32 whence)
 #endif
 
 // --- Internal Constructor (trivial — never fails) ---
-File::File(PVOID handle, USIZE size) : fileHandle(handle), fileSize(size) {}
+// The WPD parameters exist only for the Windows build's signature (they are
+// defaulted at the call sites); POSIX has no portable-device stream state.
+File::File(PVOID handle, USIZE size, BOOL isWpd, PVOID wpdState)
+	: fileHandle(handle), fileSize(size)
+{
+	(void)isWpd;
+	(void)wpdState;
+}
 
 // --- Factory & Static Operations ---
 Result<File, Error> File::Open(PCWCHAR path, INT32 flags)

@@ -4,13 +4,33 @@
 #include "core/string/string.h"
 #include "platform/kernel/windows/windows_types.h"
 #include "platform/kernel/windows/ntdll.h"
+#include "platform/fs/windows/wpd.h"
 
 // --- Internal Constructor (trivial — never fails) ---
-File::File(PVOID handle, USIZE size) : fileHandle(handle), fileSize(size) {}
+File::File(PVOID handle, USIZE size, BOOL isWpd, PVOID wpdState)
+	: fileHandle(handle), fileSize(size), isWpd(isWpd), wpdState(wpdState) {}
 
 // --- Factory & Static Operations ---
 Result<File, Error> File::Open(PCWCHAR path, INT32 flags)
 {
+	// CASE: Portable device pseudo-path (::mtp-...) — read-only stream over
+	// WPD. Write/create/append modes are deliberately rejected: the C2
+	// surface is read-only for MTP devices.
+	UINT64 wpdToken = 0;
+	const WCHAR *wpdSubpath = nullptr;
+	USIZE wpdSubpathLen = 0;
+	if (WPD::TryParsePath(path, wpdToken, wpdSubpath, wpdSubpathLen))
+	{
+		constexpr INT32 writeModeFlags = ModeWrite | ModeAppend | ModeCreate | ModeTruncate;
+		if ((flags & writeModeFlags) != 0)
+			return Result<File, Error>::Err(Error::Windows(0x80070005u), Error::Fs_OpenFailed); // E_ACCESSDENIED
+		UINT64 streamSize = 0;
+		auto streamResult = WPD::OpenStream(path, streamSize);
+		if (!streamResult)
+			return Result<File, Error>::Err(streamResult, Error::Fs_OpenFailed);
+		return Result<File, Error>::Ok(File(nullptr, (USIZE)streamSize, true, streamResult.Value()));
+	}
+
 	UINT32 dwDesiredAccess = 0;
 	UINT32 dwShareMode = FILE_SHARE_READ;
 	UINT32 dwCreationDisposition = FILE_OPEN;
@@ -144,8 +164,12 @@ File::File(File &&other) noexcept : fileHandle(nullptr), fileSize(0)
 {
 	fileHandle = other.fileHandle;
 	fileSize = other.fileSize;
+	isWpd = other.isWpd;
+	wpdState = other.wpdState;
 	other.fileHandle = nullptr;
 	other.fileSize = 0;
+	other.isWpd = false;
+	other.wpdState = nullptr;
 }
 
 // Operator move assignment
@@ -157,8 +181,12 @@ File &File::operator=(File &&other) noexcept
 			(VOID)Close();
 		fileHandle = other.fileHandle;
 		fileSize = other.fileSize;
+		isWpd = other.isWpd;
+		wpdState = other.wpdState;
 		other.fileHandle = nullptr;
 		other.fileSize = 0;
+		other.isWpd = false;
+		other.wpdState = nullptr;
 	}
 	return *this;
 }
@@ -166,6 +194,9 @@ File &File::operator=(File &&other) noexcept
 // --- Logic ---
 BOOL File::IsValid() const
 {
+	// Portable-device Files carry no NT handle; the WPD state is the validity.
+	if (isWpd)
+		return wpdState != nullptr;
 	// Windows returns INVALID_HANDLE_VALUE (-1) on many errors,
 	// but some APIs return nullptr. We check for both.
 	return fileHandle != nullptr && fileHandle != INVALID_HANDLE_VALUE;
@@ -174,6 +205,16 @@ BOOL File::IsValid() const
 // Close the file handle
 VOID File::Close()
 {
+	if (isWpd)
+	{
+		if (wpdState != nullptr)
+		{
+			WPD::CloseStream((WpdStreamState *)wpdState);
+			wpdState = nullptr;
+		}
+		isWpd = false;
+		return;
+	}
 	if (IsValid())
 	{
 		(VOID)NTDLL::ZwClose((PVOID)fileHandle);
@@ -187,6 +228,15 @@ Result<UINT32, Error> File::Read(Span<UINT8> buffer)
 {
 	if (!IsValid())
 		return Result<UINT32, Error>::Err(Error::Fs_ReadFailed);
+
+	// Portable-device stream: reads go through the WPD IStream.
+	if (isWpd)
+	{
+		auto readResult = WPD::StreamRead((WpdStreamState *)wpdState, buffer);
+		if (!readResult)
+			return Result<UINT32, Error>::Err(readResult, Error::Fs_ReadFailed);
+		return Result<UINT32, Error>::Ok((UINT32)readResult.Value());
+	}
 
 	IO_STATUS_BLOCK ioStatusBlock;
 	Memory::Zero(&ioStatusBlock, sizeof(IO_STATUS_BLOCK));
@@ -223,6 +273,10 @@ Result<USIZE, Error> File::GetOffset() const
 	if (!IsValid())
 		return Result<USIZE, Error>::Err(Error::Fs_SeekFailed);
 
+	// Portable-device stream: the position lives in the WPD stream state.
+	if (isWpd)
+		return WPD::StreamTell((WpdStreamState *)wpdState);
+
 	FILE_POSITION_INFORMATION posFile;
 	IO_STATUS_BLOCK ioStatusBlock;
 	Memory::Zero(&posFile, sizeof(posFile));
@@ -238,6 +292,10 @@ Result<VOID, Error> File::SetOffset(USIZE absoluteOffset)
 {
 	if (!IsValid())
 		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
+
+	// Portable-device stream: absolute seek through the WPD IStream.
+	if (isWpd)
+		return WPD::StreamSeek((WpdStreamState *)wpdState, absoluteOffset);
 
 	FILE_POSITION_INFORMATION posInfo;
 	IO_STATUS_BLOCK ioStatusBlock;
@@ -255,6 +313,33 @@ Result<VOID, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
 {
 	if (!IsValid())
 		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
+
+	// Portable-device stream: compose the target from Tell/fileSize, then seek.
+	if (isWpd)
+	{
+		auto tellResult = WPD::StreamTell((WpdStreamState *)wpdState);
+		if (!tellResult)
+			return Result<VOID, Error>::Err(tellResult, Error::Fs_SeekFailed);
+		INT64 base = 0;
+		switch (origin)
+		{
+		case OffsetOrigin::Start:
+			base = 0;
+			break;
+		case OffsetOrigin::Current:
+			base = (INT64)tellResult.Value();
+			break;
+		case OffsetOrigin::End:
+			base = (INT64)fileSize;
+			break;
+		default:
+			return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
+		}
+		INT64 target = base + relativeAmount;
+		if (target < 0)
+			return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
+		return WPD::StreamSeek((WpdStreamState *)wpdState, (USIZE)target);
+	}
 
 	IO_STATUS_BLOCK ioStatusBlock;
 	FILE_POSITION_INFORMATION posInfo;

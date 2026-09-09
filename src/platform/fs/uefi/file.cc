@@ -80,7 +80,14 @@ static NOINLINE BOOL TruncateFile(EFI_FILE_PROTOCOL &fp)
 // =============================================================================
 
 // --- Internal Constructor (trivial — never fails) ---
-File::File(PVOID handle, USIZE size) : fileHandle(handle), fileSize(size) {}
+// The WPD parameters exist only for the Windows build's signature (they are
+// defaulted at the call sites); UEFI has no portable-device stream state.
+File::File(PVOID handle, USIZE size, BOOL isWpd, PVOID wpdState)
+	: fileHandle(handle), fileSize(size)
+{
+	(void)isWpd;
+	(void)wpdState;
+}
 
 // --- Factory & Static Operations ---
 Result<File, Error> File::Open(PCWCHAR path, INT32 flags)
