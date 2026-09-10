@@ -44,7 +44,7 @@ include(${CMAKE_SOURCE_DIR}/cmake/Common.cmake)
 # API_VERSION / NAME_ID are normal variables: they are protocol constants that
 # must track the wire structs in this source tree, so a stale CMakeCache.txt in
 # an old build tree (or an external -D override) must not pin a wrong value —
-# an X-Agent-Api-Version header reporting a mismatched version silently
+# an X-Api-Version header reporting a mismatched version silently
 # desyncs the C2 parser.
 set(BUILD_NUMBER "0" CACHE STRING "Agent build number")
 set(COMMIT_HASH "00000000" CACHE STRING "Agent commit hash")

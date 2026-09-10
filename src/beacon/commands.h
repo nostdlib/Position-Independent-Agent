@@ -65,7 +65,8 @@ enum CommandType : UINT8
 
 // NOTE: build metadata (ApiVersion, AgentNameId, CommitHash, BuildNumber)
 // is no longer a wire struct — it travels on the WebSocket upgrade request
-// as X-Agent-* HTTP headers, built in main.cc (BuildIdentityHeaders).
+// as identity HTTP headers (X-Api-Version et al.), built in main.cc
+// (BuildIdentityHeaders).
 
 /**
  * @brief Feature categories advertised in the identity capability mask header.
@@ -83,7 +84,7 @@ enum CapabilityBit : UINT8
 };
 
 /**
- * @brief 64-bit feature-category capability mask (sent as the X-Agent-Capabilities
+ * @brief 64-bit feature-category capability mask (sent as the X-Client-Features
  *        hex header on the WebSocket upgrade).
  *
  * @details Bit i (byte i/8, bit i%8, LSB-first) is set iff feature category i
@@ -109,7 +110,7 @@ static_assert(sizeof(CapabilityMask) == 8, "CapabilityMask must stay 8 bytes on 
  *          position equals the CapabilityBit value.
  *
  * @return Compile-time-constant CapabilityMask serialized into the
- *         X-Agent-Capabilities header (lowercase hex).
+ *         X-Client-Features header (lowercase hex).
  */
 inline constexpr CapabilityMask BuildCapabilityMask() noexcept
 {

