@@ -14,17 +14,17 @@
 /// Directory entry structure returned by DirectoryIterator.
 struct DirectoryEntry
 {
-	WCHAR Name[256];         ///< File or directory name (null-terminated)
-	UINT64 CreationTime;     ///< Creation timestamp in platform filetime format
-	UINT64 LastModifiedTime; ///< Last modification timestamp in platform filetime format
-	UINT64 Size;             ///< File size in bytes
-	UINT32 Type;             ///< Drive type when IsDrive is set (2=Removable, 3=Fixed, etc.)
-	BOOL IsDirectory;        ///< TRUE if the entry is a directory
-	BOOL IsDrive;            ///< TRUE if the entry represents a drive root (e.g., C:\)
-	BOOL IsHidden;           ///< TRUE if the file has the hidden attribute
-	BOOL IsSystem;           ///< TRUE if the file has the system attribute
-	BOOL IsReadOnly;         ///< TRUE if the file has the read-only attribute
-	UINT64 VolumeSerial;     ///< Volume serial number when IsDrive is set; 0 for files/dirs or when unavailable
+	WCHAR Name[256];         
+	UINT64 CreationTime;    
+	UINT64 LastModifiedTime; 
+	UINT64 Size;             
+	UINT32 Type;             
+	BOOL IsDirectory;       
+	BOOL IsDrive;            
+	BOOL IsHidden;          
+	BOOL IsSystem;          
+	BOOL IsReadOnly;       
+	UINT64 VolumeSerial;    
 };
 
 #pragma pack(pop)

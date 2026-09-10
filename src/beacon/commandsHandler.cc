@@ -213,7 +213,7 @@ static VOID WriteErrorResponse(PPCHAR response, PUSIZE responseLength, StatusCod
     writer.Write<UINT32>((UINT32)code);
 }
 
-// Checks if a directory entry is "." or ".."
+
 static BOOL IsDotEntry(const DirectoryEntry &entry)
 {
     return StringUtils::Equals((PWCHAR)entry.Name, (const WCHAR *)L".") ||
@@ -227,7 +227,6 @@ static BOOL IsDotEntry(const DirectoryEntry &entry)
 VOID Handle_GetDirectoryContentCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     LOG_INFO("Handling GetDirectoryContentCommand.");
-    // Buffer to hold the path from command
     WCHAR directoryPath[2048];
     // Decoding path from command — a path that does not fit is rejected, never truncated
     if (!DecodeWirePath(command, commandLength, directoryPath, 2048))
@@ -237,7 +236,6 @@ VOID Handle_GetDirectoryContentCommand(PCHAR command, USIZE commandLength, PPCHA
     }
     LOG_INFO("GetDirectoryContent: %ws", directoryPath);
 
-    // Create a DirectoryIterator for the specified path and validate it
     auto result = DirectoryIterator::Create(directoryPath);
     if (!result)
     {
@@ -276,7 +274,7 @@ VOID Handle_GetDirectoryContentCommand(PCHAR command, USIZE commandLength, PPCHA
 
         const Error &error = next.Error();
         if (error.Platform == Error::PlatformKind::Runtime && error.Code == Error::Fs_NoMoreEntries)
-            break; // clean end of directory
+            break; 
 
         LOG_ERROR("Directory iteration failed after %d entries: %e", entries.Count, error);
         WriteErrorDetailResponse(response, responseLength, error);
@@ -307,7 +305,6 @@ VOID Handle_GetDirectoryContentCommand(PCHAR command, USIZE commandLength, PPCHA
     LOG_INFO("Directory content retrieved successfully with %llu entries", entryCount);
 }
 
-// Reads a chunk of file content
 VOID Handle_GetFileContentCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
 {
     LOG_INFO("Handling GetFileContentCommand.");
@@ -326,7 +323,6 @@ VOID Handle_GetFileContentCommand(PCHAR command, USIZE commandLength, PPCHAR res
         readCount = MAX_FILE_CHUNK_SIZE; // defend the beacon heap from a hostile/large request
     LOG_INFO("Reading file content with offset: %llu and count: %llu.", offset, readCount);
 
-    // Decoding file path from command buffer — reject instead of truncate
     WCHAR filePath[2048];
     if (!DecodeWirePath(command + pathOffset, commandLength - pathOffset, filePath, 2048))
     {
@@ -419,7 +415,6 @@ VOID Handle_GetFileChunkHashCommand(PCHAR command, USIZE commandLength, PPCHAR r
     }
     LOG_INFO("GetFileChunkHash: %ws chunkSize=%llu offset=%llu", filePath, chunkSize, offset);
 
-    // Attempt to open the file and validate the result
     auto openResult = File::Open(filePath, File::ModeRead);
     if (!openResult)
     {
@@ -429,7 +424,7 @@ VOID Handle_GetFileChunkHashCommand(PCHAR command, USIZE commandLength, PPCHAR r
     LOG_INFO("File opened successfully: %ws", filePath);
 
     File &file = openResult.Value();
-    // Allocating a buffer for reading file chunks.
+
     UINT64 bufferSize = Math::Min((UINT64)chunkSize, (UINT64)0xffff);
     PUINT8 buffer = new UINT8[bufferSize];
     if (buffer == nullptr)
@@ -469,7 +464,7 @@ VOID Handle_GetFileChunkHashCommand(PCHAR command, USIZE commandLength, PPCHAR r
         }
         UINT32 bytesRead = readResult.Value();
         if (bytesRead == 0)
-            break; // clean EOF: the chunk extends past the end of the file
+            break;
         sha256.Update(Span<const UINT8>(buffer, bytesRead));
         totalRead += bytesRead;
     }
@@ -523,7 +518,6 @@ VOID Handle_OpenShellCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] US
     writer.Write<ShellId>(shellId);
 }
 
-// Writes a command to a shell. Payload: [shellId:8][UTF-8 input + '\0']
 VOID Handle_WriteShellCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context)
 {
     LOG_INFO("Handling WriteShellCommand.");
@@ -573,7 +567,6 @@ VOID Handle_WriteShellCommand(PCHAR command, USIZE commandLength, PPCHAR respons
     writer.Write<UINT32>(StatusCode::StatusSuccess);
 }
 
-// Reads a chunk of data from a shell's stdout. Payload: [shellId:8]
 VOID Handle_ReadShellCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context)
 {
     LOG_INFO("Handling ReadShellCommand.");
@@ -595,7 +588,6 @@ VOID Handle_ReadShellCommand(PCHAR command, USIZE commandLength, PPCHAR response
         return;
     }
 
-    // Buffer to hold the data read from the shell
     CHAR buffer[4096];
     auto readResult = shell->Read(buffer, sizeof(buffer));
     if (!readResult)
@@ -623,7 +615,6 @@ VOID Handle_ReadShellCommand(PCHAR command, USIZE commandLength, PPCHAR response
     writer.Write<UINT8>('\0');
 }
 
-// Close a shell instance. Payload: [shellId:8]. Idempotent.
 VOID Handle_CloseShellCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context)
 {
     LOG_INFO("Handling CloseShellCommand.");
@@ -684,7 +675,6 @@ VOID Handle_ExitCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE c
     context->shouldExit = true;
 }
 
-// Gets the list of display devices and their information
 VOID Handle_GetDisplaysCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context)
 {
     LOG_INFO("Handling GetDisplaysCommand.");
@@ -722,14 +712,10 @@ VOID Handle_GetDisplaysCommand([[maybe_unused]] PCHAR command, [[maybe_unused]] 
     LOG_INFO("GetDisplays: %u display(s)", deviceList.Count);
 }
 
-// Callback function for JPEG encoding - called by the encoder to write encoded data chunks
 VOID JpegCallback(PVOID context, PVOID data, INT32 size)
 {
     JpegBuffer *jpegBuffer = (JpegBuffer *)context;
 
-    // Once an allocation has failed the encoded stream is truncated; stop
-    // copying. allocationFailed carries the failure to the Encode() caller,
-    // which discards the output instead of shipping a truncated image.
     if (jpegBuffer->allocationFailed)
         return;
 
@@ -740,9 +726,6 @@ VOID JpegCallback(PVOID context, PVOID data, INT32 size)
         return;
 
     // Grow the reusable JPEG buffer when this chunk no longer fits.
-    // New capacity is max(size * 2, size + needed) so a single large chunk
-    // never triggers repeated doublings. The arithmetic runs in USIZE:
-    // offset/size are UINT32 and their sums could wrap before comparing.
     if ((USIZE)jpegBuffer->offset + (USIZE)size > jpegBuffer->size)
     {
         USIZE newSize = Math::Max((USIZE)jpegBuffer->size * 2, (USIZE)jpegBuffer->size + (USIZE)size);
@@ -759,15 +742,13 @@ VOID JpegCallback(PVOID context, PVOID data, INT32 size)
         jpegBuffer->outputBuffer = newBuffer;
         jpegBuffer->size = (UINT32)newSize;
     }
-    // Copy the encoded data chunk into the buffer and update the offset
+
     Memory::Copy(jpegBuffer->outputBuffer + jpegBuffer->offset, data, (USIZE)size);
     jpegBuffer->offset += (UINT32)size;
 }
 
-// Gets a screenshot of the specified display device
 VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context)
 {
-    // Validate the wire layout [displayIndex:u32][quality:u32][isFullScreen:u32]
     if (commandLength < 3 * sizeof(UINT32))
     {
         WriteErrorDetailResponse(response, responseLength, Error(Error::Command_Invalid));
@@ -783,7 +764,6 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     if (context->screenCaptureContext == nullptr)
         context->screenCaptureContext = new ScreenCaptureContext();
 
-    // Getting the device list
     if (context->screenCaptureContext->DeviceList.Count == 0)
     {
         auto displays = Screen::GetDevices();
@@ -797,7 +777,6 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         LOG_INFO("Display devices enumerated successfully with %u display(s)", context->screenCaptureContext->DeviceList.Count);
     }
 
-    // displayIndex is wire-supplied: bound it before indexing Devices[]
     if (displayIndex >= context->screenCaptureContext->DeviceList.Count)
     {
         LOG_ERROR("Display index %u out of range (%u displays)", displayIndex, context->screenCaptureContext->DeviceList.Count);
@@ -815,7 +794,6 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     if (!graphics.IsInitialized())
         graphics.Init(device);
 
-    // Attempt to capture the screen and validate the result
     if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height)))
     {
         LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
@@ -842,7 +820,6 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         // We are sending the full JPEG data in one segment, so the segment count is 1
         UINT32 countOfSegments = 1;
 
-        // Write response
         *responseLength += sizeof(countOfSegments) + sizeof(rect.x) + sizeof(rect.y) + sizeof(rect.sizeOfData) + graphics.jpegBuffer.offset;
         *response = new CHAR[*responseLength];
         if (*response == nullptr)
@@ -916,7 +893,6 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         }
 
         // Grow the packet to fit this entry (x + y + sizeOfData + jpegData);
-        // the buffer doubles until it fits, preserving what is already written
         USIZE rectEntrySize = graphics.jpegBuffer.offset + sizeof(UINT32) * 3;
         if (!packet.Resize(packet.Size + rectEntrySize))
         {
@@ -926,7 +902,6 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             return;
         }
 
-        // Write the entry into the freshly reserved tail region
         Rectangle rect(dr.X, dr.Y, graphics.jpegBuffer.offset, graphics.jpegBuffer.outputBuffer);
         rect.toBuffer((UINT8 *)packet.Data + packet.Size - rectEntrySize);
     }

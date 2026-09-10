@@ -26,7 +26,6 @@ DateTime DateTime::Now()
 	EFI_TIME efiTime{};
 	EFI_STATUS status = rs->GetTime(&efiTime, nullptr);
 	
-	// Status check
 	if (status == EFI_SUCCESS)
 	{
 		dt.Years = efiTime.Year;

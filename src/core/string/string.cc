@@ -13,7 +13,6 @@ USIZE StringUtils::FloatToStr(double value, Span<CHAR> buffer, UINT8 precision) 
 
 	USIZE pos = 0;
 
-	// Handle negative
 	if (value < 0.0)
 	{
 		if (pos < buffer.Size() - 1)
@@ -34,7 +33,6 @@ USIZE StringUtils::FloatToStr(double value, Span<CHAR> buffer, UINT8 precision) 
 		value = value + 0.5;
 	}
 
-	// Integer part
 	UINT64 intPart = (UINT64)value;
 	double fracPart = value - (double)intPart;
 
@@ -43,7 +41,6 @@ USIZE StringUtils::FloatToStr(double value, Span<CHAR> buffer, UINT8 precision) 
 	for (USIZE i = 0; i < intLen && pos < buffer.Size() - 1; i++)
 		buffer[pos++] = intBuf[i];
 
-	// Fractional part
 	if (precision > 0 && pos < buffer.Size() - 1)
 	{
 		buffer[pos++] = '.';
@@ -98,7 +95,6 @@ Result<double, Error> StringUtils::StrToFloat(Span<const CHAR> str) noexcept
 	double frac = 0.0;
 	double base = 1.0;
 
-	// sign
 	if (str[i] == '-')
 	{
 		sign = -1.0;
@@ -109,14 +105,12 @@ Result<double, Error> StringUtils::StrToFloat(Span<const CHAR> str) noexcept
 		i++;
 	}
 
-	// integer part
 	while (i < str.Size() && str[i] >= '0' && str[i] <= '9')
 	{
 		result = result * 10.0 + (double)(str[i] - '0');
 		i++;
 	}
 
-	// fractional part
 	if (i < str.Size() && str[i] == '.')
 	{
 		i++;

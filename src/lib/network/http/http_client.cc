@@ -45,8 +45,6 @@ Result<HttpClient, Error> HttpClient::Create(Span<const CHAR> url)
 	return Result<HttpClient, Error>::Ok(static_cast<HttpClient &&>(client));
 }
 
-/// @brief Open a connection to the server
-/// @return Ok on success, or Err with Http_OpenFailed on failure
 
 Result<VOID, Error> HttpClient::Open()
 {
@@ -56,9 +54,6 @@ Result<VOID, Error> HttpClient::Open()
 	return Result<VOID, Error>::Ok();
 }
 
-/// @brief Closes the connection to the server and cleans up resources
-/// @return Ok on success, or Err with Http_CloseFailed on failure
-
 Result<VOID, Error> HttpClient::Close()
 {
 	auto r = tlsContext.Close();
@@ -67,9 +62,6 @@ Result<VOID, Error> HttpClient::Close()
 	return Result<VOID, Error>::Ok();
 }
 
-/// @brief Read data from the server into the provided buffer, handling decryption if the connection is secure
-/// @param buffer The buffer to store the read data
-/// @return Ok(bytesRead) on success, or Err with Http_ReadFailed on failure
 
 Result<SSIZE, Error> HttpClient::Read(Span<CHAR> buffer)
 {
@@ -79,10 +71,6 @@ Result<SSIZE, Error> HttpClient::Read(Span<CHAR> buffer)
 	return Result<SSIZE, Error>::Ok(r.Value());
 }
 
-/// @brief Write data to the server
-/// @param buffer The data to be sent to the server
-/// @return Ok(bytesWritten) on success, or Err with Http_WriteFailed on failure
-
 Result<UINT32, Error> HttpClient::Write(Span<const CHAR> buffer)
 {
 	auto r = tlsContext.Write(buffer);
@@ -91,8 +79,6 @@ Result<UINT32, Error> HttpClient::Write(Span<const CHAR> buffer)
 	return Result<UINT32, Error>::Ok(r.Value());
 }
 
-/// @brief Send an HTTP GET request to the server
-/// @return Ok on success, or Err with Http_SendGetFailed on failure
 
 Result<VOID, Error> HttpClient::SendGetRequest(PCCHAR host, PCCHAR path)
 {
@@ -121,11 +107,6 @@ Result<VOID, Error> HttpClient::SendGetRequest(PCCHAR host, PCCHAR path)
 	return Result<VOID, Error>::Ok();
 }
 
-/// @brief Send an HTTP POST request to the server
-/// @param host Null-terminated hostname for the Host header
-/// @param path Null-terminated request-URI path component
-/// @param data The data to be sent in the body of the POST request
-/// @return Ok on success, or Err with Http_SendPostFailed on failure
 
 Result<VOID, Error> HttpClient::SendPostRequest(PCCHAR host, PCCHAR path, Span<const CHAR> data)
 {
@@ -171,14 +152,6 @@ Result<VOID, Error> HttpClient::SendPostRequest(PCCHAR host, PCCHAR path, Span<c
 
 	return Result<VOID, Error>::Ok();
 }
-
-/// @brief Parse a URL into its components (host, path, port, secure) and validate the format
-/// @param url The URL to be parsed
-/// @param host Reference to array to store the parsed host (RFC 1035: max 253 chars + null)
-/// @param path Reference to array to store the parsed path (max 2048 chars)
-/// @param port Reference to store the parsed port
-/// @param secure Reference to store whether the connection is secure (true) or not (false)
-/// @return Ok on success, or Err with Http_ParseUrlFailed on failure
 
 Result<VOID, Error> HttpClient::ParseUrl(Span<const CHAR> url, CHAR (&host)[254], CHAR (&path)[2048], UINT16 &port, BOOL &secure)
 {
@@ -281,11 +254,6 @@ Result<VOID, Error> HttpClient::ParseUrl(Span<const CHAR> url, CHAR (&host)[254]
 
 	return Result<VOID, Error>::Ok();
 }
-
-/// @brief Read HTTP response headers using a rolling 4-byte window
-/// @param client The TLS client to read from
-/// @param expectedStatus The expected HTTP status code (e.g., 200)
-/// @return Ok(contentLength) on success (-1 if Content-Length absent), or Err on failure
 
 Result<INT64, Error> HttpClient::ReadResponseHeaders(TlsClient &client, UINT16 expectedStatus)
 {

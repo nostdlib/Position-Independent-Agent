@@ -25,7 +25,7 @@ public:
 	VOID *operator new(USIZE, PVOID ptr) noexcept { return ptr; }
 	VOID operator delete(VOID *, PVOID) noexcept {}
 
-	// Default constructor - owns memory, write mode
+
 	TlsBuffer() : buffer(nullptr), capacity(0), size(0), readPos(0), ownsMemory(true), startPos(0) {}
 
 	// Constructor for wrapping existing data - read mode (does not own memory)
@@ -91,7 +91,6 @@ public:
 	INT32 AppendSize(INT32 count);
 	// Setting operation
 	[[nodiscard]] Result<VOID, Error> SetSize(INT32 newSize);
-	// Clean up for buffers
 	VOID Clear();
 	// Ensure there is enough capacity to append data
 	[[nodiscard]] Result<VOID, Error> CheckSize(INT32 appendSize);
@@ -125,8 +124,6 @@ public:
 	VOID Compact();
 
 	// Accessors
-	// GetSize() returns the LIVE byte count (appended minus consumed), so
-	// callers wrapping GetBuffer() in a span get only unconsumed bytes.
 	INT32 GetSize() const { return size - startPos; }
 	// GetBuffer() points at the first LIVE byte, so GetBuffer()+GetSize() is the
 	// append position and GetBuffer()-startPos is the raw allocation.

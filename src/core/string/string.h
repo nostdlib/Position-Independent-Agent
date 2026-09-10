@@ -97,140 +97,41 @@ public:
 	template <TCHAR TChar>
 	static constexpr FORCE_INLINE BOOL IsAlphaNum(TChar c) noexcept;
 
-	/// @}
-	/// @name Character Conversion
-	/// @{
-
-	/**
-	 * @brief Convert character to lowercase
-	 * @tparam TChar Character type (CHAR or WCHAR)
-	 * @param c Character to convert
-	 * @return Lowercase character, or original if not uppercase
-	 */
 	template <TCHAR TChar>
 	static constexpr FORCE_INLINE TChar ToLowerCase(TChar c) noexcept;
 
-	/**
-	 * @brief Convert character to uppercase
-	 * @tparam TChar Character type (CHAR or WCHAR)
-	 * @param c Character to convert
-	 * @return Uppercase character, or original if not lowercase
-	 */
 	template <TCHAR TChar>
 	static constexpr FORCE_INLINE TChar ToUpperCase(TChar c) noexcept;
 
-	/// @}
-	/// @name String Length and Comparison
-	/// @{
-
-	/**
-	 * @brief Get length of null-terminated string
-	 * @tparam TChar Character type (CHAR or WCHAR)
-	 * @param pChar Pointer to null-terminated string
-	 * @return Number of characters (excluding null terminator)
-	 */
 	template <TCHAR TChar>
 	static constexpr USIZE Length(const TChar *pChar) noexcept;
 
-	/**
-	 * @brief Compare two null-terminated strings
-	 * @tparam TChar Character type (CHAR or WCHAR)
-	 * @param s1 First string
-	 * @param s2 Second string
-	 * @param ignoreCase If true, comparison is case-insensitive
-	 * @return true if strings are equal, false otherwise
-	 */
 	template <TCHAR TChar>
 	static constexpr BOOL Compare(const TChar *s1, const TChar *s2, BOOL ignoreCase = false) noexcept;
 
-	/**
-	 * @brief Compare two strings with explicit lengths
-	 * @tparam TChar Character type (CHAR or WCHAR)
-	 * @param s1 First string span
-	 * @param s2 Second string span
-	 * @param ignoreCase If true, comparison is case-insensitive
-	 * @return true if strings are equal, false otherwise
-	 */
 	template <TCHAR TChar>
 	static constexpr BOOL Compare(Span<const TChar> s1, Span<const TChar> s2, BOOL ignoreCase = false) noexcept;
 
-	/**
-	 * @brief Compare two strings with explicit lengths
-	 * @tparam TChar Character type (CHAR or WCHAR)
-	 * @param a First string span
-	 * @param b Second string span
-	 * @return true if strings are equal, false otherwise
-	 */
 	template <TCHAR TChar>
 	static constexpr BOOL Equals(Span<const TChar> a, Span<const TChar> b) noexcept;
 
-	/**
-	 * @brief Compare two null-terminated strings for equality
-	 * @tparam TChar Character type (CHAR or WCHAR)
-	 * @param a First string
-	 * @param b Second string
-	 * @return true if strings are equal, false otherwise
-	 */
 	template <TCHAR TChar>
 	static constexpr BOOL Equals(const TChar *a, const TChar *b) noexcept;
 
-	/**
-	 * @brief Check if string starts with a prefix (null-terminated)
-	 * @tparam TChar Character type (CHAR or WCHAR)
-	 * @param pChar String to check
-	 * @param pSubString Prefix to look for
-	 * @return true if string starts with prefix, false otherwise
-	 */
 	template <TCHAR TChar>
 	static constexpr BOOL StartsWith(const TChar *pChar, const TChar *pSubString) noexcept;
 
-	/**
-	 * @brief Check if string starts with prefix (with explicit lengths)
-	 * @tparam TChar Character type (CHAR or WCHAR)
-	 * @param str String span to check
-	 * @param prefix Prefix span to look for
-	 * @return true if string starts with prefix, false otherwise
-	 */
 	template <TCHAR TChar>
 	static constexpr BOOL StartsWith(Span<const TChar> str, Span<const TChar> prefix) noexcept;
 
-	/**
-	 * @brief Check if string ends with suffix
-	 * @tparam TChar Character type (CHAR or WCHAR)
-	 * @param str String span to check
-	 * @param suffix Suffix span to look for
-	 * @return true if string ends with suffix, false otherwise
-	 */
 	template <TCHAR TChar>
 	static constexpr BOOL EndsWith(Span<const TChar> str, Span<const TChar> suffix) noexcept;
 
-	/// @}
-	/// @name String Search
-	/// @{
-
-	/**
-	 * @brief Find index of character in string
-	 * @tparam TChar Character type (CHAR or WCHAR)
-	 * @param str String span to search
-	 * @param ch Character to find
-	 * @return Index of first occurrence, or -1 if not found
-	 */
 	template <TCHAR TChar>
 	static constexpr SSIZE IndexOfChar(Span<const TChar> str, TChar ch) noexcept;
 
-	/**
-	 * @brief Find index of substring in string
-	 * @tparam TChar Character type (CHAR or WCHAR)
-	 * @param str String span to search
-	 * @param sub Substring span to find
-	 * @return Index of first occurrence, or -1 if not found
-	 */
 	template <TCHAR TChar>
 	static constexpr SSIZE IndexOf(Span<const TChar> str, Span<const TChar> sub) noexcept;
-
-	/// @}
-	/// @name String Copy Operations
-	/// @{
 
 	/**
 	 * @brief Safe string copy with explicit buffer size
@@ -252,10 +153,6 @@ public:
 	 */
 	template <USIZE MaxLen, TCHAR TChar>
 	static constexpr FORCE_INLINE USIZE Copy(TChar (&dest)[MaxLen], Span<const TChar> src) noexcept;
-
-	/// @}
-	/// @name String Manipulation
-	/// @{
 
 	/**
 	 * @brief Trim whitespace from end of string (in-place)
@@ -305,10 +202,6 @@ public:
 	static constexpr USIZE Concat(Span<TChar> buffer,
 								  Span<const TChar> s1,
 								  Span<const TChar> s2) noexcept;
-
-	/// @}
-	/// @name Number Conversion
-	/// @{
 
 	/**
 	 * @brief Convert signed integer to string
@@ -453,12 +346,12 @@ public:
 template <TCHAR TChar>
 constexpr FORCE_INLINE BOOL StringUtils::IsSpace(TChar c) noexcept
 {
-	return (c == (TChar)' ' ||	// space
-			c == (TChar)'\t' || // horizontal tab
-			c == (TChar)'\n' || // newline
-			c == (TChar)'\v' || // vertical tab
-			c == (TChar)'\f' || // form feed
-			c == (TChar)'\r');	// carriage return
+	return (c == (TChar)' ' ||	
+			c == (TChar)'\t' ||
+			c == (TChar)'\n' || 
+			c == (TChar)'\v' || 
+			c == (TChar)'\f' ||
+			c == (TChar)'\r');
 }
 
 template <TCHAR TChar>

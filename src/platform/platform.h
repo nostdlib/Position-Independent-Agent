@@ -38,20 +38,13 @@ NO_RETURN VOID ExitProcess(USIZE code);
 // Platform Services
 // =============================================================================
 
-/// @name Memory Management
-/// @{
-#include "platform/memory/allocator.h"
-/// @}
 
-/// @name System Utilities
-/// @{
+#include "platform/memory/allocator.h"
+
 #include "platform/system/date_time.h"
 #include "platform/system/random.h"
 #include "platform/system/machine_id.h"
-/// @}
 
-/// @name I/O Services
-/// @{
 #include "platform/console/console.h"
 #include "platform/fs/offset_origin.h"
 #include "platform/fs/directory_entry.h"
@@ -60,24 +53,14 @@ NO_RETURN VOID ExitProcess(USIZE code);
 #include "platform/fs/directory_iterator.h"
 #include "platform/fs/path.h"
 #include "platform/console/logger.h"
-/// @}
 
-/// @name Network Services
-/// @{
 #include "platform/socket/socket.h"
-/// @}
 
-/// @name Display
-/// @{
 #include "platform/screen/screen.h"
-/// @}
 
-/// @name Process Management
-/// @{
 #include "platform/system/pipe.h"
 #include "platform/system/process.h"
 #include "platform/system/pty.h"
 #include "platform/system/shell_process.h"
-/// @}
 
 /** @} */ // end of platform group

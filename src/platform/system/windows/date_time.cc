@@ -4,7 +4,7 @@
 /// Address of the shared user data in the process address space
 constexpr USIZE MM_SHARED_USER_DATA_VA = 0x7FFE0000;
 
-/// System time structure
+
 typedef struct _KSYSTEM_TIME
 {
 	UINT32 LowPart;
@@ -12,7 +12,7 @@ typedef struct _KSYSTEM_TIME
 	INT32 High2Time;
 } KSYSTEM_TIME;
 
-/// KUSER_SHARED_DATA
+
 typedef struct _USER_SHARED_DATA
 {
 	UINT32 TickCountLowDeprecated;       // 0x0
@@ -27,7 +27,6 @@ static FORCE_INLINE PUSER_SHARED_DATA GetUserSharedData()
 	return (PUSER_SHARED_DATA)MM_SHARED_USER_DATA_VA;
 }
 
-/// Read KSYSTEM_TIME as UINT64
 static UINT64 ReadKSystemTimeU64(volatile const KSYSTEM_TIME &t)
 {
 	KSYSTEM_TIME v;
@@ -40,7 +39,7 @@ static UINT64 ReadKSystemTimeU64(volatile const KSYSTEM_TIME &t)
 	return (((UINT64)(UINT32)v.High1Time) << 32) | ((UINT64)v.LowPart);
 }
 
-/// Read KSYSTEM_TIME as INT64
+
 static INT64 ReadKSystemTimeS64(volatile const KSYSTEM_TIME &t)
 {
 	KSYSTEM_TIME v;
@@ -53,7 +52,7 @@ static INT64 ReadKSystemTimeS64(volatile const KSYSTEM_TIME &t)
 	return (INT64)(((UINT64)(UINT32)v.High1Time << 32) | (UINT64)v.LowPart);
 }
 
-// Get the current local date and time
+
 DateTime DateTime::Now()
 {
 	DateTime dt;

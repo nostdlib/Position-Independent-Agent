@@ -2,24 +2,17 @@
 #include "platform/console/logger.h"
 #include "lib/crypto/sha2.h"
 
-/// @brief Reset the hash cache by clearing the underlying buffer
-/// @return void
 VOID TlsHash::Reset()
 {
 	cache.Clear();
 }
 
-/// @brief Append data to the hash cache by adding it to the underlying buffer
-/// @param buffer Span containing the data to append to the hash cache
-/// @return void
+
 VOID TlsHash::Append(Span<const CHAR> buffer)
 {
 	cache.Append(buffer);
 }
 
-/// @brief Get the hash value from the cache by computing SHA-256 (out.Size()==32) or SHA-384 (out.Size()==48)
-/// @param out Output span; size determines which hash algorithm is used
-/// @return void
 VOID TlsHash::GetHash(Span<CHAR> out)
 {
 	if (out.Size() == SHA256_DIGEST_SIZE)

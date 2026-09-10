@@ -59,24 +59,17 @@
 class BinaryReader
 {
 private:
-	const UINT8 *address;  ///< Base address of the data buffer
-	USIZE offset;          ///< Current read position (bytes from base)
-	USIZE maxSize;         ///< Maximum readable size in bytes
+	const UINT8 *address; 
+	USIZE offset;         
+	USIZE maxSize; 
 
 public:
-	/// @name Heap Operators
-	/// @{
-
 	VOID *operator new(USIZE) = delete;
 	VOID *operator new[](USIZE) = delete;
 	VOID operator delete(VOID *) = delete;
 	VOID operator delete[](VOID *) = delete;
-	VOID *operator new(USIZE, PVOID ptr) noexcept { return ptr; } ///< Placement new for Result<BinaryReader, Error>
-	VOID operator delete(VOID *, PVOID) noexcept {}               ///< Matching placement delete
-
-	/// @}
-	/// @name Constructors
-	/// @{
+	VOID *operator new(USIZE, PVOID ptr) noexcept { return ptr; } 
+	VOID operator delete(VOID *, PVOID) noexcept {}
 
 	/**
 	 * @brief Construct a reader from a byte span with explicit initial offset
@@ -96,11 +89,6 @@ public:
 		: address(data.Data()), offset(0), maxSize(data.Size())
 	{
 	}
-
-	/// @}
-	/// @name Read Operations
-	/// @{
-
 	/**
 	 * @brief Read a value of type T and advance the cursor
 	 * @tparam T Type to read (must be trivially copyable)
@@ -200,10 +188,6 @@ public:
 		return value;
 	}
 
-	/// @}
-	/// @name Cursor Control
-	/// @{
-
 	/**
 	 * @brief Skip forward by a number of bytes
 	 * @param count Number of bytes to skip
@@ -241,10 +225,6 @@ public:
 		return true;
 	}
 
-	/// @}
-	/// @name Accessors
-	/// @{
-
 	/**
 	 * @brief Get a pointer to the current read position
 	 * @return Pointer to the byte at the current offset
@@ -254,16 +234,10 @@ public:
 		return address + offset;
 	}
 
-	/** @brief Get the base address of the data buffer */
 	constexpr const UINT8 *GetAddress() const { return address; }
-
-	/** @brief Get the current read offset in bytes */
 	constexpr USIZE GetOffset() const { return offset; }
-
-	/** @brief Get the maximum readable size in bytes */
 	constexpr USIZE GetMaxSize() const { return maxSize; }
-
-	/// @}
 };
 
 /** @} */ // end of binary_reader group
+
