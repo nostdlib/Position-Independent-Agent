@@ -512,6 +512,11 @@ private:
 			if (!entry.IsDrive)
 				continue;
 
+			// ::mtp- pseudo-roots share the root listing with IsDrive set;
+			// their grammar is validated by PortableDeviceTests::TestRootListingShapes.
+			if (entry.Name[0] == L':')
+				continue;
+
 			driveCount++;
 
 			// Every drive entry must be formatted "X:\"
