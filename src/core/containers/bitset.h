@@ -140,4 +140,6 @@ struct Bitset
 	}
 };
 
+/** @} */ // end of bitset group
+
 
