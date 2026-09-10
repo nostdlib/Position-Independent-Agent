@@ -514,7 +514,7 @@ private:
 
 			// ::mtp- pseudo-roots share the root listing with IsDrive set;
 			// their grammar is validated by PortableDeviceTests::TestRootListingShapes.
-			if (entry.Name[0] == L':')
+			if (entry.Name[0] == L':' && entry.Name[1] == L':')
 				continue;
 
 			driveCount++;
