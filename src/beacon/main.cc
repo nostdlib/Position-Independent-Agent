@@ -190,8 +190,7 @@ INT32 start()
             return 0;
         }
         WebSocketClient &wsClient = createResult.Value();
-        LOG_INFO("WebSocket connection established (attempt #%u) to %s (identity sent in upgrade headers)",
-                 connectionAttempt, (PCCHAR)urlBuffer);
+        LOG_INFO("WebSocket connection established (attempt #%u)", connectionAttempt);
 
         UINT32 messageCount = 0;
         while (!context.shouldExit)
@@ -241,8 +240,7 @@ INT32 start()
                 commandHandlers[commandType](command, commandLength, &response, &responseLength, &context);
                 if (response == nullptr)
                 {
-                    LOG_ERROR("Command %s produced no response buffer (allocation failure), reconnecting...",
-                              CommandTypeName(commandType));
+                    LOG_ERROR("Command %s produced no response buffer, reconnecting...", CommandTypeName(commandType));
                     break;
                 }
                 UINT32 statusCode = *(PUINT32)response;
@@ -251,8 +249,8 @@ INT32 start()
             }
             else
             {
-                LOG_ERROR("Unknown command type 0x%02x received (max valid: 0x%02x), returning StatusUnknownCommand",
-                          (UINT32)commandType, (UINT32)(CommandType::CommandTypeCount - 1));
+                LOG_ERROR("Unknown command type 0x%02x received, returning StatusUnknownCommand",
+                          (UINT32)commandType);
                 response = new CHAR[responseLength];
                 if (response == nullptr)
                 {
