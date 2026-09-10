@@ -269,3 +269,5 @@ public:
 	constexpr USIZE GetMaxSize() const { return maxSize; }
 };
 
+/** @} */ // end of binary_writer group
+
