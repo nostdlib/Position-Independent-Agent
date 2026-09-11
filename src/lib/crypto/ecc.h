@@ -64,8 +64,8 @@ constexpr INT32 ECC_PRODUCT_DIGITS = 2 * MAX_NUM_ECC_DIGITS;
  */
 struct UInt128
 {
-	UINT64 Low;  /**< @brief Lower 64 bits */
-	UINT64 High; /**< @brief Upper 64 bits */
+	UINT64 Low; 
+	UINT64 High;
 };
 
 /**

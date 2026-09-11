@@ -42,7 +42,7 @@
 struct Bitset
 {
 	UINT8 *Data;    ///< Backing byte array (bit i lives in Data[i / 8], bit i % 8)
-	USIZE BitCount; ///< Logical number of bits
+	USIZE BitCount;
 
 	// Stack-only: heap allocation of the Bitset itself is deleted
 	VOID *operator new(USIZE) = delete;
@@ -53,15 +53,8 @@ struct Bitset
 	VOID *operator new(USIZE, PVOID ptr) noexcept { return ptr; }
 	VOID operator delete(VOID *, PVOID) noexcept {}
 
-	/**
-	 * @brief Construct an empty bitset owning nothing
-	 * @note All members are zeroed; call Init() before use
-	 */
 	constexpr Bitset() : Data(nullptr), BitCount(0) {}
 
-	/**
-	 * @brief Free the backing array if owned
-	 */
 	~Bitset()
 	{
 		if (Data)
@@ -71,21 +64,13 @@ struct Bitset
 	Bitset(const Bitset &) = delete;
 	Bitset &operator=(const Bitset &) = delete;
 
-	/**
-	 * @brief Move-construct, stealing the source's backing array
-	 * @param other Bitset to steal from (left empty)
-	 */
 	constexpr Bitset(Bitset &&other) : Data(other.Data), BitCount(other.BitCount)
 	{
 		other.Data = nullptr;
 		other.BitCount = 0;
 	}
 
-	/**
-	 * @brief Move-assign, freeing any array this bitset already owns
-	 * @param other Bitset to steal from (left empty)
-	 * @return Reference to this bitset
-	 */
+
 	Bitset &operator=(Bitset &&other)
 	{
 		if (this != &other)
@@ -122,19 +107,13 @@ struct Bitset
 		return Result<VOID, Error>::Ok();
 	}
 
-	/**
-	 * @brief Set a bit to 1
-	 * @param index Bit index (unchecked; must be < BitCount)
-	 */
+
 	VOID Set(USIZE index)
 	{
 		Data[index >> 3] |= (UINT8)(1u << (index & 7));
 	}
 
-	/**
-	 * @brief Clear a bit to 0
-	 * @param index Bit index (unchecked; must be < BitCount)
-	 */
+
 	VOID Clear(USIZE index)
 	{
 		Data[index >> 3] &= (UINT8)~(1u << (index & 7));
@@ -161,4 +140,4 @@ struct Bitset
 	}
 };
 
-/** @} */ // end of bitset group
+

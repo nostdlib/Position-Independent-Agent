@@ -81,7 +81,6 @@ static BOOL IsValidElf(PVOID addr)
 		   p[2] == ELF_MAGIC_2 && p[3] == ELF_MAGIC_3;
 }
 
-/// @brief String length (no libc)
 static USIZE StrLen(const CHAR *s)
 {
 	USIZE len = 0;
@@ -90,7 +89,6 @@ static USIZE StrLen(const CHAR *s)
 	return len;
 }
 
-/// @brief String comparison (no libc)
 static BOOL StrEq(const CHAR *a, const CHAR *b)
 {
 	while (*a && *b)

@@ -27,70 +27,39 @@
  * @see memory/memory.h For memory operations
  * @see types/primitives.h For base type definitions
  *
- * @defgroup core Core Abstraction Layer
- * @{
  */
 
 #pragma once
 
-/// @name Core Utilities
-/// @{
 #include "core/compiler/compiler.h"
 #include "core/memory/memory.h"
 #include "core/math/math.h"
 #include "core/math/byteorder.h"
 #include "core/math/bitops.h"
 #include "core/math/prng.h"
-/// @}
 
-/// @name Base Types
-/// @{
 #include "core/types/primitives.h"
 #include "core/types/span.h"
 #include "core/types/error.h"
-/// @}
 
-/// @name Result Type
-/// @{
+
 #include "core/types/result.h"
-/// @}
 
-
-/// @name String Utilities
-/// @{
 #include "core/string/string.h"
 #include "core/string/string_formatter.h"
-/// @}
 
-/// @name Algorithms
-/// @{
 #include "core/algorithms/djb2.h"
 #include "core/algorithms/base64.h"
-/// @}
 
-/// @name Encoding Utilities
-/// @{
 #include "core/encoding/utf16.h"
-/// @}
 
-/// @name Network Types
-/// @{
 #include "core/types/ip_address.h"
 #include "core/types/uuid.h"
-/// @}
 
-/// @name Binary I/O
-/// @{
 #include "core/binary/binary_reader.h"
 #include "core/binary/binary_writer.h"
-/// @}
 
-/// @name Containers
-/// @{
 #include "core/containers/vector.h"
 #include "core/containers/buffer.h"
 #include "core/containers/bitset.h"
 #include "core/containers/byte_queue.h"
-/// @}
-
-/** @} */ // end of core group

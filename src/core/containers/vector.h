@@ -24,7 +24,7 @@
 #include "core/memory/memory.h"
 #include "core/types/primitives.h"
 
-/// Default initial capacity for Vector
+
 static constexpr INT32 VectorInitialCapacity = 10;
 
 /**
@@ -48,13 +48,11 @@ struct Vector
 	INT32 Capacity;
 	INT32 Count;
 
-	// Stack-only
 	VOID *operator new(USIZE) = delete;
 	VOID *operator new[](USIZE) = delete;
 	VOID operator delete(VOID *) = delete;
 	VOID operator delete[](VOID *) = delete;
 
-	// Constructor, destructor, and move semantics
 	Vector() : Data(nullptr), Capacity(0), Count(0) {}
 
 	~Vector()

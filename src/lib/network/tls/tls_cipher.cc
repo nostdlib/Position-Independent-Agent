@@ -6,8 +6,7 @@
 #include "lib/network/tls/tls_hkdf.h"
 #include "core/math/math.h"
 
-/// @brief Reset the TlsCipher object to its initial state
-/// @return void
+
 VOID TlsCipher::Reset()
 {
 	for (INT32 i = 0; i < ECC_COUNT; i++)
@@ -33,18 +32,14 @@ VOID TlsCipher::Reset()
 	isEncoding = false;
 }
 
-/// @brief Destroy the TlsCipher object and clean up resources
-/// @return void
 VOID TlsCipher::Destroy()
 {
 	Reset();
 }
 
-/// @brief Create client random data
-/// @return Pointer to the client random data
+
 PINT8 TlsCipher::CreateClientRand()
 {
-	// Use a local Random instance to generate client random data
 	Random random;
 
 	LOG_DEBUG("Creating client random data for cipher: %p", this);
@@ -108,7 +103,7 @@ Result<VOID, Error> TlsCipher::ComputePublicKey(INT32 eccIndex, TlsBuffer &out)
 			return Result<VOID, Error>::Err(initResult, Error::TlsCipher_ComputePublicKeyFailed);
 		}
 	}
-	// Validate size
+	
 	auto checkResult = out.CheckSize(MAX_PUBKEY_SIZE);
 	if (!checkResult)
 		return Result<VOID, Error>::Err(checkResult, Error::TlsCipher_ComputePublicKeyFailed);
@@ -157,7 +152,7 @@ Result<VOID, Error> TlsCipher::ComputePreKey(ECC_GROUP ecc, Span<const CHAR> ser
 		LOG_DEBUG("Failed to compute public key for ECC group %d (error: %e)", ecc, pubKeyResult.Error());
 		return Result<VOID, Error>::Err(pubKeyResult, Error::TlsCipher_ComputePreKeyFailed);
 	}
-	// Set size 
+	
 	auto premasterSizeResult = premasterKey.SetSize(eccSize);
 	if (!premasterSizeResult)
 		return Result<VOID, Error>::Err(premasterSizeResult, Error::TlsCipher_ComputePreKeyFailed);
@@ -288,7 +283,7 @@ Result<VOID, Error> TlsCipher::ComputeVerify(TlsBuffer &out, INT32 verifySize, I
 	CHAR hash[MAX_HASH_LEN];
 	INT32 hashLen = CIPHER_HASH_SIZE;
 	LOG_DEBUG("tls_cipher_compute_verify: Getting handshake hash, hash_len = %d", hashLen);
-	// Get the current handshake hash
+
 	GetHash(Span<CHAR>(hash, hashLen));
 
 	UINT8 finished_key[MAX_HASH_LEN];
@@ -352,7 +347,7 @@ VOID TlsCipher::Encode(TlsBuffer &sendbuf, Span<const CHAR> packet, BOOL keepOri
 	Memory::Copy(aad + 3, &encSize, sizeof(UINT16));
 	UINT64 clientSeq = ByteOrder::Swap64(clientSeqNum++);
 	Memory::Copy(aad + 5, &clientSeq, sizeof(UINT64));
-	// Encode the packet
+	
 	chacha20Context.Encode(sendbuf, packet, Span<const UCHAR>(aad));
 }
 
@@ -377,7 +372,7 @@ Result<VOID, Error> TlsCipher::Decode(TlsBuffer &inout, INT32 version)
 	Memory::Copy(aad + 3, &decSize, sizeof(UINT16));
 	UINT64 serverSeq = ByteOrder::Swap64(serverSeqNum++);
 	Memory::Copy(aad + 5, &serverSeq, sizeof(UINT64));
-	// Decode the packet
+	
 	auto decodeResult = chacha20Context.Decode(inout, decodeBuffer, Span<const UCHAR>(aad));
 	if (!decodeResult)
 	{
@@ -393,16 +388,13 @@ Result<VOID, Error> TlsCipher::Decode(TlsBuffer &inout, INT32 version)
 	return Result<VOID, Error>::Ok();
 }
 
-/// @brief Set the encoding status for the TLS cipher
-/// @param encoding Indicates whether encoding should be enabled or disabled
-/// @return void
+
 VOID TlsCipher::SetEncoding(BOOL encoding)
 {
 	isEncoding = encoding;
 }
 
-/// @brief Request a reset of the sequence numbers for both client and server
-/// @return void
+
 VOID TlsCipher::ResetSequenceNumber()
 {
 	clientSeqNum = 0;

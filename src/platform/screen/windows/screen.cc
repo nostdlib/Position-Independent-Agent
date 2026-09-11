@@ -83,12 +83,10 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	INT32 width = (INT32)device.Width;
 	INT32 height = (INT32)device.Height;
 
-	// Get the screen device context (NULL = entire virtual screen)
 	PVOID screenDC = User32::GetDC(nullptr);
 	if (screenDC == nullptr)
 		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
-	// Create memory DC and compatible bitmap
 	PVOID memDC = Gdi32::CreateCompatibleDC(screenDC);
 	if (memDC == nullptr)
 	{
@@ -106,7 +104,6 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 
 	PVOID oldBitmap = Gdi32::SelectObject(memDC, bitmap);
 
-	// Copy from screen to memory DC
 	if (!Gdi32::BitBlt(memDC, 0, 0, width, height,
 		screenDC, device.Left, device.Top, SRCCOPY))
 	{

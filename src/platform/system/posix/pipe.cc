@@ -44,7 +44,6 @@ Result<Pipe, Error> Pipe::Create() noexcept
 #else
 	SSIZE result = System::Call(SYS_PIPE, (USIZE)fds);
 #endif
-	// Validate the result of syscall
 	if (result < 0)
 	{
 		return Result<Pipe, Error>::Err(
@@ -60,7 +59,6 @@ Result<Pipe, Error> Pipe::Create() noexcept
 
 Result<USIZE, Error> Pipe::Read(Span<UINT8> buffer) noexcept
 {
-	// Validate the read end of the pipe
 	if (readFd == INVALID_FD)
 		return Result<USIZE, Error>::Err(Error::Pipe_ReadFailed);
 	// System call to read from the pipe
@@ -81,13 +79,11 @@ Result<USIZE, Error> Pipe::Read(Span<UINT8> buffer) noexcept
 
 Result<USIZE, Error> Pipe::Write(Span<const UINT8> data) noexcept
 {
-	// Validate the write end of the pipe
 	if (writeFd == INVALID_FD)
 		return Result<USIZE, Error>::Err(Error::Pipe_WriteFailed);
 
-	// System call to write to the pipe
 	SSIZE result = System::Call(SYS_WRITE, (USIZE)writeFd, (USIZE)data.Data(), data.Size());
-	// Validate the result of syscall
+	
 	if (result < 0)
 	{
 		return Result<USIZE, Error>::Err(

@@ -26,7 +26,6 @@ Result<IPAddress, Error> IPAddress::FromString(Span<const CHAR> ipString)
 		UINT8 ipv6[16];
 		Memory::Zero(ipv6, 16);
 
-		// IPv6 parsing logic
 		UINT32 groupIndex = 0;
 		UINT32 doubleColonPos = 0xFFFFFFFF;
 		BOOL foundDoubleColon = false;
@@ -84,7 +83,6 @@ Result<IPAddress, Error> IPAddress::FromString(Span<const CHAR> ipString)
 			}
 			else
 			{
-				// Invalid character
 				return Result<IPAddress, Error>::Err(Error::IpAddress_ParseFailed);
 			}
 		}

@@ -375,13 +375,11 @@ private:
 	Socket(const IPAddress &ipAddress, UINT16 portNum) : ip(ipAddress), port(portNum), handle(nullptr) {}
 
 public:
-	/// @name Stack-Only Enforcement
-	/// @{
+
 	VOID *operator new(USIZE) = delete;
 	VOID operator delete(VOID *) = delete;
 	VOID *operator new(USIZE, PVOID ptr) noexcept { return ptr; } ///< Placement new for Result<Socket, Error>
 	VOID operator delete(VOID *, PVOID) noexcept {}              ///< Matching placement delete
-	/// @}
 
 	/**
 	 * @brief Default constructor — creates an invalid (unconnected) socket
@@ -424,14 +422,9 @@ public:
 			(VOID)Close();
 	}
 
-	/// @name Non-Copyable
-	/// @{
+	
 	Socket(const Socket &) = delete;
 	Socket &operator=(const Socket &) = delete;
-	/// @}
-
-	/// @name Move Semantics
-	/// @{
 
 	/**
 	 * @brief Move constructor — transfers socket ownership
@@ -460,7 +453,7 @@ public:
 		}
 		return *this;
 	}
-	/// @}
+
 
 	/**
 	 * @brief Checks whether the socket holds a valid OS handle

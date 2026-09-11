@@ -50,7 +50,7 @@ static USIZE BuildIdentityHeaders(const SystemInfo &info, const CHAR *sessionKey
 
     BinaryWriter writer{Span<UINT8>((UINT8 *)out.Data(), out.Size())};
 
-    // Fixed 37-byte buffer (36 chars + NUL) — ToString cannot fail.
+    // Fixed 37-byte buffer (36 chars + NUL)
     CHAR uuid[37];
     (VOID)info.MachineUUID.ToString(Span<CHAR>(uuid, sizeof(uuid)));
 
@@ -76,8 +76,7 @@ static USIZE BuildIdentityHeaders(const SystemInfo &info, const CHAR *sessionKey
     ok = ok && writer.WriteString("X-Client-Commit: ") != nullptr && writer.WriteString(AGENT_COMMIT_HASH) != nullptr && writer.WriteString("\r\n") != nullptr;
     ok = ok && writer.WriteString("X-Client-Id: ") != nullptr && WriteNumber(writer, AGENT_NAME_ID) && writer.WriteString("\r\n") != nullptr;
     // No bitness header: the process arch header already carries the full
-    // width, and x86_64/aarch64 are both 64-bit — a bare bit flag says nothing about
-    // which.
+    // width, and x86_64/aarch64 are both 64-bit — a bare bit flag says nothing about which.
     ok = ok && writer.WriteString("X-Client-Features: ") != nullptr;
     for (USIZE i = 0; ok && i < CAPABILITY_MASK_BYTES; i++)
     {
@@ -129,7 +128,7 @@ INT32 start()
         LOG_ERROR("W_URL environment variable is not set; cannot start agent without a relay endpoint");
         return 0;
     }
-    Span<const CHAR> urlSpan(urlBuffer, urlLen); // exclude null terminator (ParseUrl bounds on Span size)
+    Span<const CHAR> urlSpan(urlBuffer, urlLen);
 
     Context context;
     UINT32 connectionAttempt = 0;

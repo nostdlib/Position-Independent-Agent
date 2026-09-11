@@ -28,7 +28,6 @@
 #include "core/types/result.h"
 #include "core/types/span.h"
 
-/// Default initial capacity for Buffer (elements)
 static constexpr USIZE BufferInitialCapacity = 16;
 
 /**
@@ -49,8 +48,8 @@ template <typename T = UINT8>
 struct Buffer
 {
 	T *Data;      ///< Backing array (null when empty)
-	USIZE Capacity; ///< Allocated element count
-	USIZE Size;   ///< Valid element count (<= Capacity)
+	USIZE Capacity;
+	USIZE Size;
 
 	// Stack-only: heap allocation of the Buffer itself is deleted
 	VOID *operator new(USIZE) = delete;
@@ -61,15 +60,8 @@ struct Buffer
 	VOID *operator new(USIZE, PVOID ptr) noexcept { return ptr; }
 	VOID operator delete(VOID *, PVOID) noexcept {}
 
-	/**
-	 * @brief Construct an empty buffer owning nothing
-	 * @note All members are zeroed; call Init() or a growth member before use
-	 */
 	constexpr Buffer() : Data(nullptr), Capacity(0), Size(0) {}
 
-	/**
-	 * @brief Free the backing array if owned
-	 */
 	~Buffer()
 	{
 		if (Data)
@@ -79,10 +71,6 @@ struct Buffer
 	Buffer(const Buffer &) = delete;
 	Buffer &operator=(const Buffer &) = delete;
 
-	/**
-	 * @brief Move-construct, stealing the source's backing array
-	 * @param other Buffer to steal from (left empty)
-	 */
 	constexpr Buffer(Buffer &&other) : Data(other.Data), Capacity(other.Capacity), Size(other.Size)
 	{
 		other.Data = nullptr;

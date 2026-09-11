@@ -26,7 +26,6 @@ struct DirtyRect
 	UINT32 Height;
 };
 
-/// @brief Result of tile-based dirty region detection
 struct DirtyRectResult
 {
 	DirtyRect *Rects;
