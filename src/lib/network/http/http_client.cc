@@ -267,6 +267,10 @@ Result<INT64, Error> HttpClient::ReadResponseHeaders(TlsClient &client, UINT16 e
 	UINT32 tail = 0;
 	UINT32 bytesConsumed = 0;
 	BOOL statusValid = false;
+	UINT16 receivedStatus = 0;
+CHAR reason[64] = {};
+	UINT32 reasonLength = 0;
+	BOOL reasonDone = false;
 	INT64 contentLength = -1;
 
 	// Content-Length state machine
@@ -292,7 +296,18 @@ Result<INT64, Error> HttpClient::ReadResponseHeaders(TlsClient &client, UINT16 e
 
 		// After 13 bytes, tail holds bytes 9-12: check status code
 		if (bytesConsumed == 13)
+		{
 			statusValid = (tail == expectedTail);
+			receivedStatus = (UINT16)(((((tail >> 24) & 0xFF) - '0') * 100) + ((((tail >> 16) & 0xFF) - '0') * 10) + (((tail >> 8) & 0xFF) - '0'));
+		}
+		// Reason phrase runs from byte 14 to the status line's line break
+		else if (bytesConsumed > 13 && !reasonDone)
+		{
+			if (c == '\r' || c == '\n')
+				reasonDone = true;
+			else if (reasonLength < sizeof(reason) - 1)
+				reason[reasonLength++] = c;
+		}
 
 		// Content-Length extraction state machine
 		if (parsingValue)
@@ -340,7 +355,11 @@ Result<INT64, Error> HttpClient::ReadResponseHeaders(TlsClient &client, UINT16 e
 	}
 
 	if (!statusValid)
+	{
+		reason[reasonLength] = '\0';
+		LOG_ERROR("HTTP status %u (%s) received, expected %u", (UINT32)receivedStatus, (PCCHAR)reason, (UINT32)expectedStatus);
 		return Result<INT64, Error>::Err(Error::Http_ReadHeadersFailed_Status);
+	}
 
 	return Result<INT64, Error>::Ok(contentLength);
 }

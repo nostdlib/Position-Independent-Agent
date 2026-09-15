@@ -44,6 +44,38 @@ static BOOL WriteNumber(BinaryWriter &writer, UINT64 value)
  * @param out Output buffer for CRLF-terminated header lines (no trailing blank line).
  * @return Total header-block length, or 0 if the buffer was too small.
  */
+/**
+ * Copies a NUL-terminated string with every byte outside HTTP field-value
+ * range (RFC 7230 Section 3.2: SP plus %x21-7E) replaced by '?'.
+ *
+ * @details Identity values come from the host environment; non-ASCII bytes
+ * (locale hostnames/usernames) make CDN edges reject the whole upgrade with
+ * 400 before the relay ever sees it.
+ *
+ * @param value Source string (may be null).
+ * @param out Output buffer for the sanitized copy.
+ * @return Pointer to out (empty string for null/empty input).
+ */
+static const CHAR *SanitizedHeaderValue(PCCHAR value, Span<CHAR> out)
+{
+    USIZE len = 0;
+    if (out.Size() > 0)
+    {
+        out[0] = '\0';
+        if (value != nullptr)
+        {
+            while (value[len] != '\0' && len < out.Size() - 1)
+            {
+                UINT8 b = (UINT8)value[len];
+                out[len] = (b >= 0x20 && b <= 0x7E) ? (CHAR)b : '?';
+                len++;
+            }
+            out[len] = '\0';
+        }
+    }
+    return out.Data();
+}
+
 static USIZE BuildIdentityHeaders(const SystemInfo &info, const CHAR *sessionKey, Span<CHAR> out)
 {
     const CHAR *hex = "0123456789abcdef";
@@ -53,6 +85,10 @@ static USIZE BuildIdentityHeaders(const SystemInfo &info, const CHAR *sessionKey
     // Fixed 37-byte buffer (36 chars + NUL)
     CHAR uuid[37];
     (VOID)info.MachineUUID.ToString(Span<CHAR>(uuid, sizeof(uuid)));
+
+    // Hostname/username are the only free-text values in the block.
+    CHAR deviceName[256];
+    CHAR userName[256];
 
     CapabilityMask mask = BuildCapabilityMask();
 
@@ -66,8 +102,8 @@ static USIZE BuildIdentityHeaders(const SystemInfo &info, const CHAR *sessionKey
     // machine (e.g. this agent injected alongside a C# successor).
     if (sessionKey != nullptr && sessionKey[0] != '\0')
         ok = ok && writer.WriteString("X-Session-Id: ") != nullptr && writer.WriteString(sessionKey) != nullptr && writer.WriteString("\r\n") != nullptr;
-    ok = ok && writer.WriteString("X-Device-Name: ") != nullptr && writer.WriteString(info.Hostname) != nullptr && writer.WriteString("\r\n") != nullptr;
-    ok = ok && writer.WriteString("X-User-Id: ") != nullptr && writer.WriteString(info.Username) != nullptr && writer.WriteString("\r\n") != nullptr;
+    ok = ok && writer.WriteString("X-Device-Name: ") != nullptr && writer.WriteString(SanitizedHeaderValue(info.Hostname, Span<CHAR>(deviceName, sizeof(deviceName)))) != nullptr && writer.WriteString("\r\n") != nullptr;
+    ok = ok && writer.WriteString("X-User-Id: ") != nullptr && writer.WriteString(SanitizedHeaderValue(info.Username, Span<CHAR>(userName, sizeof(userName)))) != nullptr && writer.WriteString("\r\n") != nullptr;
     ok = ok && writer.WriteString("X-Device-Arch: ") != nullptr && writer.WriteString(info.Architecture) != nullptr && writer.WriteString("\r\n") != nullptr;
     ok = ok && writer.WriteString("X-App-Arch: ") != nullptr && writer.WriteString(info.ProcessArchitecture) != nullptr && writer.WriteString("\r\n") != nullptr;
     ok = ok && writer.WriteString("X-Platform: ") != nullptr && writer.WriteString(info.AgentPlatform) != nullptr && writer.WriteString("\r\n") != nullptr;
@@ -174,6 +210,9 @@ INT32 start()
         // it rides every reconnect unchanged.
         SystemInfo identityInfo;
         GetSystemInfo(&identityInfo);
+        CHAR deviceUuid[37];
+        (VOID)identityInfo.MachineUUID.ToString(Span<CHAR>(deviceUuid, sizeof(deviceUuid)));
+        LOG_DEBUG("Identity: host=%s user=%s device=%s os=%s", identityInfo.Hostname, identityInfo.Username, deviceUuid, identityInfo.OSVersion);
         CHAR identityHeaders[1024];
         USIZE identityHeadersLen = BuildIdentityHeaders(identityInfo, sessionKey, Span<CHAR>(identityHeaders, sizeof(identityHeaders)));
         if (identityHeadersLen == 0)

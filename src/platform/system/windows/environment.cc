@@ -12,6 +12,7 @@
 #include "platform/kernel/windows/ntdll.h"
 #include "core/memory/memory.h"
 #include "core/string/string.h"
+#include "core/encoding/utf16.h"
 #include "platform/kernel/windows/windows_types.h"
 #include "platform/kernel/windows/pe.h"
 
@@ -99,14 +100,25 @@ USIZE Environment::GetVariable(const CHAR *name, Span<CHAR> buffer) noexcept
 			}
 			if (*value == L'=')
 			{
-				value++; 
+				value++;
 
-				// Copy value to buffer (convert wide to narrow)
+				// Transcode UTF-16 to UTF-8; truncating wide chars to bytes
+				// corrupts non-ASCII values (locale hostnames/usernames).
+				USIZE valueLength = 0;
+				while (value[valueLength] != L'\0')
+					valueLength++;
+
+				Span<const WCHAR> input(value, valueLength);
+				USIZE index = 0;
 				USIZE len = 0;
-				while (*value != L'\0' && len < buffer.Size() - 1)
+				while (index < input.Size())
 				{
-					// Simple wide to narrow conversion (ASCII only)
-					buffer[len++] = (CHAR)*value++;
+					CHAR bytes[4];
+					USIZE n = UTF16::CodepointToUTF8(input, index, Span<CHAR>(bytes, sizeof(bytes)));
+					if (n == 0)
+						continue;
+					for (USIZE j = 0; j < n && len < buffer.Size() - 1; j++)
+						buffer[len++] = bytes[j];
 				}
 				buffer[len] = '\0';
 				return len;
