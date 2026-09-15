@@ -44,6 +44,18 @@ Result<VOID, Error> Kernel32::PeekNamedPipe(SSIZE hNamedPipe, PVOID lpBuffer, UI
 	return Result<VOID, Error>::Ok();
 }
 
+Result<UINT32, Error> Kernel32::WriteFile(PVOID hFile, PVOID lpBuffer, UINT32 nNumberOfBytesToWrite)
+{
+	// Synchronous positional write: lpOverlapped stays NULL, byte count returns directly.
+	auto fn = (BOOL(STDCALL *)(PVOID hFile, PVOID lpBuffer, UINT32 nNumberOfBytesToWrite, PUINT32 lpNumberOfBytesWritten, PVOID lpOverlapped))ResolveKernel32ExportAddress("WriteFile");
+	if (fn == nullptr)
+		return Result<UINT32, Error>::Err(Error(Error::Kernel32_ExportUnavailable));
+	UINT32 written = 0;
+	if (!fn(hFile, lpBuffer, nNumberOfBytesToWrite, &written, nullptr))
+		return Result<UINT32, Error>::Err(Error(Error::Kernel32_WriteFileFailed));
+	return Result<UINT32, Error>::Ok(written);
+}
+
 Result<VOID, Error> Kernel32::IsWow64Process2(PVOID hProcess, PUINT16 lpProcessMachine, PUINT16 lpNativeMachine)
 {
 	// kernel32 exports IsWow64Process2 as a forwarder to the api-ms-win-core-wow64

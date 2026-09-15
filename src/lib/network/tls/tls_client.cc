@@ -706,7 +706,7 @@ Result<VOID, Error> TlsClient::Open()
 	auto openResult = context.Open();
 	if (!openResult)
 	{
-		LOG_DEBUG("Failed to connect to host: %s, for client: %p", host, this);
+		LOG_ERROR("TCP connect to host %s failed (error: %e)", host, openResult.Error());
 		return Result<VOID, Error>::Err(openResult, Error::Tls_OpenFailed_Socket);
 	}
 	LOG_DEBUG("Connected to host: %s, for client: %p", host, this);
@@ -720,7 +720,7 @@ Result<VOID, Error> TlsClient::Open()
 	auto helloResult = SendClientHello(host);
 	if (!helloResult)
 	{
-		LOG_DEBUG("Failed to send Client Hello for client: %p", this);
+		LOG_ERROR("Failed to send TLS ClientHello to host %s (error: %e)", host, helloResult.Error());
 		return Result<VOID, Error>::Err(helloResult, Error::Tls_OpenFailed_Handshake);
 	}
 	LOG_DEBUG("Client Hello sent successfully for client: %p", this);
@@ -730,7 +730,7 @@ Result<VOID, Error> TlsClient::Open()
 		auto recvResult = ProcessReceive();
 		if (!recvResult)
 		{
-			LOG_DEBUG("Failed to process received data for client: %p", this);
+			LOG_ERROR("TLS 1.3 handshake with host %s failed (error: %e)", host, recvResult.Error());
 			return Result<VOID, Error>::Err(recvResult, Error::Tls_OpenFailed_Handshake);
 		}
 	}

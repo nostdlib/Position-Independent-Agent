@@ -34,7 +34,7 @@ Build-unique DJB2 seeding via FNV-1a, lookup-table-free Base64, UTF-8/UTF-16 sur
 
 ### Layer 2: [Platform](platform/README.md)
 
-- [Console](platform/console/README.md) — Streaming UTF-16→UTF-8 conversion, `ZwWriteFile` vs `WriteConsoleW`
+- [Console](platform/console/README.md) — Streaming UTF-16→UTF-8 conversion, `ZwWriteFile` with legacy-console `WriteFile` fallback
 - [Filesystem](platform/fs/README.md) — 14-variant `struct stat` offsets, Solaris missing `d_type`, drive bitmask enumeration
 - [Memory](platform/memory/README.md) — Size-header trick for `munmap`, `mmap2` page-shift, FreeBSD i386 inline asm
 - [Screen](platform/screen/README.md) — Linux three-tier capture (X11→DRM→fbdev), macOS fork-based crash isolation

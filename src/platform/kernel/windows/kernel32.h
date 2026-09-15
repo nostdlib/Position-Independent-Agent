@@ -10,7 +10,7 @@
  * ResolveKernel32ExportAddress() using DJB2 hash-based PEB module lookup,
  * eliminating static import table entries.
  *
- * @note All wrappers return Result<VOID, Error> for uniform error handling.
+ * @note All wrappers return Result (VOID or a value) for uniform error handling.
  *
  * @see Windows API Index
  *      https://learn.microsoft.com/en-us/windows/win32/apiindex/windows-api-list
@@ -194,6 +194,31 @@ public:
 	 * https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-peeknamedpipe
 	 */
 	[[nodiscard]] static Result<VOID, Error> PeekNamedPipe(SSIZE hNamedPipe, PVOID lpBuffer, UINT32 nBufferSize, PUINT32 lpBytesRead, PUINT32 lpTotalBytesAvail, PUINT32 lpBytesLeftThisMessage);
+
+	/**
+	 * @brief Writes data to the specified file or I/O device.
+	 *
+	 * @details Synchronous positional write to a file, pipe, or console handle.
+	 * Unlike ZwWriteFile, this entry point accepts the pre-Windows 8 console
+	 * pseudo-handles that CSRSS manages (ConDrv real NT handles only arrived in
+	 * Windows 8), which makes it the fallback console output path on legacy
+	 * systems.
+	 *
+	 * @param hFile Handle to the file or device (e.g. the standard output handle).
+	 * @param lpBuffer Data to write.
+	 * @param nNumberOfBytesToWrite Number of bytes to write.
+	 *
+	 * @return Result<UINT32, Error> Ok(bytes written); Err(Kernel32_ExportUnavailable)
+	 *         if the export is missing; Err(Kernel32_WriteFileFailed) if the call failed.
+	 *
+	 * @par Requirements
+	 * Minimum supported client: Windows 2000 Professional [desktop apps | UWP apps]
+	 * Minimum supported server: Windows 2000 Server
+	 *
+	 * @see Microsoft Learn -- WriteFile function
+	 *      https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-writefile
+	 */
+	[[nodiscard]] static Result<UINT32, Error> WriteFile(PVOID hFile, PVOID lpBuffer, UINT32 nNumberOfBytesToWrite);
 
 	/**
 	 * @brief Determines whether the specified process is running under WOW64.
