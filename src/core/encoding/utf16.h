@@ -120,7 +120,6 @@ public:
 		}
 		else if (codepoint < 0x800)
 		{
-			// 2-byte sequence
 			if (output.Size() < 2)
 				return 0;
 			output[0] = (CHAR)(0xC0 | (codepoint >> 6));
@@ -132,7 +131,7 @@ public:
 			// Reject surrogates (U+D800 to U+DFFF) per RFC 3629 Section 3
 			if (codepoint >= 0xD800 && codepoint <= 0xDFFF)
 				return 0;
-			// 3-byte sequence
+			
 			if (output.Size() < 3)
 				return 0;
 			output[0] = (CHAR)(0xE0 | (codepoint >> 12));
@@ -142,7 +141,6 @@ public:
 		}
 		else if (codepoint < 0x110000)
 		{
-			// 4-byte sequence
 			if (output.Size() < 4)
 				return 0;
 			output[0] = (CHAR)(0xF0 | (codepoint >> 18));

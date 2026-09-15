@@ -15,11 +15,11 @@
 /// @brief RGB pixel with 8-bit color channels
 struct RGB
 {
-	UINT8 Red;   ///< Red channel (0–255)
-	UINT8 Green; ///< Green channel (0–255)
-	UINT8 Blue;  ///< Blue channel (0–255)
+	UINT8 Red;   
+	UINT8 Green;
+	UINT8 Blue;  
 };
 
-// Pointer types for RGB
+
 using PRGB = RGB *;
 using PCRGB = const RGB *;

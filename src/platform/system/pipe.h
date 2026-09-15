@@ -89,8 +89,6 @@ public:
 	 */
 	[[nodiscard]] BOOL IsValid() const noexcept { return readFd != INVALID_FD || writeFd != INVALID_FD; }
 
-	/// @name RAII
-	/// @{
 	~Pipe() noexcept
 	{
 		if (IsValid())
@@ -120,15 +118,11 @@ public:
 
 	Pipe(const Pipe &) = delete;
 	Pipe &operator=(const Pipe &) = delete;
-	/// @}
 
-	/// @name Stack-Only Enforcement
-	/// @{
 	VOID *operator new(USIZE) = delete;
 	VOID operator delete(VOID *) = delete;
 	VOID *operator new(USIZE, PVOID ptr) noexcept { return ptr; }
 	VOID operator delete(VOID *, PVOID) noexcept {}
-	/// @}
 
 private:
 	static constexpr SSIZE INVALID_FD = -1;

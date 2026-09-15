@@ -76,15 +76,13 @@ public:
 	 */
 	[[nodiscard]] SSIZE Poll(SSIZE timeoutMs) noexcept;
 
-	/// @name RAII
-	/// @{
 	~ShellProcess() noexcept = default;
 
 	ShellProcess(ShellProcess &&other) noexcept = default;
 	ShellProcess &operator=(ShellProcess &&) = delete;
 	ShellProcess(const ShellProcess &) = delete;
 	ShellProcess &operator=(const ShellProcess &) = delete;
-	/// @}
+
 
 private:
 	Process process;

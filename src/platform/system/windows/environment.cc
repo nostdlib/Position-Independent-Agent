@@ -69,7 +69,6 @@ USIZE Environment::GetVariable(const CHAR *name, Span<CHAR> buffer) noexcept
 		return 0;
 	}
 
-	// Get PEB
 	PPEB peb = GetCurrentPEB();
 	if (peb == nullptr || peb->ProcessParameters == nullptr)
 	{
@@ -100,7 +99,7 @@ USIZE Environment::GetVariable(const CHAR *name, Span<CHAR> buffer) noexcept
 			}
 			if (*value == L'=')
 			{
-				value++; // Skip the '='
+				value++; 
 
 				// Copy value to buffer (convert wide to narrow)
 				USIZE len = 0;

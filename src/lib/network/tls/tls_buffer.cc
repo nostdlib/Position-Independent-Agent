@@ -2,10 +2,6 @@
 #include "core/memory/memory.h"
 #include "platform/console/logger.h"
 
-/// @brief Append data to the TLS buffer
-/// @param data The span of data to append to the buffer
-/// @return The offset at which the data was appended
-
 INT32 TlsBuffer::Append(Span<const CHAR> data)
 {
 	auto r = CheckSize((INT32)data.Size());
@@ -16,9 +12,6 @@ INT32 TlsBuffer::Append(Span<const CHAR> data)
 	return size - (INT32)data.Size() - startPos;
 }
 
-/// @brief Append a value of any type to the TLS buffer
-/// @param count The number of bytes to append
-/// @return The offset at which the bytes were appended
 INT32 TlsBuffer::AppendSize(INT32 count)
 {
 	auto r = CheckSize(count);
@@ -28,9 +21,6 @@ INT32 TlsBuffer::AppendSize(INT32 count)
 	return size - count - startPos;
 }
 
-/// @brief Set the size of the TLS buffer
-/// @param size The new size of the buffer
-/// @return Result indicating success or failure
 Result<VOID, Error> TlsBuffer::SetSize(INT32 newSize)
 {
 	// SetSize is a write-mode operation: it discards any dead prefix too
@@ -44,8 +34,6 @@ Result<VOID, Error> TlsBuffer::SetSize(INT32 newSize)
 	return Result<VOID, Error>::Ok();
 }
 
-/// @brief Clean up the TLS buffer by freeing memory if owned and resetting size and capacity
-/// @return void
 VOID TlsBuffer::Clear()
 {
 	if (buffer && ownsMemory)
@@ -59,12 +47,8 @@ VOID TlsBuffer::Clear()
 	startPos = 0;
 }
 
-/// @brief Ensure there is enough capacity in the TLS buffer to append additional data
-/// @param appendSize The size of the data to be appended
-/// @return Result indicating success or failure
 Result<VOID, Error> TlsBuffer::CheckSize(INT32 appendSize)
 {
-	// Capacity check
 	if (size + appendSize <= capacity)
 	{
 		LOG_DEBUG("Buffer size is sufficient: %d + %d <= %d", size, appendSize, capacity);
@@ -143,8 +127,6 @@ VOID TlsBuffer::Consume(INT32 bytes)
 		Compact();
 }
 
-/// @brief Reclaim the dead prefix left by Consume() by moving the live suffix down
-/// @return void
 VOID TlsBuffer::Compact()
 {
 	if (startPos == 0)
@@ -159,14 +141,12 @@ VOID TlsBuffer::Compact()
 	// the same logical byte after the move
 }
 
-/// @brief Read a block of data from the TLS buffer
-/// @param buf The span to receive the data read from the buffer
-/// @return void
+
 VOID TlsBuffer::Read(Span<CHAR> buf)
 {
 	INT32 available = (size - startPos) - readPos;
 	INT32 count = (INT32)buf.Size();
-	// Adjust count if it exceeds available data
+	
 	if (count > available)
 		count = available;
 	if (count > 0)

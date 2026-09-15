@@ -55,11 +55,11 @@ struct JpegBuffer
 
 struct Graphics
 {
-    PRGB currentScreenshot; // Pointer to the current screenshot
-    PRGB screenshot;        // Pointer to the screenshot of the display
-    PUCHAR bidiff;          // Pointer to the binary difference data
-    PRGB rectBuffer;        // Reusable buffer for rectangle extraction
-    JpegBuffer jpegBuffer;  // Reusable JPEG encoding buffer (persists across frames)
+    PRGB currentScreenshot; 
+    PRGB screenshot;     
+    PUCHAR bidiff;          
+    PRGB rectBuffer;        
+    JpegBuffer jpegBuffer;
 
     Graphics() : currentScreenshot(nullptr), screenshot(nullptr), bidiff(nullptr), rectBuffer(nullptr) {}
 
@@ -87,16 +87,11 @@ struct Graphics
         }
     }
 
-    /// @brief Check if the Graphics instance is initialized by verifying that all necessary buffers are allocated
-    /// @return true if initialized, false otherwise
     BOOL IsInitialized() const
     {
         return currentScreenshot != nullptr && screenshot != nullptr && bidiff != nullptr && rectBuffer != nullptr;
     }
 
-    /// @brief Initialize the Graphics instance by allocating necessary buffers based on the provided screen device's dimensions
-    /// @param device Screen device containing the dimensions for buffer allocation
-    /// @return void
     VOID Init(const ScreenDevice &device)
     {
         USIZE pixelCount = (USIZE)device.Width * device.Height;
@@ -121,8 +116,8 @@ struct Graphics
 
 struct GraphicsList
 {
-    Graphics *graphicsArray; // Array of Graphics structures
-    UINT32 count;            // Number of Graphics structures in the array
+    Graphics *graphicsArray; 
+    UINT32 count;
 
     GraphicsList() : graphicsArray(nullptr), count(0) {}
 
@@ -137,16 +132,11 @@ struct GraphicsList
         count = 0;
     }
     
-    /// @brief Check if the GraphicsList is initialized by verifying that the graphics array is allocated and has a positive count
-    /// @return true if initialized, false otherwise
     BOOL IsInitialized() const
     {
         return graphicsArray != nullptr && count > 0;
     }
 
-    /// @brief Initialize the GraphicsList with a specified count of Graphics structures
-    /// @param Count Number of Graphics structures to allocate
-    /// @return void
     VOID Init(UINT32 Count)
     {
         if(graphicsArray != nullptr){
@@ -182,17 +172,16 @@ struct ScreenCaptureContext
     ~ScreenCaptureContext()
     {
         DeviceList.Free();
-        // GraphicsList will be automatically freed by its destructor
     }
 };
 
-// Structure for representing a rectangle, which consists of x and y coordinates and an array of RGB data.
+
 struct Rectangle
 {
     UINT32 x;
     UINT32 y;
     UINT32 sizeOfData; // Size of the jpeg data in bytes
-    UINT8 *data;       // Pointer to hold the JPEG data.
+    UINT8 *data;
 
     Rectangle(UINT32 x, UINT32 y, UINT32 sizeOfData, UINT8 *data)
         : x(x), y(y), sizeOfData(sizeOfData), data(data) {}

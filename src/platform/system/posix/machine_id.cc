@@ -12,10 +12,6 @@
 #include "platform/kernel/ios/system.h"
 #endif
 
-/// @brief Getting MachineID from File
-/// @param path Path to the file containing the machine ID
-/// @param hasDashes Whether the machine ID contains dashes
-/// @return Result containing the UUID on success, or an error on failure
 static Result<UUID, Error> ReadMachineIdFromFile(const WCHAR *path, bool hasDashes)
 {
 	auto openResult = File::Open(path, File::ModeRead);
@@ -56,8 +52,6 @@ static Result<UUID, Error> ReadMachineIdFromFile(const WCHAR *path, bool hasDash
 	return UUID::FromString(Span<const CHAR>(uuidStr, 36));
 }
 
-/// @brief Getting the Machine UUID
-/// @return UUID on success, or an error if it cannot be retrieved
 Result<UUID, Error> GetMachineUUID()
 {
 	// Try /etc/machine-id first (systemd, 32-char hex, constant across reboots)

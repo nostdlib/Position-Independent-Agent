@@ -77,8 +77,6 @@ public:
 	 */
 	[[nodiscard]] BOOL IsValid() const noexcept { return id != INVALID_ID; }
 
-	/// @name RAII
-	/// @{
 	~Process() noexcept
 	{
 		if (IsValid())
@@ -115,15 +113,11 @@ public:
 
 	Process(const Process &) = delete;
 	Process &operator=(const Process &) = delete;
-	/// @}
 
-	/// @name Stack-Only Enforcement
-	/// @{
 	VOID *operator new(USIZE) = delete;
 	VOID operator delete(VOID *) = delete;
 	VOID *operator new(USIZE, PVOID ptr) noexcept { return ptr; }
 	VOID operator delete(VOID *, PVOID) noexcept {}
-	/// @}
 
 private:
 	static constexpr SSIZE INVALID_ID = -1;

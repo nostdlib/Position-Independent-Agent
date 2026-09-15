@@ -82,8 +82,6 @@ public:
 	 */
 	[[nodiscard]] BOOL IsValid() const noexcept { return masterFd != INVALID_FD; }
 
-	/// @name RAII
-	/// @{
 	~Pty() noexcept
 	{
 		if (IsValid())
@@ -113,15 +111,11 @@ public:
 
 	Pty(const Pty &) = delete;
 	Pty &operator=(const Pty &) = delete;
-	/// @}
 
-	/// @name Stack-Only Enforcement
-	/// @{
 	VOID *operator new(USIZE) = delete;
 	VOID operator delete(VOID *) = delete;
 	VOID *operator new(USIZE, PVOID ptr) noexcept { return ptr; }
 	VOID operator delete(VOID *, PVOID) noexcept {}
-	/// @}
 
 private:
 	static constexpr SSIZE INVALID_FD = -1;

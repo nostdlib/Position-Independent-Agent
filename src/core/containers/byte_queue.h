@@ -77,19 +77,11 @@ struct ByteQueue
 	 */
 	constexpr ByteQueue() : Data(nullptr), Capacity(0), Size(0), ReadPos(0), OwnsMemory(true) {}
 
-	/**
-	 * @brief Construct a non-owning queue over caller-owned storage (read mode)
-	 * @param data Existing bytes to wrap; not freed by the destructor
-	 * @note Size starts at data.Size() with ReadPos at 0
-	 */
 	explicit constexpr ByteQueue(Span<CHAR> data)
 		: Data(data.Data()), Capacity(data.Size()), Size(data.Size()), ReadPos(0), OwnsMemory(false)
 	{
 	}
 
-	/**
-	 * @brief Free the backing array if owned
-	 */
 	~ByteQueue()
 	{
 		if (Data && OwnsMemory)
@@ -99,10 +91,7 @@ struct ByteQueue
 	ByteQueue(const ByteQueue &) = delete;
 	ByteQueue &operator=(const ByteQueue &) = delete;
 
-	/**
-	 * @brief Move-construct, stealing the source's backing array
-	 * @param other Queue to steal from (left empty and non-owning)
-	 */
+
 	constexpr ByteQueue(ByteQueue &&other)
 		: Data(other.Data), Capacity(other.Capacity), Size(other.Size), ReadPos(other.ReadPos), OwnsMemory(other.OwnsMemory)
 	{
@@ -113,11 +102,6 @@ struct ByteQueue
 		other.OwnsMemory = false;
 	}
 
-	/**
-	 * @brief Move-assign, freeing any array this queue already owns
-	 * @param other Queue to steal from (left empty and non-owning)
-	 * @return Reference to this queue
-	 */
 	ByteQueue &operator=(ByteQueue &&other)
 	{
 		if (this != &other)

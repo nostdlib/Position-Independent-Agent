@@ -74,12 +74,12 @@ enum class CipherDirection
 class ChaCha20Encoder
 {
 private:
-	ChaCha20Poly1305 remoteCipher;               /**< @brief Cipher for decrypting remote data */
-	ChaCha20Poly1305 localCipher;                /**< @brief Cipher for encrypting local data */
-	INT32 ivLength;                            /**< @brief IV length in bytes (12 for TLS 1.3) */
-	UCHAR remoteNonce[TLS_CHACHA20_IV_LENGTH]; /**< @brief Base IV for remote (server) direction */
-	UCHAR localNonce[TLS_CHACHA20_IV_LENGTH];  /**< @brief Base IV for local (client) direction */
-	BOOL initialized;                          /**< @brief true if encoder is initialized */
+	ChaCha20Poly1305 remoteCipher;             
+	ChaCha20Poly1305 localCipher;               
+	INT32 ivLength;                           
+	UCHAR remoteNonce[TLS_CHACHA20_IV_LENGTH]; 
+	UCHAR localNonce[TLS_CHACHA20_IV_LENGTH];  
+	BOOL initialized;                          
 
 public:
 	/**

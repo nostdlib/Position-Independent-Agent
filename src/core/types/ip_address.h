@@ -83,8 +83,8 @@ private:
 	IPVersion version; ///< Address version (IPv4, IPv6, or Invalid)
 	union
 	{
-		UINT32 ipv4;    ///< IPv4 address (4 bytes, network byte order)
-		UINT8 ipv6[16]; ///< IPv6 address (16 bytes)
+		UINT32 ipv4;    
+		UINT8 ipv6[16]; 
 	} address;
 
 private:

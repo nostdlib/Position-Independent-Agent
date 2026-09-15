@@ -64,19 +64,12 @@ private:
 	USIZE maxSize;   ///< Maximum writable size in bytes
 
 public:
-	/// @name Heap Operators
-	/// @{
-
 	VOID *operator new(USIZE) = delete;
 	VOID *operator new[](USIZE) = delete;
 	VOID operator delete(VOID *) = delete;
 	VOID operator delete[](VOID *) = delete;
-	VOID *operator new(USIZE, PVOID ptr) noexcept { return ptr; } ///< Placement new for Result<BinaryWriter, Error>
-	VOID operator delete(VOID *, PVOID) noexcept {}               ///< Matching placement delete
-
-	/// @}
-	/// @name Constructors
-	/// @{
+	VOID *operator new(USIZE, PVOID ptr) noexcept { return ptr; }
+	VOID operator delete(VOID *, PVOID) noexcept {}         
 
 	/**
 	 * @brief Construct a writer from a mutable byte span with explicit initial offset
@@ -96,11 +89,6 @@ public:
 		: address(data.Data()), offset(0), maxSize(data.Size())
 	{
 	}
-
-	/// @}
-	/// @name Write Operations
-	/// @{
-
 	/**
 	 * @brief Write a value of type T and advance the cursor
 	 * @tparam T Type to write (must be trivially copyable)
@@ -253,10 +241,6 @@ public:
 		return address;
 	}
 
-	/// @}
-	/// @name Cursor Control
-	/// @{
-
 	/**
 	 * @brief Skip forward by a number of bytes (leaves bytes unwritten)
 	 * @param count Number of bytes to skip
@@ -280,20 +264,10 @@ public:
 		return (offset < maxSize) ? (maxSize - offset) : 0;
 	}
 
-	/// @}
-	/// @name Accessors
-	/// @{
-
-	/** @brief Get the base address of the output buffer */
 	constexpr UINT8 *GetAddress() const { return address; }
-
-	/** @brief Get the current write offset in bytes */
 	constexpr USIZE GetOffset() const { return offset; }
-
-	/** @brief Get the maximum writable size in bytes */
 	constexpr USIZE GetMaxSize() const { return maxSize; }
-
-	/// @}
 };
 
 /** @} */ // end of binary_writer group
+

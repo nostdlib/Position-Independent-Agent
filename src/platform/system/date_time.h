@@ -92,15 +92,15 @@ private:
 	}
 
 public:
-	UINT64 Years = 0;        ///< Year component (e.g., 2026)
-	UINT32 Months = 0;       ///< Month component (1-12)
-	UINT32 Days = 0;         ///< Day of month component (1-31)
-	UINT32 Hours = 0;        ///< Hour component (0-23)
-	UINT32 Minutes = 0;      ///< Minute component (0-59)
-	UINT32 Seconds = 0;      ///< Second component (0-59)
-	UINT64 Milliseconds = 0; ///< Millisecond sub-second component (0-999)
-	UINT64 Microseconds = 0; ///< Microsecond sub-second component (0-999)
-	UINT64 Nanoseconds = 0;  ///< Nanosecond sub-second component (0-999)
+	UINT64 Years = 0;        
+	UINT32 Months = 0;       
+	UINT32 Days = 0;         
+	UINT32 Hours = 0;        
+	UINT32 Minutes = 0;     
+	UINT32 Seconds = 0;      
+	UINT64 Milliseconds = 0; 
+	UINT64 Microseconds = 0; 
+	UINT64 Nanoseconds = 0;
 
 	VOID *operator new(USIZE) = delete;
 	VOID operator delete(VOID *) = delete;
@@ -284,7 +284,6 @@ public:
 				break;
 		}
 
-		// Month and day
 		UINT32 month, day;
 		DaysToMonthDay(days, year, month, day);
 
@@ -292,7 +291,6 @@ public:
 		dt.Months = month;
 		dt.Days = day;
 
-		// Time of day
 		dt.Hours = (UINT32)(timeOfDaySeconds / UINT64(3600u));
 		dt.Minutes = (UINT32)((timeOfDaySeconds / UINT64(60u)) % UINT64(60u));
 		dt.Seconds = (UINT32)(timeOfDaySeconds % UINT64(60u));

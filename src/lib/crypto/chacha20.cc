@@ -43,8 +43,6 @@ static constexpr FORCE_INLINE VOID QuarterRound(UINT32 &a, UINT32 &b, UINT32 &c,
 	c = Plus(c, d); b = BitOps::Rotl32(b ^ c, 7);
 }
 
-// --- Poly1305 Implementation ---
-
 Poly1305::Poly1305(const UCHAR (&key)[32])
 {
 	/// r &= 0xffffffc0ffffffc0ffffffc0fffffff (RFC 8439 Section 2.5)
@@ -54,7 +52,6 @@ Poly1305::Poly1305(const UCHAR (&key)[32])
 	r[3] = (U8To32(&key[9]) >> 6) & 0x3f03fff;
 	r[4] = (U8To32(&key[12]) >> 8) & 0x00fffff;
 
-	/// h = 0
 	Memory::Zero(h, sizeof(h));
 
 	/// Save pad for later
@@ -69,7 +66,6 @@ Poly1305::Poly1305(const UCHAR (&key)[32])
 
 Poly1305::~Poly1305()
 {
-	/// Zero out sensitive state
 	Memory::Zero(h, sizeof(h));
 	Memory::Zero(r, sizeof(r));
 	Memory::Zero(pad, sizeof(pad));
@@ -97,7 +93,7 @@ constexpr VOID Poly1305::U32To8(PUCHAR p, UINT32 v)
 
 VOID Poly1305::ProcessBlocks(Span<const UCHAR> data)
 {
-	const UINT32 hibit = (finished) ? 0 : (1UL << 24); /// 1 << 128
+	const UINT32 hibit = (finished) ? 0 : (1UL << 24); 
 	UINT32 r0, r1, r2, r3, r4;
 	UINT32 s1, s2, s3, s4;
 	UINT32 h0, h1, h2, h3, h4;

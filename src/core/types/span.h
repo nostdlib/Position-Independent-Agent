@@ -139,11 +139,9 @@ public:
 	template <USIZE Count>
 	constexpr FORCE_INLINE Span<T, Count> First() const { return Span<T, Count>(m_data); }
 
-	/** @brief Get the last Count elements as a static-extent Span */
 	template <USIZE Count>
 	constexpr FORCE_INLINE Span<T, Count> Last() const { return Span<T, Count>(m_data + m_size - Count); }
 
-	/** @brief Get Count elements starting at Offset as a static-extent Span */
 	template <USIZE Offset, USIZE Count>
 	constexpr FORCE_INLINE Span<T, Count> Subspan() const { return Span<T, Count>(m_data + Offset); }
 
@@ -151,9 +149,8 @@ public:
 	/// @name Iterators
 	/// @{
 
-	/** @brief Iterator to the first element */
+
 	constexpr FORCE_INLINE T *begin() const { return m_data; }
-	/** @brief Iterator past the last element */
 	constexpr FORCE_INLINE T *end() const { return m_data + m_size; }
 
 	/// @}

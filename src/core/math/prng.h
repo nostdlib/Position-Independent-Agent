@@ -46,17 +46,12 @@ private:
 	UINT64 state;
 
 public:
-	/// @name Heap Operators
-	/// @{
-
 	VOID *operator new(USIZE) = delete;
 	VOID *operator new[](USIZE) = delete;
 	VOID operator delete(VOID *) = delete;
 	VOID operator delete[](VOID *) = delete;
 	VOID *operator new(USIZE, PVOID ptr) noexcept { return ptr; }
 	VOID operator delete(VOID *, PVOID) noexcept {}
-
-	/// @}
 
 	/// The inclusive upper bound for values returned by Get()
 	static constexpr INT32 Max = 0x7FFFFFFF;

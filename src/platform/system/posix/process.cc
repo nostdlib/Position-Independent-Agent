@@ -274,7 +274,6 @@ Result<Process, Error> Process::Create(
 		System::Call(SYS_EXIT, 1);
 	}
 
-	// Parent — return Process with child PID
 	return Result<Process, Error>::Ok(Process(pid));
 }
 
