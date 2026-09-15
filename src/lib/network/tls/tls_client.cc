@@ -706,9 +706,8 @@ Result<VOID, Error> TlsClient::Open()
 	auto openResult = context.Open();
 	if (!openResult)
 	{
-		// WARNING not ERROR: callers with an IPv6 address fall back to IPv4, so a
-		// failed first connect is routine in dual-stack networks.
-		LOG_WARNING("TCP connect to host %s failed (error: %e)", host, openResult.Error());
+		// Silent: dual-stack callers fall back to the other family here; the
+		// terminal failure is logged where both families have been exhausted.
 		return Result<VOID, Error>::Err(openResult, Error::Tls_OpenFailed_Socket);
 	}
 	LOG_DEBUG("Connected to host: %s, for client: %p", host, this);
