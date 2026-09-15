@@ -268,7 +268,7 @@ Result<INT64, Error> HttpClient::ReadResponseHeaders(TlsClient &client, UINT16 e
 	UINT32 bytesConsumed = 0;
 	BOOL statusValid = false;
 	UINT16 receivedStatus = 0;
-	CHAR reason[64];
+CHAR reason[64] = {};
 	UINT32 reasonLength = 0;
 	BOOL reasonDone = false;
 	INT64 contentLength = -1;
