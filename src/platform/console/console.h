@@ -8,7 +8,8 @@
  * differences, providing a unified interface for writing to stdout/stderr
  * using direct syscalls.
  *
- * On Windows, output is performed via NtDll syscalls (WriteConsoleW/WriteFile).
+ * On Windows, output is performed via NtDll syscalls (ZwWriteFile, with a
+ * Kernel32 WriteFile fallback for pre-Windows 8 console pseudo-handles).
  * On Linux, output uses the write() syscall directly. All operations are
  * stack-based with no heap allocations, and type-safe via C++ templates for
  * compile-time character type dispatch (CHAR and WCHAR).
@@ -55,7 +56,9 @@ public:
 	 * Write - Output narrow (ANSI) string to console
 	 *
 	 * Platform Behavior:
-	 *   Windows: Converts to UTF-16 and calls WriteConsoleW
+	 *   Windows: Writes to the standard output handle (ZwWriteFile; kernel32
+	 *            WriteFile fallback when the handle is a pre-Win8 console
+	 *            pseudo-handle that ZwWriteFile rejects)
 	 *   Linux:   Writes directly via write(STDOUT_FILENO, text, length)
 	 *
 	 * @param text   - Pointer to narrow character string
@@ -63,7 +66,7 @@ public:
 	 * @return Number of characters written, 0 on error
 	 *
 	 * SYSCALL IMPLEMENTATION:
-	 *   Windows: NtDll!ZwWriteFile or Kernel32!WriteConsoleA
+	 *   Windows: NtDll!ZwWriteFile or Kernel32!WriteFile (legacy consoles)
 	 *   Linux:   syscall(__NR_write, 1, text, length)
 	 */
 	static NOINLINE UINT32 Write(Span<const CHAR> text);
@@ -72,7 +75,7 @@ public:
 	 * Write - Output wide (Unicode) string to console
 	 *
 	 * Platform Behavior:
-	 *   Windows: Calls WriteConsoleW directly (native Unicode support)
+	 *   Windows: Converts UTF-16 → UTF-8, then the narrow Write path
 	 *   Linux:   Converts UTF-16 → UTF-8, then write() syscall
 	 *
 	 * @param text - Span of wide characters to write

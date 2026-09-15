@@ -82,6 +82,11 @@ if(PIR_BUILD_TYPE STREQUAL "debug")
 endif()
 if(ENABLE_LOGGING)
     list(APPEND PIR_DEFINES ENABLE_LOGGING)
+    # LOG_DEBUG is gated on ENABLE_DEBUG_LOGGING (logger.h); PIR_LOG_LEVEL=DEBUG
+    # is what turns those calls on for the target, not just for CMake messages.
+    if(_pir_log_level STREQUAL "DEBUG")
+        list(APPEND PIR_DEFINES ENABLE_DEBUG_LOGGING)
+    endif()
 endif()
 if(NO_SYSCALL)
     if(NOT PIR_PLATFORM STREQUAL "windows")

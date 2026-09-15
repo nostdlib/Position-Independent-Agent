@@ -285,6 +285,11 @@ struct Error
 		ByteQueue_InvalidState = 145,		 // ByteQueue re-initialized, grew a wrapped queue, or USIZE overflow
 		Bitset_AllocationFailed = 146,	 // Bitset backing array allocation failed
 		Bitset_InvalidState = 147,		 // Bitset re-initialized
+
+		// -------------------------
+		// Kernel32 I/O errors (148)
+		// -------------------------
+		Kernel32_WriteFileFailed = 148,	 // WriteFile call failed
 	};
 
 	/**

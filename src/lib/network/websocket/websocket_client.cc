@@ -65,7 +65,12 @@ Result<VOID, Error> WebSocketClient::Open(PCCHAR path, Span<const CHAR> extraHea
 	{
 		UINT32 len = StringUtils::Length(s);
 		auto r = tlsContext.Write(Span<const CHAR>(s, len));
-		return r && r.Value() == len;
+		if (!r)
+		{
+			LOG_ERROR("Failed to write WebSocket upgrade request segment to %s:%u (error: %e)", hostName, port, r.Error());
+			return false;
+		}
+		return r.Value() == len;
 	};
 
 	if (!writeStr("GET ") ||
@@ -90,6 +95,7 @@ Result<VOID, Error> WebSocketClient::Open(PCCHAR path, Span<const CHAR> extraHea
 		auto extraWrite = tlsContext.Write(extraHeaders);
 		if (!extraWrite || extraWrite.Value() != extraHeaders.Size())
 		{
+			LOG_ERROR("Failed to write identity headers during WebSocket upgrade to %s:%u", hostName, port);
 			(VOID)Close();
 			return Result<VOID, Error>::Err(Error::Ws_WriteFailed);
 		}
@@ -104,6 +110,7 @@ Result<VOID, Error> WebSocketClient::Open(PCCHAR path, Span<const CHAR> extraHea
 	auto headerResult = HttpClient::ReadResponseHeaders(tlsContext, 101);
 	if (!headerResult)
 	{
+		LOG_ERROR("WebSocket upgrade to %s:%u rejected: no HTTP 101 from server (error: %e)", hostName, port, headerResult.Error());
 		(VOID)Close();
 		return Result<VOID, Error>::Err(headerResult, Error::Ws_HandshakeFailed);
 	}
@@ -525,7 +532,10 @@ Result<WebSocketClient, Error> WebSocketClient::Create(Span<const CHAR> url, Spa
 	BOOL isSecure = false;
 	auto parseResult = HttpClient::ParseUrl(url, host, parsedPath, port, isSecure);
 	if (!parseResult)
+	{
+		LOG_ERROR("Invalid WebSocket URL (error: %e)", parseResult.Error());
 		return Result<WebSocketClient, Error>::Err(parseResult, Error::Ws_CreateFailed);
+	}
 
 	Span<const CHAR> hostSpan(host, StringUtils::Length(host));
 	auto dnsResult = DnsClient::Resolve(hostSpan);
@@ -550,7 +560,10 @@ Result<WebSocketClient, Error> WebSocketClient::Create(Span<const CHAR> url, Spa
 	}
 
 	if (!tlsResult)
+	{
+		LOG_ERROR("Failed to create TCP/TLS transport to %s:%u (error: %e)", host, port, tlsResult.Error());
 		return Result<WebSocketClient, Error>::Err(tlsResult, Error::Ws_CreateFailed);
+	}
 
 	WebSocketClient client(host, ip, port, static_cast<TlsClient &&>(tlsResult.Value()));
 

@@ -13,7 +13,7 @@ The runtime uses wide strings (`WCHAR*`, UTF-16LE) internally for compatibility 
 ```
 Write(L"Hello 世界")
   │
-  ├─ Windows: WriteConsoleW() — native UTF-16, no conversion needed
+  ├─ Windows: UTF-16 → UTF-8 conversion (same as POSIX), then the narrow path
   │
   ├─ POSIX:
   │    ├─ For each input character:
@@ -29,10 +29,10 @@ The conversion handles surrogate pairs (codepoints > U+FFFF) and produces valid 
 
 ### Windows Output Path
 
-Windows uses two different output mechanisms:
+Windows uses one output mechanism with a legacy fallback:
 
-- **Narrow strings** (`CHAR*`): `ZwWriteFile` to the `StandardOutput` handle obtained from `PEB→ProcessParameters→StandardOutput`. This bypasses the Win32 `WriteFile` API entirely.
-- **Wide strings** (`WCHAR*`): `WriteConsoleW` resolved dynamically from kernel32.dll via PEB export resolution. Native UTF-16 — no conversion needed.
+- **Narrow strings** (`CHAR*`): `ZwWriteFile` to the `StandardOutput` handle obtained from `PEB→ProcessParameters→StandardOutput`. When that handle is a pre-Windows 8 CSRSS console pseudo-handle (ConDrv only arrived in Windows 8), `ZwWriteFile` rejects it and the write falls back to kernel32 `WriteFile`, which routes console handles through the console subsystem.
+- **Wide strings** (`WCHAR*`): UTF-16 → UTF-8 conversion by the shared path above, then the narrow write.
 
 ### UEFI Output Path
 
@@ -66,6 +66,6 @@ When `ENABLE_LOGGING` is disabled at compile time, all logging calls are elimina
 
 | Platform | Narrow Path | Wide Path |
 |---|---|---|
-| **Windows** | `ZwWriteFile` to PEB→StandardOutput | `WriteConsoleW` (native Unicode) |
+| **Windows** | `ZwWriteFile` to PEB→StandardOutput, kernel32 `WriteFile` fallback for pre-Win8 consoles | UTF-16→UTF-8 conversion, then narrow path |
 | **POSIX** (all 6) | `write(STDOUT_FILENO)` syscall | UTF-16→UTF-8 conversion, then `write()` |
 | **UEFI** | Widen to CHAR16, then `OutputString` | Direct `ConOut→OutputString` |

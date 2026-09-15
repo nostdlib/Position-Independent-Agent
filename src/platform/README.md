@@ -29,7 +29,7 @@ Cross-platform abstraction providing OS-independent interfaces for I/O, networki
 
 ## Modules
 
-- [Console](console/README.md) — Streaming UTF-16→UTF-8 conversion, `ZwWriteFile` vs `WriteConsoleW`, ANSI-colored structured logging
+- [Console](console/README.md) — Streaming UTF-16→UTF-8 conversion, `ZwWriteFile` with legacy-console `WriteFile` fallback, ANSI-colored structured logging
 - [Filesystem](fs/README.md) — RAII file I/O, 14-variant `struct stat` offsets, Solaris missing `d_type`, Windows drive bitmask enumeration
 - [Memory](memory/README.md) — Size-header trick for `munmap`, `mmap2` page-shift, FreeBSD i386 inline asm for 64-bit `off_t`
 - [Screen](screen/README.md) — Linux three-tier capture (X11→DRM→fbdev), macOS fork-based CoreGraphics probing, UEFI GOP
