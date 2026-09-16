@@ -268,7 +268,6 @@ VOID Handle_GetDirectoryContentCommand(PCHAR command, USIZE commandLength, PPCHA
                 WriteErrorDetailResponse(response, responseLength, Error(Error::Fs_ReadFailed));
                 return;
             }
-            LOG_INFO("Directory entry added: %ws", entry.Name);
             continue;
         }
 
