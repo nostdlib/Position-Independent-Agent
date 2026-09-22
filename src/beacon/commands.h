@@ -55,7 +55,11 @@ enum CommandType : UINT8
 #ifndef AGENT_COMMIT_HASH
 #define AGENT_COMMIT_HASH "00000000"
 #endif
-// v2: WireDirectoryEntry gained UINT64 VolumeSerial (appended; array stride changed)
+// v2: WireDirectoryEntry gained UINT64 VolumeSerial (appended; array stride changed).
+// v3: the listing became variable-length compact entries (WireListing, wire_listing.h)
+//     — versioned by the IN-BAND format word at frame offset 8, NOT by this
+//     header: the C2 registration gate accepts only 0/1, so AGENT_API_VERSION
+//     stays 1 and the listing format generation rides the frame itself.
 #ifndef AGENT_API_VERSION
 #define AGENT_API_VERSION 1
 #endif

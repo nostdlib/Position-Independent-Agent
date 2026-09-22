@@ -133,30 +133,11 @@ the array initialization.
 
 ## 3. Wire Format and `#pragma pack`
 
-Commands arrive as raw bytes over a binary WebSocket frame. The agent casts
-those bytes directly to struct pointers. For that to work, the struct layout
-must match the protocol exactly -- no compiler-inserted padding.
-
-From `src/beacon/commandsHandler.cc` (lines 18-33):
-
-```cpp
-#pragma pack(push, 1)
-struct WireDirectoryEntry
-{
-    CHAR16 Name[256];
-    UINT64 CreationTime;
-    UINT64 LastModifiedTime;
-    UINT64 Size;
-    UINT32 Type;
-    BOOL IsDirectory;
-    BOOL IsDrive;
-    BOOL IsHidden;
-    BOOL IsSystem;
-    BOOL IsReadOnly;
-    UINT64 VolumeSerial;
-};
-#pragma pack(pop)
-```
+Commands arrive as raw bytes over a binary WebSocket frame. Where the protocol
+uses fixed-size records, the agent writes (or casts) them through packed
+structs — the layout must match the protocol exactly, with no compiler-inserted
+padding. (Fixed-stride examples: the `ScreenDevice` array in `GetDisplays`, the
+`AgentBuildInfo` struct in `commands.h`.)
 
 Without `#pragma pack(push, 1)`, the compiler would insert alignment padding.
 A struct with a `UINT8` followed by a `UINT32` normally occupies 8 bytes (3
@@ -168,9 +149,19 @@ On Windows, `WCHAR` is 2 bytes and this would work by accident. On Linux and
 macOS, `WCHAR` is 4 bytes. Using `WCHAR` in a wire struct would silently corrupt
 every string field. `CHAR16` is a fixed 2-byte type on all platforms.
 
-`WireDirectoryEntry` is read as a fixed-size array, so appending `VolumeSerial`
-(API v2) changes the array stride — a breaking change for any parser that
-sizes the response by the struct, which is why the API version was bumped.
+The directory listing is the one sanctioned exception to both patterns: since
+format v3 its entries are VARIABLE-LENGTH (a `nameLen u16` + WTF-8 name + attrs
+byte + LEB128 size + unix-second u32 pair + drive-only serial), so there is no
+wire struct to pack — `WireListing::Encode`
+(`src/platform/fs/wire_listing.h`) sizes the frame exactly in one pass and
+writes it in a second, and the name is WTF-8 bytes (`UTF16::ToWTF8`), the only
+place a non-CHAR16 string rides the wire. The encoder lives in the platform
+layer (not `src/beacon`) so the test binary — which swaps the app layer out
+under `BUILD_TESTS` — compiles and golden-vector-tests it. The v3 change rode
+the IN-BAND format word (u32 at frame offset 8), not `X-Api-Version`: the
+legacy fixed 553-byte `WireDirectoryEntry` stride change (API v2,
+`VolumeSerial`) had to bump the header version, which the C2's registration
+gate makes costly — in-band is how format generations ship now.
 
 The `AgentBuildInfo` struct in `commands.h` follows the same pattern:
 
