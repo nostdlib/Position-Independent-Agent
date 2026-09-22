@@ -158,7 +158,7 @@ writes it in a second, and the name is WTF-8 bytes (`UTF16::ToWTF8`), the only
 place a non-CHAR16 string rides the wire. The encoder lives in the platform
 layer (not `src/beacon`) so the test binary — which swaps the app layer out
 under `BUILD_TESTS` — compiles and golden-vector-tests it. The compact-format change rode
-the IN-BAND format word (u32 at frame offset 8), not `X-Api-Version`: the
+the IN-BAND format word (u32 at offset 8 of the listing body (offset 12 of the raw reply — the [status][corrId] envelope prefix precedes it)), not `X-Api-Version`: the
 legacy fixed 553-byte `WireDirectoryEntry` stride change (API v2,
 `VolumeSerial`) had to bump the header version, which the C2's registration
 gate makes costly — in-band is how format generations ship now.

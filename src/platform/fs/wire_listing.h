@@ -29,8 +29,9 @@
 #include "core/string/string.h"
 #include "platform/fs/directory_entry.h"
 
-/// The in-band wire format word, written at frame offset 8. NOT X-Api-Version
-/// (which stays 1) — the C2 dispatches on this word and accepts only 3.
+/// The in-band wire format word, written at offset 8 of the listing body (offset 12 of the raw reply — the [status][corrId] envelope prefix precedes it).
+/// NOT X-Api-Version (which stays 1) — the C2 strips the envelope, dispatches on
+/// this word, and accepts only 3.
 constexpr UINT32 LISTING_FORMAT_WORD = 3;
 
 /// What DirectoryEntry::CreationTime/LastModifiedTime hold on the building
