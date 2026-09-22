@@ -1,14 +1,14 @@
 /**
  * @file wire_listing.h
- * @brief Compact (format v3) directory-listing wire encoder
+ * @brief Compact directory-listing wire encoder
  *
  * @details Encodes a DirectoryEntry array into the variable-length listing
  * frame the C2 parses: a 12-byte header [status:u32 = 0][entryCount:u32]
- * [formatVersion:u32 = 3] followed by per-entry
+ * [formatWord:u32 = 3] followed by per-entry
  * [nameLen:u16][name: WTF-8][attrs:u8][size: LEB128 u64]
  * [creationTime:u32 unix-seconds][lastModifiedTime:u32 unix-seconds]
  * (+ [volumeSerial:u32] for drive entries only) — ~26 bytes for a typical
- * entry against the legacy fixed 553-byte block. Names are WTF-8
+ * entry against the old fixed 553-byte block. Names are WTF-8
  * (UTF16::ToWTF8): unpaired surrogates ride as 3-byte sequences, so
  * arbitrary NTFS UTF-16 names and POSIX surrogateescape names round-trip
  * byte-exactly; the C2's strict decoder reverses it.
@@ -17,7 +17,7 @@
  * swaps the app layer out under BUILD_TESTS — here the encoder compiles
  * into both and its golden vectors run on every host.
  *
- * @see C2 Features/Operations/FileSystem/DirEntry.cs (ParseV3) — the
+ * @see C2 Features/Operations/FileSystem/DirEntry.cs (ParseEntries) — the
  * parsing half; the two must stay byte-compatible.
  */
 
@@ -29,10 +29,9 @@
 #include "core/string/string.h"
 #include "platform/fs/directory_entry.h"
 
-/// In-band listing format generation. Rides the frame header (offset 8), NOT
-/// X-Api-Version — the C2 registration gate accepts only versions 0/1, and it
-/// dispatches on this word instead: 3 = this layout, 0 = legacy fixed stride.
-constexpr UINT32 LISTING_FORMAT_VERSION = 3;
+/// The in-band wire format word, written at frame offset 8. NOT X-Api-Version
+/// (which stays 1) — the C2 dispatches on this word and accepts only 3.
+constexpr UINT32 LISTING_FORMAT_WORD = 3;
 
 /// What DirectoryEntry::CreationTime/LastModifiedTime hold on the building
 /// platform — passed in by the caller (the beacon layer knows its platform)
@@ -44,7 +43,7 @@ enum class ListingTimeEncoding : UINT8
 	ListingTime_UnixSeconds = 1, ///< POSIX st_mtime seconds (UEFI sends zeros)
 };
 
-/// @brief Static v3 compact listing encoder
+/// @brief Static compact listing encoder
 /// @details Two passes over the entries: an exact-size pass (every byte
 /// accounted before any allocation — a 50k-entry listing is one allocation,
 /// no growth copies), then an in-place write pass. All writes are
@@ -53,7 +52,7 @@ enum class ListingTimeEncoding : UINT8
 class WireListing
 {
 public:
-	/// [status:u32][entryCount:u32][formatVersion:u32]
+	/// [status:u32][entryCount:u32][formatWord:u32]
 	static constexpr USIZE HeaderSize = 12;
 	/// Name[256] minus the terminator slot every platform backend respects
 	static constexpr USIZE MaxNameUnits = 255;
@@ -102,7 +101,7 @@ public:
 
 		StoreU32(out.Data + 0, 0); // status = success (see note above)
 		StoreU32(out.Data + 4, (UINT32)entries.Size());
-		StoreU32(out.Data + 8, LISTING_FORMAT_VERSION);
+		StoreU32(out.Data + 8, LISTING_FORMAT_WORD);
 		return out.Resize(total);
 	}
 

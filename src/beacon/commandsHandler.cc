@@ -247,7 +247,7 @@ VOID Handle_GetDirectoryContentCommand(PCHAR command, USIZE commandLength, PPCHA
         return;
     }
 
-    // Encode the compact (format v3) listing — one exact-size allocation, the
+    // Encode the compact listing — one exact-size allocation, the
     // variable-length layout ~26 B/entry against the legacy fixed 553. The
     // time encoding is per platform: Windows/WPD fill FILETIMEs, POSIX already
     // carries unix seconds, UEFI sends zeros (unix kind, zero values).

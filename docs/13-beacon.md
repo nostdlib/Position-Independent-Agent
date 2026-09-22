@@ -150,14 +150,14 @@ macOS, `WCHAR` is 4 bytes. Using `WCHAR` in a wire struct would silently corrupt
 every string field. `CHAR16` is a fixed 2-byte type on all platforms.
 
 The directory listing is the one sanctioned exception to both patterns: since
-format v3 its entries are VARIABLE-LENGTH (a `nameLen u16` + WTF-8 name + attrs
+format word 3 its entries are VARIABLE-LENGTH (a `nameLen u16` + WTF-8 name + attrs
 byte + LEB128 size + unix-second u32 pair + drive-only serial), so there is no
 wire struct to pack — `WireListing::Encode`
 (`src/platform/fs/wire_listing.h`) sizes the frame exactly in one pass and
 writes it in a second, and the name is WTF-8 bytes (`UTF16::ToWTF8`), the only
 place a non-CHAR16 string rides the wire. The encoder lives in the platform
 layer (not `src/beacon`) so the test binary — which swaps the app layer out
-under `BUILD_TESTS` — compiles and golden-vector-tests it. The v3 change rode
+under `BUILD_TESTS` — compiles and golden-vector-tests it. The compact-format change rode
 the IN-BAND format word (u32 at frame offset 8), not `X-Api-Version`: the
 legacy fixed 553-byte `WireDirectoryEntry` stride change (API v2,
 `VolumeSerial`) had to bump the header version, which the C2's registration

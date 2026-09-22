@@ -1,8 +1,8 @@
 /**
  * @file wire_listing_tests.h
- * @brief Golden-vector tests for the v3 compact listing encoder
+ * @brief Golden-vector tests for the compact listing encoder
  *
- * @details Byte-exact mirrors of the C# suite's v3 vectors
+ * @details Byte-exact mirrors of the C# suite's vectors
  * (tests/C2.Tests/FileSystem/DirEntryTests.cs) — the two suites must agree
  * byte for byte, or the wire contract is broken. Pure logic: no syscalls,
  * no platform guard needed.
