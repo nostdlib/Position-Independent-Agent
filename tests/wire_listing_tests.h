@@ -36,6 +36,26 @@ public:
 	}
 
 private:
+	/// Byte-assembled copy of a wide literal into an ALIGNED buffer — string
+	/// literals materialize as pic-transform stack buffers at arbitrary offsets,
+	/// so wchar loads on them are not alignment-safe on strict-alignment
+	/// targets (the MIPS32 qemu CI faults with SIGBUS). Returns the unit count.
+	static USIZE StageLiteral(PCWCHAR src, WCHAR (&dst)[WireListing::MaxNameUnits])
+	{
+		const UINT8 *raw = (const UINT8 *)src;
+		USIZE units = 0;
+		while (units < WireListing::MaxNameUnits)
+		{
+			UINT32 unit = 0;
+			for (USIZE b = 0; b < sizeof(WCHAR); b++)
+				unit |= (UINT32)raw[units * sizeof(WCHAR) + b] << (8 * b);
+			if (unit == 0)
+				break;
+			dst[units++] = (WCHAR)unit;
+		}
+		return units;
+	}
+
 	/// Positional: (name, isDirectory, isDrive, isHidden, isSystem, isReadOnly,
 	/// size, creationTime, lastModifiedTime, type, volumeSerial) — DirectoryEntry's order.
 	static DirectoryEntry MakeEntry(PCWCHAR name, BOOL isDirectory = false, BOOL isDrive = false,
@@ -45,11 +65,10 @@ private:
 	{
 		DirectoryEntry entry;
 		Memory::Zero(&entry, sizeof(entry));
-		USIZE units = StringUtils::Length(name);
-		if (units > 255)
-			units = 255;
-		for (USIZE i = 0; i < units; i++)
-			entry.Name[i] = name[i];
+		// Stage byte-wise, then Memory::Copy (byte-safe) into the pack(1) field.
+		WCHAR staged[WireListing::MaxNameUnits];
+		USIZE units = StageLiteral(name, staged);
+		Memory::Copy(entry.Name, staged, units * sizeof(WCHAR));
 		entry.IsDirectory = isDirectory;
 		entry.IsDrive = isDrive;
 		entry.IsHidden = isHidden;
@@ -390,9 +409,10 @@ private:
 			PCWCHAR names[] = {L"plain.txt", L"café.txt", L"\U0001F600", L"\xD800", L"\xDC80",
 							   L"a\xD800\u0062", L"\xD800\xDC00"}; // lone surrogate inside a name + a real pair
 			CHAR staging[WireListing::MaxNameBytes + 4];
+			WCHAR staged[WireListing::MaxNameUnits];
 			for (UINT32 i = 0; i < sizeof(names) / sizeof(names[0]); i++)
 			{
-				Span<const WCHAR> input(names[i], StringUtils::Length(names[i]));
+				Span<const WCHAR> input(staged, StageLiteral(names[i], staged));
 				USIZE written = UTF16::ToWTF8(input, Span<CHAR>(staging, sizeof(staging)));
 				USIZE sized = UTF16::WTF8Length(input);
 				if (written != sized)

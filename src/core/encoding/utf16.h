@@ -272,6 +272,10 @@ public:
 		USIZE inputIndex = 0;
 		USIZE outputIndex = 0;
 
+		// Termination is structural: every iteration consumes at least one input
+		// unit — the surrogate branch advances inputIndex directly, and
+		// CodepointToUTF8 consumes its unit BEFORE the byte-count decision (an
+		// invalid unit costs 0 output bytes but is still consumed).
 		while (inputIndex < input.Size() && outputIndex + 4 <= output.Size())
 		{
 			WCHAR unit = input[inputIndex];

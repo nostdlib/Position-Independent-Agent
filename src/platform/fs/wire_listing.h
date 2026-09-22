@@ -139,13 +139,28 @@ public:
 private:
 	WireListing() = delete; // static-only
 
-	/// NUL-scan capped at the wire name field — every backend truncates names at
-	/// 255 units, so the cap only mirrors that; the scan itself walks to the
-	/// terminator the backends always write.
-	static USIZE NameUnits(const DirectoryEntry &entry)
+	/// Copy the entry's name units into an ALIGNED staging buffer, byte-assembled,
+	/// and return the unit count. DirectoryEntry is pack(1), so its WCHAR array
+	/// can sit at any byte offset — a wchar load from it faults on
+	/// strict-alignment targets (MIPS32/ARMv7 o32), which is exactly what the
+	/// qemu CI caught. The scan is also BOUNDED: a backend that fills all 256
+	/// units without a terminator must not run the walk off the array.
+	static USIZE StageName(const DirectoryEntry &entry, WCHAR (&staging)[MaxNameUnits])
 	{
-		USIZE units = StringUtils::Length(entry.Name);
-		return units > MaxNameUnits ? MaxNameUnits : units;
+		const UINT8 *raw = (const UINT8 *)entry.Name;
+		USIZE units = 0;
+		while (units < MaxNameUnits)
+		{
+			// Assemble the unit from bytes in little-endian order (every default
+			// target is LE; zero-detection is order-independent either way).
+			UINT32 unit = 0;
+			for (USIZE b = 0; b < sizeof(WCHAR); b++)
+				unit |= (UINT32)raw[units * sizeof(WCHAR) + b] << (8 * b);
+			if (unit == 0)
+				break;
+			staging[units++] = (WCHAR)unit;
+		}
+		return units;
 	}
 
 	/// Five flag bits + the drive type in bits 5-7 (masked to the 3-bit wire
@@ -196,8 +211,9 @@ private:
 
 	static Result<VOID, Error> AccumulateEntrySize(const DirectoryEntry &entry, USIZE &total)
 	{
+		WCHAR staging[MaxNameUnits];
 		USIZE entrySize = EntryWireSize(entry,
-			UTF16::WTF8Length(Span<const WCHAR>(entry.Name, NameUnits(entry))));
+			UTF16::WTF8Length(Span<const WCHAR>(staging, StageName(entry, staging))));
 		if (total + entrySize < total)
 			return Result<VOID, Error>::Err(Error::Buffer_InvalidState); // USIZE overflow
 		total += entrySize;
@@ -209,10 +225,11 @@ private:
 	static Result<VOID, Error> AppendEntry(CHAR *base, USIZE &offset, USIZE limit,
 										   const DirectoryEntry &entry, ListingTimeEncoding enc)
 	{
-		USIZE units = NameUnits(entry);
+		WCHAR staging[MaxNameUnits];
+		USIZE units = StageName(entry, staging);
 		// +4 headroom: ToWTF8's loop reserves room for a maximal 4-byte tail
 		CHAR name[MaxNameBytes + 4];
-		USIZE nameBytes = UTF16::ToWTF8(Span<const WCHAR>(entry.Name, units),
+		USIZE nameBytes = UTF16::ToWTF8(Span<const WCHAR>(staging, units),
 										Span<CHAR>(name, sizeof(name)));
 
 		USIZE need = EntryWireSize(entry, nameBytes);

@@ -426,7 +426,7 @@ Lists all entries in a directory (excluding `.` and `..`). An empty path enumera
 | Field        | Size     | Encoding                                                                  |
 |--------------|----------|---------------------------------------------------------------------------|
 | `nameLen`    | 2        | `UINT16 LE` — byte length of the name bytes below                         |
-| `name`       | 0..765   | WTF-8: UTF-8 plus 3-byte sequences for lone surrogates (see below)        |
+| `name`       | 0..1020  | WTF-8: UTF-8 plus 3-byte sequences for lone surrogates (see below). Platform-dependent ceiling: ≤765 B on 16-bit-WCHAR platforms (Windows/UEFI), ≤1020 B on 32-bit-WCHAR platforms (POSIX — astral single units) |
 | `attrs`      | 1        | bit0 `IsDirectory` · bit1 `IsDrive` · bit2 `IsHidden` · bit3 `IsSystem` · bit4 `IsReadOnly` · bits5-7 drive `Type` |
 | `size`       | 1..10    | LEB128 varint `UINT64` — all entries (directories too)                    |
 | `ctime`      | 4        | `UINT32 LE` unix-epoch seconds (0 = unknown)                              |
