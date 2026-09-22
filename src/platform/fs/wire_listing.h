@@ -5,9 +5,10 @@
  * @details Encodes a DirectoryEntry array into the variable-length listing
  * frame the C2 parses: a 12-byte header [status:u32 = 0][entryCount:u32]
  * [formatWord:u32 = 3] followed by per-entry
- * [nameLen:u16][name: WTF-8][attrs:u8][size: LEB128 u64]
- * [creationTime:u32 unix-seconds][lastModifiedTime:u32 unix-seconds]
- * (+ [volumeSerial:u32] for drive entries only) — ~26 bytes for a typical
+ * [attrs:u8][size: LEB128 u64][creationTime:u32 unix-seconds]
+ * [lastModifiedTime:u32 unix-seconds](+ [volumeSerial:u32] for drive entries
+ * only)[nameLen:u16][name: WTF-8] — the fixed-shape metadata first, the
+ * variable-length name last — ~26 bytes for a typical
  * entry against the old fixed 553-byte block. Names are WTF-8
  * (UTF16::ToWTF8): unpaired surrogates ride as 3-byte sequences, so
  * arbitrary NTFS UTF-16 names and POSIX surrogateescape names round-trip
@@ -219,7 +220,7 @@ private:
 	/// expression both passes share, so they cannot drift apart.
 	static USIZE EntryWireSize(const DirectoryEntry &entry, USIZE nameBytes)
 	{
-		return 2 + nameBytes + 1 + VarintLength(entry.Size) + 4 + 4 + (entry.IsDrive ? 4 : 0);
+		return 1 + VarintLength(entry.Size) + 4 + 4 + (entry.IsDrive ? 4 : 0) + 2 + nameBytes;
 	}
 
 	static Result<VOID, Error> AccumulateEntrySize(const DirectoryEntry &entry, USIZE &total)
@@ -249,10 +250,8 @@ private:
 		if (offset + need < offset || offset + need > limit)
 			return Result<VOID, Error>::Err(Error::Buffer_InvalidState);
 
-		StoreU16(base + offset, (UINT16)nameBytes);
-		offset += 2;
-		Memory::Copy(base + offset, name, nameBytes);
-		offset += nameBytes;
+		// Fixed-shape metadata first, name last: a decoder reads every attribute
+		// field before the variable-length tail.
 		base[offset++] = (CHAR)EncodeAttrs(entry);
 		offset += EncodeVarint(entry.Size, base + offset);
 		StoreU32(base + offset, ToUnixSeconds(entry.CreationTime, enc));
@@ -267,6 +266,10 @@ private:
 			StoreU32(base + offset, (UINT32)(entry.VolumeSerial ^ (entry.VolumeSerial >> 32)));
 			offset += 4;
 		}
+		StoreU16(base + offset, (UINT16)nameBytes);
+		offset += 2;
+		Memory::Copy(base + offset, name, nameBytes);
+		offset += nameBytes;
 		return Result<VOID, Error>::Ok();
 	}
 };

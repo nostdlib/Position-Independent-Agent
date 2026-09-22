@@ -150,8 +150,8 @@ macOS, `WCHAR` is 4 bytes. Using `WCHAR` in a wire struct would silently corrupt
 every string field. `CHAR16` is a fixed 2-byte type on all platforms.
 
 The directory listing is the one sanctioned exception to both patterns: since
-format word 3 its entries are VARIABLE-LENGTH (a `nameLen u16` + WTF-8 name + attrs
-byte + LEB128 size + unix-second u32 pair + drive-only serial), so there is no
+format word 3 its entries are VARIABLE-LENGTH (attrs
+byte + LEB128 size + unix-second u32 pair + drive-only serial, then the nameLen u16 + WTF-8 name tail), so there is no
 wire struct to pack — `WireListing::Encode`
 (`src/platform/fs/wire_listing.h`) sizes the frame exactly in one pass and
 writes it in a second, and the name is WTF-8 bytes (`UTF16::ToWTF8`), the only

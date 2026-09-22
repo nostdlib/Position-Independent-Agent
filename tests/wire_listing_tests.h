@@ -122,7 +122,8 @@ private:
 	}
 
 	// Frame shape: [status 00000000][count u32le][format 03000000] + entries.
-	// Entry shape: [nameLen u16le][name WTF-8][attrs u8][size LEB128][ctime u32][mtime u32]([serial u32] drive-only).
+	// Entry shape: [attrs u8][size LEB128][ctime u32][mtime u32]([serial u32] drive-only)[nameLen u16le][name WTF-8] —
+	// fixed-shape metadata first, the variable-length name last.
 
 	static BOOL TestGoldenVectorsSuite()
 	{
@@ -149,12 +150,12 @@ private:
 		{
 			static const CHAR Expected[29] = {
 				0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, // header: status, count 1, format 3
-				0x05, 0x00,                         // nameLen 5
-				0x61, 0x2E, 0x74, 0x78, 0x74,       // "a.txt"
 				0x00,                               // attrs: no flags
 				0x00,                               // size varint 0
 				0x00, 0x00, 0x00, 0x00,             // ctime 0
-				0x00, 0x00, 0x00, 0x00};            // mtime 0
+				0x00, 0x00, 0x00, 0x00,             // mtime 0
+				0x05, 0x00,                         // nameLen 5
+				0x61, 0x2E, 0x74, 0x78, 0x74};      // "a.txt"
 			allPassed &= CheckSingleEntry(MakeEntry(L"a.txt"), ListingTimeEncoding::ListingTime_UnixSeconds,
 										  Expected, sizeof(Expected), "PlainFile");
 		}
@@ -163,12 +164,12 @@ private:
 		{
 			static const CHAR Expected[32] = {
 				0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0,
-				0x07, 0x00,
-				0x62, 0x69, 0x67, 0x2E, 0x62, 0x69, 0x6E, // "big.bin"
 				0x00,                               // attrs
 				(CHAR)0xAC, 0x02,                   // size 300 (LEB128)
 				0x00, 0x00, 0x00, 0x00,             // ctime 0
-				0x00, (CHAR)0xF1, 0x53, 0x65};      // mtime 1700000000
+				0x00, (CHAR)0xF1, 0x53, 0x65,       // mtime 1700000000
+				0x07, 0x00,                         // nameLen 7
+				0x62, 0x69, 0x67, 0x2E, 0x62, 0x69, 0x6E}; // "big.bin"
 			allPassed &= CheckSingleEntry(MakeEntry(L"big.bin", false, false, false, false, false, 300, 0, 1700000000),
 										  ListingTimeEncoding::ListingTime_UnixSeconds,
 										  Expected, sizeof(Expected), "VarintAndTime");
@@ -178,13 +179,13 @@ private:
 		{
 			static const CHAR Expected[31] = {
 				0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0,
-				0x03, 0x00,
-				0x43, 0x3A, 0x5C,                   // "C:\"
-				0x63,                               // attrs
+				0x63,                               // attrs dir|drive|type 3 << 5
 				0x00,                               // size 0
 				0x00, 0x00, 0x00, 0x00,             // ctime 0
 				0x00, 0x00, 0x00, 0x00,             // mtime 0
-				(CHAR)0xA2, 0x59, 0x41, (CHAR)0xF4}; // serial 0xF44159A2 LE
+				(CHAR)0xA2, 0x59, 0x41, (CHAR)0xF4, // serial 0xF44159A2 LE
+				0x03, 0x00,                         // nameLen 3
+				0x43, 0x3A, 0x5C};                  // "C:" + backslash
 			allPassed &= CheckSingleEntry(MakeEntry(L"C:\\", true, true, false, false, false, 0, 0, 0, 3, 0xF44159A2),
 										  ListingTimeEncoding::ListingTime_UnixSeconds,
 										  Expected, sizeof(Expected), "Drive");
@@ -195,13 +196,13 @@ private:
 		{
 			static const CHAR WpdFold[38] = {
 				0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0,
-				0x0A, 0x00,                                        // nameLen 10
-				':', ':', 'm', 't', 'p', '-', '0', '1', '2', '3', // "::mtp-0123"
 				0x43,                                              // attrs: dir|drive, type 2 << 5
 				0x00,                                              // size 0
 				0x00, 0x00, 0x00, 0x00,                            // ctime 0
 				0x00, 0x00, 0x00, 0x00,                            // mtime 0
-				(CHAR)0x88, (CHAR)0x88, (CHAR)0x88, (CHAR)0x88};  // folded serial LE
+				(CHAR)0x88, (CHAR)0x88, (CHAR)0x88, (CHAR)0x88,    // folded serial LE
+				0x0A, 0x00,                                        // nameLen 10
+				':', ':', 'm', 't', 'p', '-', '0', '1', '2', '3'}; // "::mtp-0123"
 			allPassed &= CheckSingleEntry(MakeEntry(L"::mtp-0123", true, true, false, false, false, 0, 0, 0, 2, 0x123456789ABCDEF0ULL),
 										  ListingTimeEncoding::ListingTime_UnixSeconds,
 										  WpdFold, sizeof(WpdFold), "WpdSerialFold");
@@ -211,18 +212,18 @@ private:
 		{
 			static const CHAR ReadOnly[30] = {
 				0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0,
-				0x06, 0x00, 0x72, 0x6F, 0x2E, 0x64, 0x61, 0x74, // "ro.dat"
 				0x10, 0x01,                       // attrs RO, size varint 1
-				0, 0, 0, 0, 0, 0, 0, 0};
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0x06, 0x00, 0x72, 0x6F, 0x2E, 0x64, 0x61, 0x74}; // nameLen 6, "ro.dat"
 			allPassed &= CheckSingleEntry(MakeEntry(L"ro.dat", false, false, false, false, true, 1),
 										  ListingTimeEncoding::ListingTime_UnixSeconds,
 										  ReadOnly, sizeof(ReadOnly), "ReadOnlyFlag");
 
 			static const CHAR Dir4096[31] = {
 				0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0,
-				0x06, 0x00, 0x50, 0x68, 0x6F, 0x74, 0x6F, 0x73, // "Photos"
 				0x01, (CHAR)0x80, 0x20,           // attrs dir, size 4096 (LEB128)
-				0, 0, 0, 0, 0, 0, 0, 0};
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0x06, 0x00, 0x50, 0x68, 0x6F, 0x74, 0x6F, 0x73}; // nameLen 6, "Photos"
 			allPassed &= CheckSingleEntry(MakeEntry(L"Photos", true, false, false, false, false, 4096),
 										  ListingTimeEncoding::ListingTime_UnixSeconds,
 										  Dir4096, sizeof(Dir4096), "DirectoryFlag");
@@ -232,9 +233,9 @@ private:
 		{
 			static const CHAR Expected[24] = {
 				0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0,
-				0x00, 0x00,                         // nameLen 0
 				0x00, 0x00,                         // attrs, size 0
-				0, 0, 0, 0, 0, 0, 0, 0};
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0x00, 0x00};                        // nameLen 0
 			allPassed &= CheckSingleEntry(MakeEntry(L""), ListingTimeEncoding::ListingTime_UnixSeconds,
 										  Expected, sizeof(Expected), "EmptyName");
 		}
@@ -250,21 +251,21 @@ private:
 		{
 			static const CHAR CrossU32[29] = {
 				0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0,
-				0x01, 0x00, 0x66,                   // nameLen 1, "f"
 				0x00,                               // attrs
 				(CHAR)0x81, (CHAR)0x80, (CHAR)0x80, (CHAR)0x80, 0x10, // 2^32+1
-				0, 0, 0, 0, 0, 0, 0, 0};
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0x01, 0x00, 0x66};                  // nameLen 1, "f"
 			allPassed &= CheckSingleEntry(MakeEntry(L"f", false, false, false, false, false, 0x100000001ull),
 										  ListingTimeEncoding::ListingTime_UnixSeconds,
 										  CrossU32, sizeof(CrossU32), "Varint2p32");
 
 			static const CHAR U64Max[34] = {
 				0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0,
-				0x01, 0x00, 0x66,
 				0x00,
 				(CHAR)0xFF, (CHAR)0xFF, (CHAR)0xFF, (CHAR)0xFF, (CHAR)0xFF,
 				(CHAR)0xFF, (CHAR)0xFF, (CHAR)0xFF, (CHAR)0xFF, 0x01, // u64 max
-				0, 0, 0, 0, 0, 0, 0, 0};
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0x01, 0x00, 0x66};                  // nameLen 1, "f"
 			allPassed &= CheckSingleEntry(MakeEntry(L"f", false, false, false, false, false, 0xFFFFFFFFFFFFFFFFull),
 										  ListingTimeEncoding::ListingTime_UnixSeconds,
 										  U64Max, sizeof(U64Max), "VarintU64Max");
@@ -312,10 +313,10 @@ private:
 		{
 			static const CHAR Expected[32] = {
 				0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0,
-				0x07, 0x00, 0x62, 0x69, 0x67, 0x2E, 0x62, 0x69, 0x6E,
 				0x00, (CHAR)0xAC, 0x02,
 				0x00, 0x00, 0x00, 0x00,
-				0x00, (CHAR)0xF1, 0x53, 0x65};
+				0x00, (CHAR)0xF1, 0x53, 0x65,
+				0x07, 0x00, 0x62, 0x69, 0x67, 0x2E, 0x62, 0x69, 0x6E};
 			allPassed &= CheckSingleEntry(
 				MakeEntry(L"big.bin", false, false, false, false, false, 300, 0,
 						  (11644473600ull + 1700000000ull) * 10000000ull),
@@ -362,22 +363,22 @@ private:
 			frame[4] = 4; frame[5] = 0; frame[6] = 0; frame[7] = 0;
 			frame[8] = 3; frame[9] = 0; frame[10] = 0; frame[11] = 0;
 			USIZE o = 12;
-			// café.txt: nameLen 9 + 9 name bytes
+			// café.txt: attrs + size + times, then nameLen 9 + 9 name bytes
+			for (UINT32 i = 0; i < 10; i++) frame[o++] = 0; // attrs + size + times
 			frame[o++] = 0x09; frame[o++] = 0x00;
 			frame[o++] = 0x63; frame[o++] = 0x61; frame[o++] = 0x66; frame[o++] = (CHAR)0xC3; frame[o++] = (CHAR)0xA9; frame[o++] = 0x2E; frame[o++] = 0x74; frame[o++] = 0x78; frame[o++] = 0x74;
-			for (UINT32 i = 0; i < 10; i++) frame[o++] = 0; // attrs + size + times
-			// U+1F600: nameLen 4 + 4-byte sequence
+			// U+1F600: metadata, then nameLen 4 + 4-byte sequence
+			for (UINT32 i = 0; i < 10; i++) frame[o++] = 0;
 			frame[o++] = 0x04; frame[o++] = 0x00;
 			frame[o++] = (CHAR)0xF0; frame[o++] = 0x9F; frame[o++] = (CHAR)0x98; frame[o++] = (CHAR)0x80;
+			// lone D800: metadata, then nameLen 3 + ED A0 80
 			for (UINT32 i = 0; i < 10; i++) frame[o++] = 0;
-			// lone D800: nameLen 3 + ED A0 80
 			frame[o++] = 0x03; frame[o++] = 0x00;
 			frame[o++] = (CHAR)0xED; frame[o++] = (CHAR)0xA0; frame[o++] = (CHAR)0x80;
+			// lone DC80: metadata, then nameLen 3 + ED B2 80
 			for (UINT32 i = 0; i < 10; i++) frame[o++] = 0;
-			// lone DC80: nameLen 3 + ED B2 80
 			frame[o++] = 0x03; frame[o++] = 0x00;
 			frame[o++] = (CHAR)0xED; frame[o++] = (CHAR)0xB2; frame[o++] = (CHAR)0x80;
-			for (UINT32 i = 0; i < 10; i++) frame[o++] = 0;
 
 			DirectoryEntry names[4] = {
 				MakeEntry(L"café.txt"),

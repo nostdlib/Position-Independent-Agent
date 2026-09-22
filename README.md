@@ -425,13 +425,13 @@ Lists all entries in a directory (excluding `.` and `..`). An empty path enumera
 
 | Field        | Size     | Encoding                                                                  |
 |--------------|----------|---------------------------------------------------------------------------|
-| `nameLen`    | 2        | `UINT16 LE` — byte length of the name bytes below                         |
-| `name`       | 0..1020  | WTF-8: UTF-8 plus 3-byte sequences for lone surrogates (see below). Platform-dependent ceiling: ≤765 B on 16-bit-WCHAR platforms (Windows/UEFI), ≤1020 B on 32-bit-WCHAR platforms (POSIX — astral single units) |
 | `attrs`      | 1        | bit0 `IsDirectory` · bit1 `IsDrive` · bit2 `IsHidden` · bit3 `IsSystem` · bit4 `IsReadOnly` · bits5-7 drive `Type` |
 | `size`       | 1..10    | LEB128 varint `UINT64` — all entries (directories too)                    |
 | `ctime`      | 4        | `UINT32 LE` unix-epoch seconds (0 = unknown)                              |
 | `mtime`      | 4        | `UINT32 LE` unix-epoch seconds (0 = unknown)                              |
 | `volumeSerial` | 4      | `UINT32 LE` — present ONLY when `IsDrive`; `0` = unavailable              |
+| `nameLen`    | 2        | `UINT16 LE` — byte length of the name bytes below (the variable-length tail; every fixed-shape field precedes it) |
+| `name`       | 0..1020  | WTF-8: UTF-8 plus 3-byte sequences for lone surrogates (see below). Platform-dependent ceiling: ≤765 B on 16-bit-WCHAR platforms (Windows/UEFI), ≤1020 B on 32-bit-WCHAR platforms (POSIX — astral single units) |
 
 Names carry the same semantics as before: drive roots are `"X:\"` (Windows) or a portable-device pseudo-root/absolute mount path (see below); when `IsDrive`, the type bits carry the Win32 drive type (2=Removable, 3=Fixed, 4=Remote, 5=CD-ROM, 6=RAM disk). Timestamps are unix-epoch seconds — Windows/WPD convert their FILETIMEs, POSIX passes `st_mtime` through (the old format shipped raw FILETIMEs, which mis-scaled POSIX dates C2-side), UEFI sends 0. Post-2106 timestamps saturate at `0xFFFFFFFF`, pre-1970 clamps to 0. `IsReadOnly` is functional in the C2: read-only files are never transferred (fill it from `FILE_ATTRIBUTE_READONLY` / `(st_mode & 0222) == 0` / `EFI_FILE_READ_ONLY`).
 
