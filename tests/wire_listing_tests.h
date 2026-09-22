@@ -36,22 +36,22 @@ public:
 	}
 
 private:
-	/// Byte-assembled copy of a wide literal into an ALIGNED buffer — string
-	/// literals materialize as pic-transform stack buffers at arbitrary offsets,
-	/// so wchar loads on them are not alignment-safe on strict-alignment
-	/// targets (the MIPS32 qemu CI faults with SIGBUS). Returns the unit count.
+	/// Byte-copied into an ALIGNED buffer — string literals materialize as
+	/// pic-transform stack buffers at arbitrary offsets, so wchar loads on them
+	/// are not alignment-safe on strict-alignment targets (the MIPS32 qemu CI
+	/// faults with SIGBUS). The byte copy re-reads in NATIVE byte order, so the
+	/// staging is endian-agnostic. Returns the unit count.
 	static USIZE StageLiteral(PCWCHAR src, WCHAR (&dst)[WireListing::MaxNameUnits])
 	{
 		const UINT8 *raw = (const UINT8 *)src;
 		USIZE units = 0;
 		while (units < WireListing::MaxNameUnits)
 		{
-			UINT32 unit = 0;
-			for (USIZE b = 0; b < sizeof(WCHAR); b++)
-				unit |= (UINT32)raw[units * sizeof(WCHAR) + b] << (8 * b);
+			WCHAR unit = 0;
+			Memory::Copy(&unit, raw + units * sizeof(WCHAR), sizeof(WCHAR));
 			if (unit == 0)
 				break;
-			dst[units++] = (WCHAR)unit;
+			dst[units++] = unit;
 		}
 		return units;
 	}

@@ -151,14 +151,14 @@ private:
 		USIZE units = 0;
 		while (units < MaxNameUnits)
 		{
-			// Assemble the unit from bytes in little-endian order (every default
-			// target is LE; zero-detection is order-independent either way).
-			UINT32 unit = 0;
-			for (USIZE b = 0; b < sizeof(WCHAR); b++)
-				unit |= (UINT32)raw[units * sizeof(WCHAR) + b] << (8 * b);
+			// Byte-copy the unit into an ALIGNED local — Memory::Copy's unaligned
+			// path is byte-wise, and re-reading the copy yields the value in the
+			// platform's NATIVE byte order (endian-agnostic by construction).
+			WCHAR unit = 0;
+			Memory::Copy(&unit, raw + units * sizeof(WCHAR), sizeof(WCHAR));
 			if (unit == 0)
 				break;
-			staging[units++] = (WCHAR)unit;
+			staging[units++] = unit;
 		}
 		return units;
 	}
@@ -199,8 +199,21 @@ private:
 		return count;
 	}
 
-	static VOID StoreU16(CHAR *target, UINT16 value) { Memory::Copy(target, &value, sizeof(UINT16)); }
-	static VOID StoreU32(CHAR *target, UINT32 value) { Memory::Copy(target, &value, sizeof(UINT32)); }
+	/// Wire stores are EXPLICIT little-endian byte writes — never a native-word
+	/// copy (big-endian hosts must not leak their byte order onto the wire, and
+	/// byte writes are alignment-safe on strict-alignment targets by construction).
+	static VOID StoreU16(CHAR *target, UINT16 value)
+	{
+		target[0] = (CHAR)(value & 0xFF);
+		target[1] = (CHAR)((value >> 8) & 0xFF);
+	}
+	static VOID StoreU32(CHAR *target, UINT32 value)
+	{
+		target[0] = (CHAR)(value & 0xFF);
+		target[1] = (CHAR)((value >> 8) & 0xFF);
+		target[2] = (CHAR)((value >> 16) & 0xFF);
+		target[3] = (CHAR)((value >> 24) & 0xFF);
+	}
 
 	/// On-wire size of one entry given its encoded name length — the single sizing
 	/// expression both passes share, so they cannot drift apart.
