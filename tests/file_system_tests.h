@@ -11,12 +11,14 @@ constexpr USIZE TEST_SYS_UNLINKAT = 263;
 constexpr USIZE TEST_SYS_MKDIRAT = 258;
 constexpr USIZE TEST_SYS_SYMLINKAT = 266;
 constexpr USIZE TEST_SYS_MKNODAT = 259;
+constexpr USIZE TEST_SYS_FCHMODAT = 268;
 #define TEST_HAS_DIR_SYSCALLS 1
 #elif defined(ARCHITECTURE_AARCH64) || defined(ARCHITECTURE_RISCV64) || defined(ARCHITECTURE_RISCV32)
 constexpr USIZE TEST_SYS_SYMLINKAT = 36;
 constexpr USIZE TEST_SYS_MKNODAT = 33;
 constexpr USIZE TEST_SYS_UNLINKAT = SYS_UNLINKAT; // from the kernel header
 constexpr USIZE TEST_SYS_MKDIRAT = SYS_MKDIRAT;
+constexpr USIZE TEST_SYS_FCHMODAT = 53;
 #define TEST_HAS_DIR_SYSCALLS 1
 #endif
 #endif
@@ -42,6 +44,7 @@ public:
 		RunTest(allPassed, &TestLosslessFilenames, "Lossless filename round-trip");
 		RunTest(allPassed, &TestEnumerationCornerCases, "Enumeration corner cases");
 		RunTest(allPassed, &TestLargeDirectory, "Large directory exact count");
+		RunTest(allPassed, &TestReadOnlyModeMapping, "Read-only mode mapping");
 		RunTest(allPassed, &TestDriveEnumeration, "Drive enumeration");
 		RunTest(allPassed, &TestCleanup, "Cleanup files and directories");
 
@@ -954,6 +957,85 @@ private:
 	}
 
 	// POSIX corner cases: symlinks, special files, odd names, EOF idempotence.
+	static BOOL TestReadOnlyModeMapping()
+	{
+#if defined(PLATFORM_LINUX) && defined(TEST_HAS_DIR_SYSCALLS)
+		// The (mode & 0222) == 0 → IsReadOnly mapping, asserted against the real
+		// filesystem in BOTH directions: a freshly created writable file maps to
+		// false, the same file with its write bits stripped maps to true.
+		if (!MkDir(L"ro_dir"))
+		{
+			LOG_ERROR("Failed to create ro_dir");
+			return false;
+		}
+		if (!CreateEmptyFile(L"ro_dir/ro_probe.bin"))
+		{
+			LOG_ERROR("Failed to create ro_probe.bin");
+			(VOID)RmDir(L"ro_dir");
+			return false;
+		}
+		const CHAR rawPath[] = {'t', 'e', 's', 't', '_', 'i', 'o', '_', 'r', 'o', 'o', 't', '/',
+								'r', 'o', '_', 'd', 'i', 'r', '/',
+								'r', 'o', '_', 'p', 'r', 'o', 'b', 'e', '.', 'b', 'i', 'n', '\0'};
+		auto cleanup = [&]()
+		{
+			(VOID)System::Call(TEST_SYS_FCHMODAT, (USIZE)-100, (USIZE)rawPath, 0644, 0);
+			(VOID)System::Call(TEST_SYS_UNLINKAT, (USIZE)-100, (USIZE)rawPath, 0);
+			(VOID)RmDir(L"ro_dir");
+		};
+		const WCHAR probeName[] = L"ro_probe.bin";
+
+		// One listing pass: finds the probe and reports its IsReadOnly flag.
+		auto probeReadOnly = [&](BOOL &isReadOnly) -> BOOL
+		{
+			WCHAR dirPath[128];
+			BuildTestPath(L"ro_dir", Span<WCHAR>(dirPath));
+			auto createResult = DirectoryIterator::Create(dirPath);
+			if (!createResult)
+			{
+				LOG_ERROR("Failed to iterate ro_dir: %e", createResult.Error());
+				return false;
+			}
+			DirectoryIterator &iter = createResult.Value();
+			while (iter.Next())
+			{
+				if (StringUtils::Equals((PWCHAR)iter.Get().Name, (PWCHAR)probeName))
+				{
+					isReadOnly = iter.Get().IsReadOnly;
+					return true;
+				}
+			}
+			LOG_ERROR("ro_probe.bin was not listed");
+			return false;
+		};
+
+		BOOL isReadOnly = false;
+		if (!probeReadOnly(isReadOnly) || isReadOnly)
+		{
+			LOG_ERROR("Writable file must not read as read-only");
+			cleanup();
+			return false;
+		}
+		SSIZE rc = System::Call(TEST_SYS_FCHMODAT, (USIZE)-100, (USIZE)rawPath, 0444, 0);
+		if (rc != 0)
+		{
+			LOG_ERROR("fchmodat failed (rc=%lld)", (INT64)rc);
+			cleanup();
+			return false;
+		}
+		if (!probeReadOnly(isReadOnly) || !isReadOnly)
+		{
+			LOG_ERROR("File with write bits stripped (0444) must read as read-only");
+			cleanup();
+			return false;
+		}
+		cleanup();
+		return true;
+#else
+		return true; // raw-syscall fixture — Linux with the *at syscall numbers only
+#endif
+	}
+
 	static BOOL TestEnumerationCornerCases()
 	{
 #if defined(PLATFORM_LINUX) && defined(TEST_HAS_DIR_SYSCALLS)

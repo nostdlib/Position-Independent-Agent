@@ -197,6 +197,11 @@ Result<VOID, Error> DirectoryIterator::Next()
 	// corrupted or collapsed (round-trips via UTF16::ToUTF8Lossless).
 	StringUtils::Utf8ToWideLossless(Span<const CHAR>(d->Name, StringUtils::Length(d->Name)), Span<WCHAR>(currentEntry.Name, 256));
 
+	// No write permission for anyone = read-only on the wire (set from st_mode
+	// when stat succeeds; a vanished entry keeps false — loss-averse like the
+	// rest of the stat-failed fallback below).
+	BOOL readOnly = false;
+
 	// --- Populate metadata via fstatat (Linux/Android/Solaris) ---
 	// getdents does not return size/timestamps; fstatat fills them in.
 	// Also provides reliable IsDirectory (d_type can be DT_UNKNOWN on some filesystems).
@@ -255,6 +260,7 @@ Result<VOID, Error> DirectoryIterator::Next()
 
 			UINT32 mode = *(UINT32 *)(statbuf + OFF_MODE);
 			currentEntry.IsDirectory = ((mode & 0xF000) == 0x4000); // S_IFDIR
+			readOnly = ((mode & 0222) == 0); // S_IWUSR|S_IWGRP|S_IWOTH all clear
 
 			INT64 fileSize = *(INT64 *)(statbuf + OFF_SIZE);
 			currentEntry.Size = (fileSize > 0) ? (UINT64)fileSize : 0;
@@ -326,6 +332,7 @@ Result<VOID, Error> DirectoryIterator::Next()
 
 			UINT32 mode = *(UINT32 *)(statbuf + OFF_MODE);
 			currentEntry.IsDirectory = ((mode & 0xF000) == 0x4000); // S_IFDIR
+			readOnly = ((mode & 0222) == 0); // S_IWUSR|S_IWGRP|S_IWOTH all clear
 
 			INT64 fileSize = *(INT64 *)(statbuf + OFF_SIZE);
 			currentEntry.Size = (fileSize > 0) ? (UINT64)fileSize : 0;
@@ -354,7 +361,7 @@ Result<VOID, Error> DirectoryIterator::Next()
 	currentEntry.VolumeSerial = 0;
 	currentEntry.IsHidden = (d->Name[0] == '.');
 	currentEntry.IsSystem = false;
-	currentEntry.IsReadOnly = false;
+	currentEntry.IsReadOnly = readOnly;
 
 	bufferPosition += d->Reclen;
 

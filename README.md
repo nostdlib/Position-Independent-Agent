@@ -417,29 +417,27 @@ Which feature categories are supported is fixed at **compile time** by the `SUPP
 Lists all entries in a directory (excluding `.` and `..`). An empty path enumerates drive roots on Windows (plus portable-device pseudo-roots, below); POSIX platforms list `/` (plus GVFS/udisks portable mounts on Linux), and UEFI lists the EFI volume root.
 
 - **Request**: `CHAR16[] directoryPath` (null-terminated UTF-16LE string; paths longer than 2047 UTF-16 units are rejected with `Fs_PathTooLong`)
-- **Response**: `UINT32 status` + `UINT64 entryCount` + `DirectoryEntry[entryCount]`
+- **Response**: `UINT32 status` + `UINT32 entryCount` + `UINT32 formatWord (= 3)` + `entry[entryCount]` — compact variable-length entries (~26 bytes typical; the old fixed 553-byte layout is gone, and the C2 refuses it). The format word rides the frame IN-BAND (`X-Api-Version` stays 1): the C2 reads the u32 at offset 8 of the listing body (offset 12 of the raw reply — the [status][corrId] envelope prefix precedes it) and accepts only `3` — emit it verbatim.
 
 **Error responses carry a detail tail.** Any filesystem command that fails responds with `UINT32 status (=1)` + `UINT32 errorCode` (8 bytes), where `errorCode` is a **platform-independent `ErrorCodes` value** — the beacon classifies its own OS error (errno / NTSTATUS / EFI status) at the failure site into a stable cause code, so consumers never need per-OS code tables: `67` = access denied (`Fs_AccessDenied`), `68` = path not found (`Fs_PathNotFound`), `69` = device/volume removed (`Fs_DeviceGone`), plus the existing failure-site codes (e.g. `59` = path too long, `66` = malformed command, `50` = open failed) when no more specific cause applies. Success responses are unchanged; older C2 parsers stop at the status word and ignore the tail. A listing that fails mid-iteration (volume removed, access revoked) is returned as an error, never as a truncated success.
 
-`DirectoryEntry` layout (packed, 553 bytes; `BOOL` is 1 byte on the wire):
+`entry` layout (variable length, no padding — built by `WireListing` in `src/platform/fs/wire_listing.h`):
 
-| Field              | Type          | Description                                                          |
-|--------------------|---------------|----------------------------------------------------------------------|
-| `Name`             | `CHAR16[256]` | Entry name; drive roots are `"X:\"` (Windows) or a portable-device pseudo-root/absolute mount path (see below) |
-| `CreationTime`     | `UINT64`      | Creation timestamp in platform filetime format                        |
-| `LastModifiedTime` | `UINT64`      | Last modification timestamp                                           |
-| `Size`             | `UINT64`      | File size in bytes (0 for drives)                                     |
-| `Type`             | `UINT32`      | When `IsDrive`: Win32 drive type (2=Removable, 3=Fixed, 4=Remote, 5=CD-ROM, 6=RAM disk); otherwise filesystem-specific |
-| `IsDirectory`      | `BOOL`        | True for directories and drive roots                                  |
-| `IsDrive`          | `BOOL`        | True if the entry is a drive root                                     |
-| `IsHidden`         | `BOOL`        | Hidden attribute                                                      |
-| `IsSystem`         | `BOOL`        | System attribute                                                      |
-| `IsReadOnly`       | `BOOL`        | Read-only attribute                                                   |
-| `VolumeSerial`     | `UINT64`      | Volume serial number when `IsDrive` (API v2); `0` for files/directories or when the serial is unavailable |
+| Field        | Size     | Encoding                                                                  |
+|--------------|----------|---------------------------------------------------------------------------|
+| `attrs`      | 1        | bit0 `IsDirectory` · bit1 `IsDrive` · bit2 `IsHidden` · bit3 `IsSystem` · bit4 `IsReadOnly` · bits5-7 drive `Type` |
+| `size`       | 1..10    | LEB128 varint `UINT64` — all entries (directories too)                    |
+| `ctime`      | 4        | `UINT32 LE` unix-epoch seconds (0 = unknown)                              |
+| `mtime`      | 4        | `UINT32 LE` unix-epoch seconds (0 = unknown)                              |
+| `volumeSerial` | 4      | `UINT32 LE` — present ONLY when `IsDrive`; `0` = unavailable              |
+| `nameLen`    | 2        | `UINT16 LE` — byte length of the name bytes below (the variable-length tail; every fixed-shape field precedes it) |
+| `name`       | 0..1020  | WTF-8: UTF-8 plus 3-byte sequences for lone surrogates (see below). Platform-dependent ceiling: ≤765 B on 16-bit-WCHAR platforms (Windows/UEFI), ≤1020 B on 32-bit-WCHAR platforms (POSIX — astral single units) |
+
+Names carry the same semantics as before: drive roots are `"X:\"` (Windows) or a portable-device pseudo-root/absolute mount path (see below); when `IsDrive`, the type bits carry the Win32 drive type (2=Removable, 3=Fixed, 4=Remote, 5=CD-ROM, 6=RAM disk). Timestamps are unix-epoch seconds — Windows/WPD convert their FILETIMEs, POSIX passes `st_mtime` through (the old format shipped raw FILETIMEs, which mis-scaled POSIX dates C2-side), UEFI sends 0. Post-2106 timestamps saturate at `0xFFFFFFFF`, pre-1970 clamps to 0. `IsReadOnly` is functional in the C2: read-only files are never transferred (fill it from `FILE_ATTRIBUTE_READONLY` / `(st_mode & 0222) == 0` / `EFI_FILE_READ_ONLY`).
 
 The volume serial is the value `vol X:` reports (`FileFsVolumeInformation.VolumeSerialNumber` on Windows). It is stable across drive-letter changes when a removable drive is replugged, so the C2 can recognize a previously scanned drive by comparing serials. `0` means unknown — the drive is still listed. Remote drives (`DRIVE_REMOTE`) skip the query so an unreachable share cannot stall the listing; unknown-type and local drives are still queried.
 
-**Filenames that are not valid UTF-8** (POSIX agents): each undecodable byte (0x80–0xFF) is mapped to the lone low surrogate `U+DC00 + byte` (i.e. U+DC80..U+DCFF) instead of being dropped, so no entry name is mangled or lost; the mapping is reversed exactly when the path is handed back to the OS. C# strings hold lone surrogates, so the C2 round-trips such names transparently.
+**Names are WTF-8** (`UTF16::ToWTF8` in `src/core/encoding/utf16.h`): standard UTF-8, except any UNPAIRED surrogate (U+D800..U+DFFF) is encoded as its own 3-byte sequence instead of being dropped — so arbitrary NTFS UTF-16 names round-trip byte-exactly, and **filenames that are not valid UTF-8** (POSIX agents) survive too: each undecodable byte (0x80–0xFF) is mapped by `StringUtils::Utf8ToWideLossless` to the lone low surrogate `U+DC00 + byte` (U+DC80..U+DCFF), which the wire then carries as its 3-byte sequence; the C2 decodes it back to the lone surrogate, and the mapping is reversed exactly when the path is handed back to the OS. C# strings hold lone surrogates, so the C2 round-trips such names transparently.
 
 **Portable devices (MTP phones/cameras)** appear in the root listing as additional drive-shaped entries, browsable/readable through `GetDirectoryContent`/`GetFileContent`/`GetFileChunkHash` with no protocol change:
 

@@ -2,6 +2,7 @@
 #include "memory.h"
 #include "file.h"
 #include "directory_iterator.h"
+#include "wire_listing.h"
 #include "path.h"
 #include "string.h"
 #include "math.h"
@@ -22,40 +23,6 @@
 /// allocation. A larger request is clamped, which the protocol
 /// already permits (reads may return fewer bytes than asked — EOF does).
 constexpr UINT64 MAX_FILE_CHUNK_SIZE = 16 * 1024 * 1024;
-
-#pragma pack(push, 1)
-struct WireDirectoryEntry
-{
-    CHAR16 Name[256];
-    UINT64 CreationTime;
-    UINT64 LastModifiedTime;
-    UINT64 Size;
-    UINT32 Type;
-    BOOL IsDirectory;
-    BOOL IsDrive;
-    BOOL IsHidden;
-    BOOL IsSystem;
-    BOOL IsReadOnly;
-    UINT64 VolumeSerial;
-};
-#pragma pack(pop)
-
-static VOID ToWireEntry(const DirectoryEntry &src, WireDirectoryEntry &dst)
-{
-    StringUtils::WideToChar16(
-        Span<const WCHAR>(src.Name, StringUtils::Length(src.Name)),
-        Span<CHAR16>(dst.Name, 256));
-    dst.CreationTime = src.CreationTime;
-    dst.LastModifiedTime = src.LastModifiedTime;
-    dst.Size = src.Size;
-    dst.Type = src.Type;
-    dst.IsDirectory = src.IsDirectory;
-    dst.IsDrive = src.IsDrive;
-    dst.IsHidden = src.IsHidden;
-    dst.IsSystem = src.IsSystem;
-    dst.IsReadOnly = src.IsReadOnly;
-    dst.VolumeSerial = src.VolumeSerial;
-}
 
 // Decodes a NUL-terminated CHAR16 path from the command buffer into the
 // handler's wide path buffer, normalizing separators. Returns false when the
@@ -280,28 +247,32 @@ VOID Handle_GetDirectoryContentCommand(PCHAR command, USIZE commandLength, PPCHA
         return;
     }
 
-    // Prepare the response buffer - writing entry count, status code and array of WireDirectoryEntry structures
-    UINT64 entryCount = (UINT64)entries.Count;
-    *responseLength = sizeof(UINT32) + sizeof(UINT64) + (USIZE)(entryCount * sizeof(WireDirectoryEntry));
-    *response = new CHAR[*responseLength];
-    if (*response == nullptr)
+    // Encode the compact listing — one exact-size allocation, the
+    // variable-length layout ~26 B/entry against the legacy fixed 553. The
+    // time encoding is per platform: Windows/WPD fill FILETIMEs, POSIX already
+    // carries unix seconds, UEFI sends zeros (unix kind, zero values).
+#if defined(PLATFORM_WINDOWS)
+    constexpr ListingTimeEncoding TimeKind = ListingTimeEncoding::ListingTime_FileTime;
+#else
+    constexpr ListingTimeEncoding TimeKind = ListingTimeEncoding::ListingTime_UnixSeconds;
+#endif
+    Buffer<CHAR> packet;
+    Result<VOID, Error> encoded = WireListing::Encode(
+        Span<const DirectoryEntry>(entries.Data, (USIZE)entries.Count), TimeKind, packet);
+    if (!encoded)
     {
-        LOG_ERROR("Failed to allocate the directory content response for %llu entries", entryCount);
-        *responseLength = 0;
+        // The iteration succeeded but the frame could not be built (exact-size
+        // allocation failure, size overflow) — a graceful error beats the
+        // null-response reconnect, which would tear down the whole session.
+        LOG_ERROR("Failed to encode the directory content response for %d entries: %e",
+                  entries.Count, encoded.Error());
+        WriteErrorDetailResponse(response, responseLength, encoded.Error());
         return;
     }
-
-    BinaryWriter writer{Span<UINT8>((UINT8 *)*response, *responseLength)};
-    writer.Write<UINT32>(StatusCode::StatusSuccess);
-    writer.Write<UINT64>(entryCount);
-
-    WireDirectoryEntry *wireEntries = (WireDirectoryEntry *)(*response + sizeof(UINT32) + sizeof(UINT64));
-    for (UINT64 i = 0; i < entryCount; i++)
-    {
-        Memory::Zero(&wireEntries[i], sizeof(WireDirectoryEntry));
-        ToWireEntry(entries.Data[i], wireEntries[i]);
-    }
-    LOG_INFO("Directory content retrieved successfully with %llu entries", entryCount);
+    USIZE encodedSize = packet.Size; // Release() zeroes Size — capture before handoff
+    *response = packet.Release();
+    *responseLength = encodedSize;
+    LOG_INFO("Directory content retrieved successfully with %d entries", entries.Count);
 }
 
 VOID Handle_GetFileContentCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, [[maybe_unused]] Context *context)
