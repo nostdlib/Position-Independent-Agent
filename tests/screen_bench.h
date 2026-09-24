@@ -154,7 +154,7 @@ private:
 		}
 		BuildDirtyPair(current, previous);
 
-		UINT64 diffNs[5], rectsNs[5];
+		UINT64 diffNs[5], rectsNs[5], fusedNs[5];
 		UINT32 rectCount = 0;
 		for (UINT32 r = 0; r < 5; r++)
 		{
@@ -179,13 +179,47 @@ private:
 			}
 			rectCount = dirty.Value().Count;
 			dirty.Value().Free();
+
+			// The handler's shipped fused single-pass diff
+			t0 = DateTime::GetMonotonicNanoseconds();
+			auto fused = ImageProcessor::FindDirtyRects(
+				Span<const RGB>(current, PixelCount), Span<const RGB>(previous, PixelCount),
+				Width, Height, 64, 24);
+			t1 = DateTime::GetMonotonicNanoseconds();
+			fusedNs[r] = t1 - t0;
+			if (fused)
+				fused.Value().Free();
 		}
 
-		LOG_INFO("  CalculateBiDifference 1080p (SAD thr 24): %.2f ms (%.1f MPix/s)",
-		         (DOUBLE)Median(diffNs, 5) / 1000000.0, (DOUBLE)PixelCount / (DOUBLE)Median(diffNs, 5) * 1000.0);
-		LOG_INFO("  FindDirtyRects 1080p (64px tiles):       %.2f ms",
-		         (DOUBLE)Median(rectsNs, 5) / 1000000.0);
+		LOG_INFO("  two-step diff 1080p (bidiff + tile scan): %.2f ms",
+		         (DOUBLE)(Median(diffNs, 5) + Median(rectsNs, 5)) / 1000000.0);
+		LOG_INFO("  fused diff 1080p (shipped path):         %.2f ms",
+		         (DOUBLE)Median(fusedNs, 5) / 1000000.0);
 		LOG_INFO("  dirty rects detected: %u", rectCount);
+
+		// Idle frames (identical content): the whole per-request cost is the
+		// fused diff — the handler replies an empty section list immediately
+		Memory::Copy(previous, current, PixelCount * sizeof(RGB));
+		UINT64 idleNs[5];
+		for (UINT32 r = 0; r < 5; r++)
+		{
+			UINT64 t0 = DateTime::GetMonotonicNanoseconds();
+			auto fused = ImageProcessor::FindDirtyRects(
+				Span<const RGB>(current, PixelCount), Span<const RGB>(previous, PixelCount),
+				Width, Height, 64, 24);
+			UINT64 t1 = DateTime::GetMonotonicNanoseconds();
+			idleNs[r] = t1 - t0;
+			if (fused && fused.Value().Count != 0)
+			{
+				LOG_ERROR("  idle frame unexpectedly dirty (%u rects)", fused.Value().Count);
+				fused.Value().Free();
+				break;
+			}
+			if (fused)
+				fused.Value().Free();
+		}
+		LOG_INFO("  idle frame diff 1080p (0 rects):         %.2f ms",
+		         (DOUBLE)Median(idleNs, 5) / 1000000.0);
 
 		delete[] current;
 		delete[] previous;
@@ -303,10 +337,10 @@ private:
 			jpeg.Reset();
 			UINT64 t0 = DateTime::GetMonotonicNanoseconds();
 
-			ImageProcessor::CalculateBiDifference(Span<const RGB>(current, PixelCount),
-			                                      Span<const RGB>(previous, PixelCount),
-			                                      Width, Height, Span<UINT8>(bidiff, PixelCount), 24);
-			auto dirty = ImageProcessor::FindDirtyRects(Span<const UINT8>(bidiff, PixelCount), Width, Height, 64);
+			// Fused single-pass diff (the handler's shipped path)
+			auto dirty = ImageProcessor::FindDirtyRects(
+				Span<const RGB>(current, PixelCount), Span<const RGB>(previous, PixelCount),
+				Width, Height, 64, 24);
 			if (!dirty)
 			{
 				LOG_ERROR("  FindDirtyRects failed: %e", dirty.Error());

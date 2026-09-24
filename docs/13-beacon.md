@@ -320,7 +320,6 @@ struct Graphics
 {
     PRGB currentScreenshot; // current frame (raw pixels)
     PRGB screenshot;        // previous frame (for comparison)
-    PUCHAR bidiff;          // binary difference map (1 byte per pixel)
     PRGB rectBuffer;        // reusable buffer for rectangle extraction
     JpegBuffer jpegBuffer;  // reusable JPEG encoding buffer
     PVOID captureState;     // opaque per-display capture resources
@@ -382,16 +381,17 @@ and any capture failure through the state drops it and retries once statelessly,
 so the next request self-heals. Other platforms ignore the state (nullptr) and
 capture statelessly.
 
-**Stage 3 -- Compute binary difference.** Compare each pixel of the current
-frame against the previous frame. But not with exact equality. The comparison
-uses a threshold of 24:
+**Stage 3 -- Fused difference + dirty detection.** The handler calls the fused
+`ImageProcessor::FindDirtyRects(current, previous, w, h, 64, 24)` overload: one
+pass over 64x64 tiles, per-pixel SAD against the previous frame with an early
+exit at each tile's first changed pixel. Not exact equality -- a threshold of 24:
 
 ```
 For each pixel (r1,g1,b1) in current vs (r2,g2,b2) in previous:
-    if |r1-r2| < 24 AND |g1-g2| < 24 AND |b1-b2| < 24:
-        bidiff[i] = 0   (unchanged)
+    if |r1-r2| + |g1-g2| + |b1-b2| <= 24:
+        pixel is unchanged
     else:
-        bidiff[i] = 1   (changed)
+        tile is dirty (scan stops here)
 ```
 
 Why 24? Because JPEG is lossy. The operator's display decodes each JPEG tile
@@ -401,9 +401,15 @@ will still differ slightly due to JPEG compression artifacts from the previous
 encode cycle. A threshold of 24 filters that noise. The value is empirical --
 high enough to absorb compression error, low enough to catch real changes.
 
-**Stage 4 -- Find dirty rectangles.** Divide the screen into 64x64 pixel tiles.
-Any tile containing at least one changed pixel (bidiff = 1) is marked dirty.
-Adjacent dirty tiles are merged into rectangles.
+The fused overload produces exactly the same rectangles as the older two-step
+pipeline (`CalculateBiDifference` into a bidiff map, then a separate tile scan)
+and is golden-tested against it; the two-step functions remain for callers that
+want the per-pixel map. When no tile is dirty, the handler replies success with
+an empty section list immediately -- no packet allocation, no encoding.
+
+**Stage 4 -- Find dirty rectangles.** Adjacent dirty tiles are merged into
+rectangles by the same call (greedy row-span merge, width aligned to a
+multiple of 4 for the JPEG MCU, regions smaller than 32x32 dropped).
 
 **Stage 5 -- Encode and serialize.** For each dirty rectangle, extract the
 region from the current frame into `rectBuffer`, JPEG-encode it, and append

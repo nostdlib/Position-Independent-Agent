@@ -57,12 +57,11 @@ struct Graphics
 {
     PRGB currentScreenshot;
     PRGB screenshot;
-    PUCHAR bidiff;
     PRGB rectBuffer;
     JpegBuffer jpegBuffer;
     PVOID captureState; // Opaque per-display resources from Screen::CreateCaptureState
 
-    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), bidiff(nullptr), rectBuffer(nullptr), captureState(nullptr) {}
+    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), rectBuffer(nullptr), captureState(nullptr) {}
 
     // Drop the persistent capture state; the next capture re-creates it
     VOID ReleaseCaptureState()
@@ -72,6 +71,15 @@ struct Graphics
             Screen::DestroyCaptureState(captureState);
             captureState = nullptr;
         }
+    }
+
+    // Make the current frame the comparison base for the next request
+    // (pointer swap — no full-frame copy)
+    VOID SwapFrames()
+    {
+        PRGB previous = currentScreenshot;
+        currentScreenshot = screenshot;
+        screenshot = previous;
     }
 
     ~Graphics()
@@ -87,11 +95,6 @@ struct Graphics
             delete[] screenshot;
             screenshot = nullptr;
         }
-        if (bidiff)
-        {
-            delete[] bidiff;
-            bidiff = nullptr;
-        }
         if (rectBuffer)
         {
             delete[] rectBuffer;
@@ -101,7 +104,7 @@ struct Graphics
 
     BOOL IsInitialized() const
     {
-        return currentScreenshot != nullptr && screenshot != nullptr && bidiff != nullptr && rectBuffer != nullptr;
+        return currentScreenshot != nullptr && screenshot != nullptr && rectBuffer != nullptr;
     }
 
     VOID Init(const ScreenDevice &device)
@@ -114,10 +117,6 @@ struct Graphics
         if (screenshot == nullptr)
         {
             screenshot = new RGB[pixelCount];
-        }
-        if (bidiff == nullptr)
-        {
-            bidiff = new UINT8[pixelCount];
         }
         if (rectBuffer == nullptr)
         {

@@ -28,6 +28,14 @@ public:
 		RunTest(allPassed, &TestDirtyRects_TwoSeparateRegions, "FindDirtyRects two separate dirty regions");
 		RunTest(allPassed, &TestDirtyRects_SmallRegionFiltered, "FindDirtyRects region < 32x32 filtered out");
 
+		// Fused FindDirtyRects equivalence vs the two-step pipeline
+		RunTest(allPassed, &TestFused_IdenticalFrames, "Fused diff identical frames matches two-step");
+		RunTest(allPassed, &TestFused_SingleDirtyTile, "Fused diff single and merged tiles match two-step");
+		RunTest(allPassed, &TestFused_BelowThresholdNoise, "Fused diff below-threshold noise matches two-step");
+		RunTest(allPassed, &TestFused_EdgeTileDirty, "Fused diff edge tile matches two-step");
+		RunTest(allPassed, &TestFused_ZeroThreshold, "Fused diff zero threshold matches two-step");
+		RunTest(allPassed, &TestFused_OddImageSize, "Fused diff non-multiple-of-tile size matches two-step");
+
 		if (allPassed)
 			LOG_INFO("All Image Processing tests passed!");
 		else
@@ -370,5 +378,180 @@ private:
 
 		result.Free();
 		return true;
+	}
+
+	// ---- Fused FindDirtyRects equivalence tests ----
+	// The fused overload must produce the exact same rectangles as
+	// CalculateBiDifference + FindDirtyRects run in sequence.
+
+	// Run both pipelines on the same frame pair and compare rect-by-rect
+	static BOOL CompareFusedVsTwoStep(const RGB *current, const RGB *previous,
+	                                  UINT32 width, UINT32 height, UINT32 threshold)
+	{
+		UINT8 *biDiff = new UINT8[(USIZE)width * height];
+		if (!biDiff)
+			return false;
+
+		ImageProcessor::CalculateBiDifference(
+			Span<const RGB>(current, (USIZE)width * height),
+			Span<const RGB>(previous, (USIZE)width * height),
+			width, height, Span<UINT8>(biDiff, (USIZE)width * height), threshold);
+		auto twoStep = ImageProcessor::FindDirtyRects(
+			Span<const UINT8>(biDiff, (USIZE)width * height), width, height, 64);
+		auto fused = ImageProcessor::FindDirtyRects(
+			Span<const RGB>(current, (USIZE)width * height),
+			Span<const RGB>(previous, (USIZE)width * height),
+			width, height, 64, threshold);
+
+		BOOL equal = twoStep && fused;
+		if (equal)
+		{
+			equal = twoStep.Value().Count == fused.Value().Count;
+			for (UINT32 i = 0; equal && i < twoStep.Value().Count; i++)
+			{
+				const DirtyRect &a = twoStep.Value().Rects[i];
+				const DirtyRect &b = fused.Value().Rects[i];
+				equal = a.X == b.X && a.Y == b.Y && a.Width == b.Width && a.Height == b.Height;
+			}
+		}
+
+		if (twoStep)
+			twoStep.Value().Free();
+		if (fused)
+			fused.Value().Free();
+		delete[] biDiff;
+		return equal;
+	}
+
+	// Frame pair factory: flat base, then per-case mutation callback
+	static BOOL BuildFramePair(UINT32 width, UINT32 height, RGB **currentOut, RGB **previousOut,
+	                           VOID (*mutate)(RGB *frame, UINT32 width, UINT32 height))
+	{
+		RGB *current = new RGB[(USIZE)width * height];
+		RGB *previous = new RGB[(USIZE)width * height];
+		if (!current || !previous)
+		{
+			delete[] current;
+			delete[] previous;
+			return false;
+		}
+
+		for (USIZE i = 0; i < (USIZE)width * height; i++)
+		{
+			current[i].Red = 40;
+			current[i].Green = 60;
+			current[i].Blue = 80;
+		}
+		Memory::Copy(previous, current, (USIZE)width * height * sizeof(RGB));
+		if (mutate != nullptr)
+			mutate(previous, width, height);
+
+		*currentOut = current;
+		*previousOut = previous;
+		return true;
+	}
+
+	static BOOL RunFusedCase(UINT32 width, UINT32 height, UINT32 threshold,
+	                         VOID (*mutate)(RGB *frame, UINT32 width, UINT32 height))
+	{
+		RGB *current = nullptr;
+		RGB *previous = nullptr;
+		if (!BuildFramePair(width, height, &current, &previous, mutate))
+			return false;
+		BOOL equal = CompareFusedVsTwoStep(current, previous, width, height, threshold);
+		delete[] current;
+		delete[] previous;
+		return equal;
+	}
+
+	static VOID MutateSingleTile(RGB *frame, UINT32 width, [[maybe_unused]] UINT32 height)
+	{
+		// Bright block inside tile (1,1)
+		for (UINT32 y = 70; y < 100; y++)
+			for (UINT32 x = 70; x < 100; x++)
+			{
+				frame[(USIZE)y * width + x].Red = 240;
+				frame[(USIZE)y * width + x].Green = 200;
+				frame[(USIZE)y * width + x].Blue = 160;
+			}
+	}
+
+	static VOID MutateTwoTilesHorizontal(RGB *frame, UINT32 width, [[maybe_unused]] UINT32 height)
+	{
+		for (UINT32 y = 70; y < 100; y++)
+			for (UINT32 x = 70; x < 190; x++)
+			{
+				frame[(USIZE)y * width + x].Red = 240;
+				frame[(USIZE)y * width + x].Green = 200;
+				frame[(USIZE)y * width + x].Blue = 160;
+			}
+	}
+
+	static VOID MutateEdgeTile(RGB *frame, UINT32 width, UINT32 height)
+	{
+		// Bottom-right partial tile (image is 256x192, tile grid 4x3 — this
+		// stays inside the last full tile and clamps against the border)
+		for (UINT32 y = height - 20; y < height; y++)
+			for (UINT32 x = width - 20; x < width; x++)
+			{
+				frame[(USIZE)y * width + x].Red = 240;
+				frame[(USIZE)y * width + x].Green = 200;
+				frame[(USIZE)y * width + x].Blue = 160;
+			}
+	}
+
+	static BOOL TestFused_IdenticalFrames()
+	{
+		return RunFusedCase(256, 192, 24, nullptr);
+	}
+
+	static BOOL TestFused_SingleDirtyTile()
+	{
+		// One dirty tile, and a two-tile horizontal run — both must match
+		return RunFusedCase(256, 192, 24, &MutateSingleTile) &&
+		       RunFusedCase(256, 192, 24, &MutateTwoTilesHorizontal);
+	}
+
+	static BOOL TestFused_BelowThresholdNoise()
+	{
+		// Per-channel deltas of +/-2 keep every SAD at 6 < 24: no dirty tiles.
+		// One pixel with a large delta must be the only one detected.
+		RGB *current = nullptr;
+		RGB *previous = nullptr;
+		if (!BuildFramePair(256, 192, &current, &previous, nullptr))
+			return false;
+
+		for (USIZE i = 0; i < (USIZE)256 * 192; i++)
+		{
+			previous[i].Red = (UINT8)(current[i].Red + (i & 1 ? 2 : -2));
+			previous[i].Green = (UINT8)(current[i].Green + (i & 2 ? 2 : -2));
+			previous[i].Blue = (UINT8)(current[i].Blue + (i & 4 ? 2 : -2));
+		}
+		BOOL noiseEqual = CompareFusedVsTwoStep(current, previous, 256, 192, 24);
+
+		previous[5 * 256 + 5].Red = 255;
+		BOOL spikeEqual = CompareFusedVsTwoStep(current, previous, 256, 192, 24);
+
+		delete[] current;
+		delete[] previous;
+		return noiseEqual && spikeEqual;
+	}
+
+	static BOOL TestFused_EdgeTileDirty()
+	{
+		return RunFusedCase(256, 192, 24, &MutateEdgeTile);
+	}
+
+	static BOOL TestFused_ZeroThreshold()
+	{
+		// threshold 0: any channel change counts (SAD > 0 == XOR inequality)
+		return RunFusedCase(256, 192, 0, &MutateSingleTile);
+	}
+
+	static BOOL TestFused_OddImageSize()
+	{
+		// 100x100 with 64px tiles: edge tiles clamp to the image border
+		return RunFusedCase(100, 100, 24, &MutateSingleTile) &&
+		       RunFusedCase(100, 100, 24, &MutateEdgeTile);
 	}
 };

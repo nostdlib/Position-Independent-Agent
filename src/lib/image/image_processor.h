@@ -94,6 +94,32 @@ public:
 		UINT32 width,
 		UINT32 height,
 		UINT32 tileSize);
+
+	/**
+	 * @brief Fused difference + dirty rectangle detection in a single pass
+	 *
+	 * @details Produces the exact same rectangles as running
+	 * CalculateBiDifference (with <paramref name="threshold"/>) followed by
+	 * FindDirtyRects, but walks each tile once, computing the per-pixel SAD
+	 * inline and stopping at the first dirty pixel — with no intermediate
+	 * binary difference map materialized and no second scan. This is the
+	 * screenshot handler's hot path.
+	 *
+	 * @param current Current frame RGB pixels
+	 * @param previous Previous frame RGB pixels (same dimensions)
+	 * @param width Image width in pixels
+	 * @param height Image height in pixels
+	 * @param tileSize Tile size in pixels (must be > 0, typically 64)
+	 * @param threshold Sum-of-absolute-differences threshold per pixel
+	 * @return Ok(DirtyRectResult) on success, or error on allocation failure
+	 */
+	[[nodiscard]] static Result<DirtyRectResult, Error> FindDirtyRects(
+		Span<const RGB> current,
+		Span<const RGB> previous,
+		UINT32 width,
+		UINT32 height,
+		UINT32 tileSize,
+		UINT32 threshold);
 };
 
 /** @} */ // end of image group

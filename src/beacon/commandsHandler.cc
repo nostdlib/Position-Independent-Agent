@@ -808,7 +808,9 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             return;
         }
 
-        Memory::Copy(graphics.screenshot, graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB));
+        // The encoded JPEG is already copied out; make this frame the
+        // comparison base by pointer swap (no full-frame copy)
+        graphics.SwapFrames();
 
         Rectangle rect(0, 0, graphics.jpegBuffer.offset, graphics.jpegBuffer.outputBuffer);
 
@@ -830,17 +832,13 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         return;
     }
 
-    // Threshold of 24 ignores minor JPEG compression artifacts from prior frames
-    ImageProcessor::CalculateBiDifference(Span<const RGB>(graphics.currentScreenshot, device.Width * device.Height),
-                                          Span<const RGB>(graphics.screenshot, device.Width * device.Height),
-                                          device.Width, device.Height,
-                                          Span<UCHAR>(graphics.bidiff, device.Width * device.Height),
-                                          24);
-
-    // Find dirty rectangles using tile-based detection (replaces RemoveNoise + FindContours)
+    // Fused diff + tile detection in one pass. Threshold of 24 ignores minor
+    // JPEG compression artifacts from prior frames; early exit stops each
+    // tile's scan at its first dirty pixel (no bidiff map materialized).
     auto dirtyResult = ImageProcessor::FindDirtyRects(
-        Span<const UINT8>(graphics.bidiff, device.Width * device.Height),
-        device.Width, device.Height, 64);
+        Span<const RGB>(graphics.currentScreenshot, device.Width * device.Height),
+        Span<const RGB>(graphics.screenshot, device.Width * device.Height),
+        device.Width, device.Height, 64, 24);
     if (dirtyResult.IsErr())
     {
         LOG_ERROR("Failed to find dirty rectangles for display index: %u", displayIndex);
@@ -848,6 +846,25 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         return;
     }
     auto &dirtyRects = dirtyResult.Value();
+
+    // Identical frames: reply success with an empty section list — skip all
+    // packet allocation and encoding work
+    if (dirtyRects.Count == 0)
+    {
+        dirtyRects.Free();
+        *responseLength = sizeof(UINT32) + sizeof(UINT32);
+        *response = new CHAR[*responseLength];
+        if (*response == nullptr)
+        {
+            LOG_ERROR("Failed to allocate the empty screenshot response for display index: %u", displayIndex);
+            *responseLength = 0;
+            return;
+        }
+        BinaryWriter writer{Span<UINT8>((UINT8 *)*response, *responseLength)};
+        writer.Write<UINT32>(StatusCode::StatusSuccess);
+        writer.Write<UINT32>(0);
+        return;
+    }
 
     UINT32 countOfRects = 0;
 
@@ -901,8 +918,9 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         rect.toBuffer((UINT8 *)packet.Data + packet.Size - rectEntrySize);
     }
 
-    // Copy the current screenshot to the screenshot buffer for the next comparison
-    Memory::Copy(graphics.screenshot, graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB));
+    // All dirty rects were encoded from rectBuffer copies; the current frame
+    // becomes the comparison base by pointer swap (no full-frame copy)
+    graphics.SwapFrames();
 
     // Fill in the response header over the finished packet, then hand the exact
     // accumulated array to the caller (the caller deletes[] *response)
