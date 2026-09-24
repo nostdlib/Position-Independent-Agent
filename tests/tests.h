@@ -108,3 +108,22 @@ inline BOOL IsAllZeros(Span<const UINT8> data)
 	}
 	return true;
 }
+
+/**
+ * Median - In-place median of sample counts (insertion sort; mutates samples)
+ */
+inline UINT64 Median(UINT64 *samples, UINT32 count)
+{
+	for (UINT32 i = 1; i < count; i++)
+	{
+		UINT64 key = samples[i];
+		INT32 j = (INT32)i - 1;
+		while (j >= 0 && samples[j] > key)
+		{
+			samples[j + 1] = samples[j];
+			j--;
+		}
+		samples[j + 1] = key;
+	}
+	return samples[count / 2];
+}
