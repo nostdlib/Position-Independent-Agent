@@ -43,6 +43,28 @@ struct JpegBuffer
         }
     }
 
+    /// @brief Grow the backing buffer to at least the requested size, keeping contents
+    /// @param needed Minimum capacity in bytes
+    /// @return void (sets allocationFailed on failure)
+    VOID EnsureCapacity(UINT32 needed)
+    {
+        if (size >= needed || allocationFailed)
+            return;
+        PUINT8 grown = new UINT8[needed];
+        if (grown == nullptr)
+        {
+            allocationFailed = true;
+            return;
+        }
+        if (outputBuffer != nullptr)
+        {
+            Memory::Copy(grown, outputBuffer, offset);
+            delete[] outputBuffer;
+        }
+        outputBuffer = grown;
+        size = needed;
+    }
+
     ~JpegBuffer()
     {
         if (outputBuffer)

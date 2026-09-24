@@ -800,6 +800,7 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     if (isFullScreen)
     {
         graphics.jpegBuffer.Reset();
+        graphics.jpegBuffer.EnsureCapacity((UINT32)((USIZE)device.Width * device.Height * 3 / 8 + 4096));
         auto encodeResult = JpegEncoder::Encode(JpegCallback, &graphics.jpegBuffer, (INT32)quality, (INT32)device.Width, (INT32)device.Height, 3, Span<const UINT8>((UINT8 *)graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB)));
         if (encodeResult.IsErr() || graphics.jpegBuffer.allocationFailed)
         {
@@ -895,6 +896,7 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             Memory::Copy(graphics.rectBuffer + j * rectWidth, graphics.currentScreenshot + (dr.Y + j) * device.Width + dr.X, (USIZE)rectWidth * sizeof(RGB));
 
         graphics.jpegBuffer.Reset();
+        graphics.jpegBuffer.EnsureCapacity((UINT32)((USIZE)rectWidth * rectHeight * 3 / 8 + 4096));
         auto encodeResult = JpegEncoder::Encode(JpegCallback, &graphics.jpegBuffer, (INT32)quality, rectWidth, rectHeight, 3, Span<const UINT8>((UINT8 *)graphics.rectBuffer, rectWidth * rectHeight * sizeof(RGB)));
         if (encodeResult.IsErr() || graphics.jpegBuffer.allocationFailed)
         {

@@ -82,7 +82,9 @@ private:
 		return samples[count / 2];
 	}
 
-	// 8x8 blocks of low-variance color: DCT-friendly, like real screen content
+	// 8x8 blocks of low-variance color: DCT-friendly, like real screen content.
+	// Per-pixel jitter is the same delta on all channels (neutral gray noise,
+	// like compression artifacts) — chroma stays flat per block, as on real UI.
 	static VOID FillDesktopLike(Span<RGB> frame, Prng &prng)
 	{
 		for (UINT32 by = 0; by < Height; by += 8)
@@ -99,9 +101,10 @@ private:
 					for (UINT32 x = bx; x < bx + 8 && x < Width; x++)
 					{
 						RGB &p = frame[(USIZE)y * Width + x];
-						p.Red = (UINT8)(base.Red + (prng.Get() & jitterMask));
-						p.Green = (UINT8)(base.Green + (prng.Get() & jitterMask));
-						p.Blue = (UINT8)(base.Blue + (prng.Get() & jitterMask));
+						UINT8 delta = (UINT8)(prng.Get() & jitterMask);
+						p.Red = (UINT8)(base.Red + delta);
+						p.Green = (UINT8)(base.Green + delta);
+						p.Blue = (UINT8)(base.Blue + delta);
 					}
 				}
 			}

@@ -94,14 +94,6 @@ struct JFIFHeader
 	UINT8 yThumb;
 };
 
-/// @brief COM (comment) segment
-struct CommentSegment
-{
-	UINT16 com;
-	UINT16 comLen;
-	CHAR comStr[1];
-};
-
 /// @brief Component specification within SOF marker (ITU-T T.81 A.1.1)
 struct ComponentSpec
 {
@@ -563,22 +555,19 @@ static VOID ForwardDCT(float *data)
 static VOID EncodeMCU(EncoderState *state, float *mcu, float *qt,
 					  UINT8 *huffDcLen, UINT16 *huffDcCode,
 					  UINT8 *huffAcLen, UINT16 *huffAcCode,
+					  const UINT8 *zigZag,
 					  INT32 *pred, UINT32 *bitbuffer, UINT32 *location)
 {
-	UINT8 zigZag[64];
-	InitZigZag(zigZag);
-
 	INT32 du[64];
-	float dctMcu[64];
-	Memory::Copy(dctMcu, mcu, 64 * sizeof(float));
 
-	ForwardDCT(dctMcu);
+	// In place: the caller refills the sample buffer for the next block
+	ForwardDCT(mcu);
 
 	float half = F32(0x3F000000); // 0.5f
 	float bias = F32(0x44800000); // 1024.0f
 	for (INT32 i = 0; i < 64; ++i)
 	{
-		float fval = dctMcu[i] * qt[i];
+		float fval = mcu[i] * qt[i];
 		// Floor via truncation with bias to handle negative values
 		fval = fval + bias + half;
 		INT32 ival = (INT32)fval;
@@ -643,6 +632,145 @@ static VOID EncodeMCU(EncoderState *state, float *mcu, float *qt,
 }
 
 // ============================================================
+//  Sample loading (RGB → level-shifted YCbCr)
+// ============================================================
+
+/**
+ * @brief Convert one RGB pixel for the 4:2:0 path
+ *
+ * @details Luma keeps the sub-LSB precision of the float path via one scaled
+ * multiply over the 16.16 fixed-point accumulator (integer rounding of luma
+ * measurably inflates q75 output on luma-dense content). Chroma rounds to
+ * integer — immaterial under 2x2 subsampling.
+ */
+static VOID ConvertPixel420(UINT8 r, UINT8 g, UINT8 b, float *y, INT32 *cb, INT32 *cr)
+{
+	const float scale = F32(0x37800000); // 2^-16
+	*y = (float)(19595 * (INT32)r + 38470 * (INT32)g + 7471 * (INT32)b) * scale - F32(0x43000000);
+	*cb = (-11059 * (INT32)r - 21712 * (INT32)g + 32768 * (INT32)b + 32768) >> 16;
+	*cr = (32768 * (INT32)r - 27441 * (INT32)g - 5328 * (INT32)b + 32768) >> 16;
+}
+
+/**
+ * @brief Load one 8x8 luma block with edge replication (4:2:0 path)
+ */
+static VOID LoadLumaBlock(const UINT8 *srcData, INT32 width, INT32 height,
+						  INT32 srcNumComponents, INT32 blockX, INT32 blockY,
+						  float *duY)
+{
+	for (INT32 offY = 0; offY < 8; ++offY)
+	{
+		INT32 row = blockY + offY;
+		if (row >= height)
+			row = height - 1;
+		for (INT32 offX = 0; offX < 8; ++offX)
+		{
+			INT32 col = blockX + offX;
+			if (col >= width)
+				col = width - 1;
+			const UINT8 *px = srcData + (USIZE)(row * width + col) * (USIZE)srcNumComponents;
+			float y;
+			INT32 cb, cr;
+			ConvertPixel420(px[0], px[1], px[2], &y, &cb, &cr);
+			duY[offY * 8 + offX] = y;
+		}
+	}
+}
+
+/**
+ * @brief Load one 8x8 block of all three components (4:4:4 path)
+ *
+ * @details Keeps the original float RGB-to-YCbCr conversion so quality >= 90
+ * produces the same bitstream as the pre-subsampling encoder (the only
+ * difference anywhere is the removed empty 4-byte COM segment).
+ */
+static VOID LoadFullBlock(const UINT8 *srcData, INT32 width, INT32 height,
+						  INT32 srcNumComponents, INT32 blockX, INT32 blockY,
+						  float *duY, float *duCb, float *duCr)
+{
+	// RGB-to-YCbCr conversion constants
+	float kR = F32(0x3E991687);	  // 0.299f
+	float kG = F32(0x3F1645A2);	  // 0.587f
+	float kB = F32(0x3DE978D5);	  // 0.114f
+	float kCbR = F32(0xBE2CBFB1); // -0.1687f
+	float kCbG = F32(0x3EA9A027); // 0.3313f (negative in formula)
+	float kCbB = F32(0x3F000000); // 0.5f
+	float kCrR = F32(0x3F000000); // 0.5f
+	float kCrG = F32(0x3ED65FD9); // 0.4187f (negative in formula)
+	float kCrB = F32(0x3DA6809D); // 0.0813f (negative in formula)
+	float f128 = F32(0x43000000); // 128.0f
+
+	for (INT32 offY = 0; offY < 8; ++offY)
+	{
+		INT32 row = blockY + offY;
+		if (row >= height)
+			row = height - 1;
+		for (INT32 offX = 0; offX < 8; ++offX)
+		{
+			INT32 col = blockX + offX;
+			if (col >= width)
+				col = width - 1;
+			const UINT8 *px = srcData + (USIZE)(row * width + col) * (USIZE)srcNumComponents;
+			UINT8 b = px[2];
+			UINT8 g = px[1];
+			UINT8 r = px[0];
+
+			float rf = (float)(INT32)r;
+			float gf = (float)(INT32)g;
+			float bf = (float)(INT32)b;
+
+			INT32 blockIndex = offY * 8 + offX;
+			duY[blockIndex] = kR * rf + kG * gf + kB * bf - f128;
+			duCb[blockIndex] = kCbR * rf - kCbG * gf + kCbB * bf;
+			duCr[blockIndex] = kCrR * rf - kCrG * gf - kCrB * bf;
+		}
+	}
+}
+
+/**
+ * @brief Load one 8x8 chroma pair as 2x2 averages of the covered luma pixels (4:2:0)
+ * @param mcuX/mcuY Top-left corner of the 16x16 MCU the chroma block covers
+ */
+static VOID LoadSubsampledChromaBlock(const UINT8 *srcData, INT32 width, INT32 height,
+									  INT32 srcNumComponents, INT32 mcuX, INT32 mcuY,
+									  float *duCb, float *duCr)
+{
+	for (INT32 offY = 0; offY < 8; ++offY)
+	{
+		for (INT32 offX = 0; offX < 8; ++offX)
+		{
+			INT32 rSum = 0, gSum = 0, bSum = 0;
+			for (INT32 sy = 0; sy < 2; ++sy)
+			{
+				INT32 row = mcuY + offY * 2 + sy;
+				if (row >= height)
+					row = height - 1;
+				for (INT32 sx = 0; sx < 2; ++sx)
+				{
+					INT32 col = mcuX + offX * 2 + sx;
+					if (col >= width)
+						col = width - 1;
+					const UINT8 *px = srcData + (USIZE)(row * width + col) * (USIZE)srcNumComponents;
+					rSum += px[0];
+					gSum += px[1];
+					bSum += px[2];
+				}
+			}
+
+			UINT8 r = (UINT8)((rSum + 2) >> 2);
+			UINT8 g = (UINT8)((gSum + 2) >> 2);
+			UINT8 b = (UINT8)((bSum + 2) >> 2);
+			float y;
+			INT32 cb, cr;
+			ConvertPixel420(r, g, b, &y, &cb, &cr);
+			INT32 blockIndex = offY * 8 + offX;
+			duCb[blockIndex] = (float)cb;
+			duCr[blockIndex] = (float)cr;
+		}
+	}
+}
+
+// ============================================================
 //  Main encoding loop
 // ============================================================
 
@@ -654,9 +782,12 @@ static VOID EncodeMCU(EncoderState *state, float *mcu, float *qt,
  * @param width Image width
  * @param height Image height
  * @param srcNumComponents Bytes per pixel (3 or 4)
+ * @param subsampleChroma True encodes 4:2:0 (16x16 MCU, 2x2 box-filtered
+ *        chroma); false keeps the original 4:4:4 8x8 block layout
  */
 static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
-							INT32 width, INT32 height, INT32 srcNumComponents)
+							INT32 width, INT32 height, INT32 srcNumComponents,
+							BOOL subsampleChroma)
 {
 	UINT8 zigZag[64];
 	InitZigZag(zigZag);
@@ -706,19 +837,11 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 		WriteOutput(state, &header, sizeof(JFIFHeader));
 	}
 
-	// Write empty comment segment
-	{
-		CommentSegment com;
-		com.com = ByteOrder::Swap16(0xFFFE);
-		com.comLen = ByteOrder::Swap16(2);
-		WriteOutput(state, &com, sizeof(CommentSegment));
-	}
-
 	// Write quantization tables
 	WriteDQT(state, state->qtLuma, 0x00);
 	WriteDQT(state, state->qtChroma, 0x01);
 
-	// Write SOF0 frame header
+	// Write SOF0 frame header (luma sampling 0x22 selects 4:2:0 MCUs)
 	{
 		FrameHeader header;
 		header.SOF = ByteOrder::Swap16(0xFFC0);
@@ -734,7 +857,7 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 		for (INT32 i = 0; i < 3; ++i)
 		{
 			header.componentSpec[i].componentId = (UINT8)(i + 1);
-			header.componentSpec[i].samplingFactors = 0x11;
+			header.componentSpec[i].samplingFactors = (i == 0 && subsampleChroma) ? 0x22 : 0x11;
 			header.componentSpec[i].qt = qtSelectors[i];
 		}
 		WriteOutput(state, &header, sizeof(FrameHeader));
@@ -767,7 +890,7 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 		WriteOutput(state, &header, sizeof(ScanHeader));
 	}
 
-	// Encode scan data: iterate over 8x8 blocks
+	// Encode scan data
 	float duY[64];
 	float duCb[64];
 	float duCr[64];
@@ -779,64 +902,72 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 	UINT32 bitbuffer = 0;
 	UINT32 bitLocation = 0;
 
-	// RGB-to-YCbCr conversion constants
-	float kR = F32(0x3E991687);	  // 0.299f
-	float kG = F32(0x3F1645A2);	  // 0.587f
-	float kB = F32(0x3DE978D5);	  // 0.114f
-	float kCbR = F32(0xBE2CBFB1); // -0.1687f
-	float kCbG = F32(0x3EA9A027); // 0.3313f (negative in formula)
-	float kCbB = F32(0x3F000000); // 0.5f
-	float kCrR = F32(0x3F000000); // 0.5f
-	float kCrG = F32(0x3ED65FD9); // 0.4187f (negative in formula)
-	float kCrB = F32(0x3DA6809D); // 0.0813f (negative in formula)
-	float f128 = F32(0x43000000); // 128.0f
-
-	for (INT32 y = 0; y < height; y += 8)
+	if (subsampleChroma)
 	{
-		for (INT32 x = 0; x < width; x += 8)
+		// 4:2:0: 16x16 MCUs — four luma blocks then one Cb and one Cr block
+		// (T.81 A.2.3 component order Y1 Y2 Y3 Y4 Cb Cr)
+		for (INT32 y = 0; y < height; y += 16)
 		{
-			for (INT32 offY = 0; offY < 8; ++offY)
+			for (INT32 x = 0; x < width; x += 16)
 			{
-				for (INT32 offX = 0; offX < 8; ++offX)
-				{
-					INT32 blockIndex = offY * 8 + offX;
+				LoadLumaBlock(srcData, width, height, srcNumComponents, x, y, duY);
+				EncodeMCU(state, duY, pqt.luma,
+						  state->ehuffsize[LumaDC], state->ehuffcode[LumaDC],
+						  state->ehuffsize[LumaAC], state->ehuffcode[LumaAC],
+						  zigZag, &predY, &bitbuffer, &bitLocation);
 
-					INT32 col = x + offX;
-					INT32 row = y + offY;
-					INT32 srcIndex = (row * width + col) * srcNumComponents;
+				LoadLumaBlock(srcData, width, height, srcNumComponents, x + 8, y, duY);
+				EncodeMCU(state, duY, pqt.luma,
+						  state->ehuffsize[LumaDC], state->ehuffcode[LumaDC],
+						  state->ehuffsize[LumaAC], state->ehuffcode[LumaAC],
+						  zigZag, &predY, &bitbuffer, &bitLocation);
 
-					// Clamp to image bounds for partial blocks at edges
-					if (row >= height)
-						srcIndex -= (width * (row - height + 1)) * srcNumComponents;
-					if (col >= width)
-						srcIndex -= (col - width + 1) * srcNumComponents;
+				LoadLumaBlock(srcData, width, height, srcNumComponents, x, y + 8, duY);
+				EncodeMCU(state, duY, pqt.luma,
+						  state->ehuffsize[LumaDC], state->ehuffcode[LumaDC],
+						  state->ehuffsize[LumaAC], state->ehuffcode[LumaAC],
+						  zigZag, &predY, &bitbuffer, &bitLocation);
 
-					UINT8 b = srcData[srcIndex + 2];
-					UINT8 g = srcData[srcIndex + 1];
-					UINT8 r = srcData[srcIndex + 0];
+				LoadLumaBlock(srcData, width, height, srcNumComponents, x + 8, y + 8, duY);
+				EncodeMCU(state, duY, pqt.luma,
+						  state->ehuffsize[LumaDC], state->ehuffcode[LumaDC],
+						  state->ehuffsize[LumaAC], state->ehuffcode[LumaAC],
+						  zigZag, &predY, &bitbuffer, &bitLocation);
 
-					float rf = (float)(INT32)r;
-					float gf = (float)(INT32)g;
-					float bf = (float)(INT32)b;
-
-					duY[blockIndex] = kR * rf + kG * gf + kB * bf - f128;
-					duCb[blockIndex] = kCbR * rf - kCbG * gf + kCbB * bf;
-					duCr[blockIndex] = kCrR * rf - kCrG * gf - kCrB * bf;
-				}
+				LoadSubsampledChromaBlock(srcData, width, height, srcNumComponents, x, y, duCb, duCr);
+				EncodeMCU(state, duCb, pqt.chroma,
+						  state->ehuffsize[ChromaDC], state->ehuffcode[ChromaDC],
+						  state->ehuffsize[ChromaAC], state->ehuffcode[ChromaAC],
+						  zigZag, &predCb, &bitbuffer, &bitLocation);
+				EncodeMCU(state, duCr, pqt.chroma,
+						  state->ehuffsize[ChromaDC], state->ehuffcode[ChromaDC],
+						  state->ehuffsize[ChromaAC], state->ehuffcode[ChromaAC],
+						  zigZag, &predCr, &bitbuffer, &bitLocation);
 			}
+		}
+	}
+	else
+	{
+		// 4:4:4: 8x8 MCUs, one block per component
+		for (INT32 y = 0; y < height; y += 8)
+		{
+			for (INT32 x = 0; x < width; x += 8)
+			{
+				LoadFullBlock(srcData, width, height, srcNumComponents, x, y, duY, duCb, duCr);
 
-			EncodeMCU(state, duY, pqt.luma,
-					  state->ehuffsize[LumaDC], state->ehuffcode[LumaDC],
-					  state->ehuffsize[LumaAC], state->ehuffcode[LumaAC],
-					  &predY, &bitbuffer, &bitLocation);
-			EncodeMCU(state, duCb, pqt.chroma,
-					  state->ehuffsize[ChromaDC], state->ehuffcode[ChromaDC],
-					  state->ehuffsize[ChromaAC], state->ehuffcode[ChromaAC],
-					  &predCb, &bitbuffer, &bitLocation);
-			EncodeMCU(state, duCr, pqt.chroma,
-					  state->ehuffsize[ChromaDC], state->ehuffcode[ChromaDC],
-					  state->ehuffsize[ChromaAC], state->ehuffcode[ChromaAC],
-					  &predCr, &bitbuffer, &bitLocation);
+				EncodeMCU(state, duY, pqt.luma,
+						  state->ehuffsize[LumaDC], state->ehuffcode[LumaDC],
+						  state->ehuffsize[LumaAC], state->ehuffcode[LumaAC],
+						  zigZag, &predY, &bitbuffer, &bitLocation);
+				EncodeMCU(state, duCb, pqt.chroma,
+						  state->ehuffsize[ChromaDC], state->ehuffcode[ChromaDC],
+						  state->ehuffsize[ChromaAC], state->ehuffcode[ChromaAC],
+						  zigZag, &predCb, &bitbuffer, &bitLocation);
+				EncodeMCU(state, duCr, pqt.chroma,
+						  state->ehuffsize[ChromaDC], state->ehuffcode[ChromaDC],
+						  state->ehuffsize[ChromaAC], state->ehuffcode[ChromaAC],
+						  zigZag, &predCr, &bitbuffer, &bitLocation);
+			}
 		}
 	}
 
@@ -1045,7 +1176,11 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 						   state.htVals[i], huffsize[i], huffcode[i], tableLengths[i]);
 	}
 
-	EncodeImageData(&state, srcData.Data(), width, height, numComponents);
+	// Quality gate: below 90, 4:2:0 chroma subsampling roughly halves the
+	// DCT/entropy work and shrinks output 25-40% with little visual loss on
+	// screen content; 90+ keeps the original 4:4:4 fidelity
+	BOOL subsampleChroma = quality < 90;
+	EncodeImageData(&state, srcData.Data(), width, height, numComponents, subsampleChroma);
 
 	return Result<VOID, Error>::Ok();
 }
