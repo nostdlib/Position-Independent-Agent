@@ -245,6 +245,114 @@ public:
 
 		return outputIndex;
 	}
+
+	/**
+	 * @brief Convert a UTF-16 string to WTF-8, preserving unpaired surrogates
+	 * @param input UTF-16 input span (may contain unpaired surrogates)
+	 * @param output Buffer to receive WTF-8 bytes
+	 * @return Total number of bytes written
+	 *
+	 * @details Identical to ToUTF8 for well-formed input, except ANY unpaired
+	 * surrogate (U+D800..U+DFFF, either half) is written as its own 3-byte
+	 * sequence instead of being dropped — so arbitrary NTFS UTF-16 names and
+	 * the surrogateescape units from StringUtils::Utf8ToWideLossless
+	 * round-trip byte-exactly. Valid surrogate pairs still encode as normal
+	 * 4-byte astral sequences. Reversed by the C2's WTF-8 name decoder.
+	 *
+	 * @note Unlike ToUTF8Lossless, the escape window is NOT unescaped to raw
+	 * bytes here — the POSIX openat() byte-exactness contract depends on
+	 * ToUTF8Lossless keeping that behavior; this variant is for wire name
+	 * fields only. Give the output buffer 4 bytes of headroom past the
+	 * WTF8Length() total (the loop reserves room for a maximal 4-byte tail).
+	 *
+	 * @see https://simonsapin.github.io/wtf-8/ — WTF-8, a superset of UTF-8
+	 */
+	static constexpr USIZE ToWTF8(Span<const WCHAR> input, Span<CHAR> output)
+	{
+		USIZE inputIndex = 0;
+		USIZE outputIndex = 0;
+
+		// Termination is structural: every iteration consumes at least one input
+		// unit — the surrogate branch advances inputIndex directly, and
+		// CodepointToUTF8 consumes its unit BEFORE the byte-count decision (an
+		// invalid unit costs 0 output bytes but is still consumed).
+		while (inputIndex < input.Size() && outputIndex + 4 <= output.Size())
+		{
+			WCHAR unit = input[inputIndex];
+
+			BOOL isPair = unit >= 0xD800 && unit <= 0xDBFF
+						  && inputIndex + 1 < input.Size()
+						  && input[inputIndex + 1] >= 0xDC00 && input[inputIndex + 1] <= 0xDFFF;
+
+			if (!isPair && unit >= 0xD800 && unit <= 0xDFFF)
+			{
+				// WTF-8: an unpaired surrogate becomes its own 3-byte sequence
+				// (CodepointToUTF8Bytes rejects surrogates, so encode inline).
+				output[outputIndex++] = (CHAR)(0xE0 | (unit >> 12));
+				output[outputIndex++] = (CHAR)(0x80 | ((unit >> 6) & 0x3F));
+				output[outputIndex++] = (CHAR)(0x80 | (unit & 0x3F));
+				inputIndex++;
+				continue;
+			}
+
+			USIZE bytesWritten = CodepointToUTF8(input, inputIndex, output.Subspan(outputIndex));
+			outputIndex += bytesWritten;
+		}
+
+		return outputIndex;
+	}
+
+	/**
+	 * @brief Byte count ToWTF8 would produce for the input (the sizing pass)
+	 * @param input UTF-16 input span (may contain unpaired surrogates)
+	 * @return WTF-8 byte length (0 .. input.Size() * 4)
+	 * @details Walks with the same pair/escape decisions as ToWTF8 so the two
+	 * never disagree — callers size a buffer from this and fill it with that.
+	 * On platforms where WCHAR is 32-bit (Linux/macOS), an astral codepoint
+	 * is ONE unit and encodes as a 4-byte sequence; invalid units (> U+10FFFF)
+	 * encode zero bytes, exactly like CodepointToUTF8Bytes rejects them.
+	 */
+	static constexpr USIZE WTF8Length(Span<const WCHAR> input)
+	{
+		USIZE inputIndex = 0;
+		USIZE length = 0;
+
+		while (inputIndex < input.Size())
+		{
+			WCHAR unit = input[inputIndex];
+
+			BOOL isPair = unit >= 0xD800 && unit <= 0xDBFF
+						  && inputIndex + 1 < input.Size()
+						  && input[inputIndex + 1] >= 0xDC00 && input[inputIndex + 1] <= 0xDFFF;
+
+			if (isPair)
+			{
+				length += 4;
+				inputIndex += 2;
+			}
+			else if (unit >= 0xD800 && unit <= 0xDFFF)
+			{
+				length += 3; // unpaired surrogate — its own 3-byte WTF-8 sequence
+				inputIndex++;
+			}
+			else
+			{
+				UINT32 codepoint = (UINT32)unit;
+				if (codepoint < 0x80)
+					length += 1;
+				else if (codepoint < 0x800)
+					length += 2;
+				else if (codepoint < 0x10000)
+					length += 3;
+				else if (codepoint < 0x110000)
+					length += 4; // 32-bit-WCHAR astral single unit
+				// else: invalid — CodepointToUTF8Bytes writes nothing, count nothing
+				inputIndex++;
+			}
+		}
+
+		return length;
+	}
 };
 
 /** @} */ // end of utf16 group

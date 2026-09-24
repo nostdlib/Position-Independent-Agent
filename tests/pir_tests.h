@@ -95,6 +95,7 @@
 #include "shell_platform_test.h"
 #include "shell_manager_tests.h"
 #include "environment_tests.h"
+#include "wire_listing_tests.h"
 #include "transport_bench.h"
 #include "screen_bench.h"
 
@@ -132,6 +133,8 @@ static BOOL RunPIRTests()
 	RunTestSuite<FileSystemTests>(allPassed);
 	RunTestSuite<PortableDeviceTests>(allPassed);
 #endif
+	// Pure golden-vector logic (v3 listing encoder) — runs on every arch, MIPS included.
+	RunTestSuite<WireListingTests>(allPassed);
 	RunTestSuite<MemoryTests>(allPassed);
 	RunTestSuite<ProcessTests>(allPassed);
 #if !defined(ARCHITECTURE_MIPS)
