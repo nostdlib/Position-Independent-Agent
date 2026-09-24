@@ -416,8 +416,9 @@ region from the current frame into `rectBuffer`, JPEG-encode it, and append
 to the response. The encoder is baseline JFIF with a quality-gated chroma
 layout: below quality 90 it encodes 4:2:0 (16x16 MCUs, 2x2 box-filtered
 chroma — roughly 40% less encode time and typically 25-40% smaller output
-for screen content), while quality 90 and above keep 4:4:4 with output
-byte-identical to the original encoder. Every section remains an
+for screen content), while quality 90 and above keep 4:4:4 with the same
+bitstream as the original encoder apart from the removed empty 4-byte COM
+segment. Every section remains an
 independently decodable baseline JPEG either way:
 
 ```cpp
