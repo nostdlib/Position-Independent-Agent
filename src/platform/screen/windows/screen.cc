@@ -151,98 +151,6 @@ static BOOL RebuildGdiObjects(WinCaptureState *state, INT32 width, INT32 height)
 	return true;
 }
 
-// Stateless path: creates and destroys every GDI object per call
-static Result<VOID, Error> CaptureStateless(const ScreenDevice &device, Span<RGB> buffer)
-{
-	INT32 width = (INT32)device.Width;
-	INT32 height = (INT32)device.Height;
-
-	PVOID screenDC = User32::GetDC(nullptr);
-	if (screenDC == nullptr)
-		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
-
-	PVOID memDC = Gdi32::CreateCompatibleDC(screenDC);
-	if (memDC == nullptr)
-	{
-		User32::ReleaseDC(nullptr, screenDC);
-		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
-	}
-
-	PVOID bitmap = Gdi32::CreateCompatibleBitmap(screenDC, width, height);
-	if (bitmap == nullptr)
-	{
-		Gdi32::DeleteDC(memDC);
-		User32::ReleaseDC(nullptr, screenDC);
-		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
-	}
-
-	PVOID oldBitmap = Gdi32::SelectObject(memDC, bitmap);
-
-	if (!Gdi32::BitBlt(memDC, 0, 0, width, height,
-		screenDC, device.Left, device.Top, SRCCOPY))
-	{
-		Gdi32::SelectObject(memDC, oldBitmap);
-		Gdi32::DeleteObject(bitmap);
-		Gdi32::DeleteDC(memDC);
-		User32::ReleaseDC(nullptr, screenDC);
-		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
-	}
-
-	// Allocate temporary 32bpp buffer for GetDIBits (BGRA format)
-	UINT32 pixelCount = device.Width * device.Height;
-	UINT8 *tempBuf = new UINT8[pixelCount * 4];
-	if (tempBuf == nullptr)
-	{
-		Gdi32::SelectObject(memDC, oldBitmap);
-		Gdi32::DeleteObject(bitmap);
-		Gdi32::DeleteDC(memDC);
-		User32::ReleaseDC(nullptr, screenDC);
-		return Result<VOID, Error>::Err(Error(Error::Screen_AllocFailed));
-	}
-
-	// Set up BITMAPINFOHEADER for 32bpp top-down
-	BITMAPINFOHEADER bmi;
-	Memory::Zero(&bmi, sizeof(bmi));
-	bmi.biSize = sizeof(BITMAPINFOHEADER);
-	bmi.biWidth = width;
-	bmi.biHeight = -height; // negative = top-down scanlines
-	bmi.biPlanes = 1;
-	bmi.biBitCount = 32;
-	bmi.biCompression = BI_RGB;
-
-	// GetDIBits requires the bitmap not be selected into a DC (documented
-	// precondition — some drivers enforce it)
-	Gdi32::SelectObject(memDC, oldBitmap);
-	INT32 scanLines = Gdi32::GetDIBits(memDC, bitmap, 0, (UINT32)height,
-		tempBuf, &bmi, DIB_RGB_COLORS);
-	Gdi32::SelectObject(memDC, bitmap);
-
-	// Cleanup GDI resources
-	Gdi32::SelectObject(memDC, oldBitmap);
-	Gdi32::DeleteObject(bitmap);
-	Gdi32::DeleteDC(memDC);
-	User32::ReleaseDC(nullptr, screenDC);
-
-	if (scanLines == 0)
-	{
-		delete[] tempBuf;
-		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
-	}
-
-	// Convert BGRA → RGB
-	PRGB rgbBuf = buffer.Data();
-	for (UINT32 i = 0; i < pixelCount; i++)
-	{
-		UINT32 offset = i * 4;
-		rgbBuf[i].Red = tempBuf[offset + 2];
-		rgbBuf[i].Green = tempBuf[offset + 1];
-		rgbBuf[i].Blue = tempBuf[offset];
-	}
-
-	delete[] tempBuf;
-	return Result<VOID, Error>::Ok();
-}
-
 Result<PVOID, Error> Screen::CreateCaptureState(const ScreenDevice &device)
 {
 	WinCaptureState *state = new WinCaptureState();
@@ -281,9 +189,17 @@ VOID Screen::DestroyCaptureState(PVOID captureState)
 
 Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, PVOID captureState)
 {
-	// One-shot callers (tests, single captures) take the create-per-call path
+	// One-shot callers (tests, single captures) run the same sequence through
+	// a temporary state — one GDI pipeline to maintain
 	if (captureState == nullptr)
-		return CaptureStateless(device, buffer);
+	{
+		auto state = CreateCaptureState(device);
+		if (!state)
+			return Result<VOID, Error>::Err(state.Error());
+		auto result = Capture(device, buffer, state.Value());
+		DestroyCaptureState(state.Value());
+		return result;
+	}
 
 	WinCaptureState *state = (WinCaptureState *)captureState;
 	INT32 width = (INT32)device.Width;
@@ -308,26 +224,35 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 		}
 	}
 
-	PVOID screenDC = User32::GetDC(nullptr);
-	if (screenDC == nullptr)
-		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
-
-	if (!Gdi32::BitBlt(state->memDC, 0, 0, width, height,
-		screenDC, device.Left, device.Top, SRCCOPY))
+	// Persistent objects may go stale (lost DC, driver hiccup): rebuild once
+	// and retry before reporting failure
+	INT32 scanLines = 0;
+	for (UINT32 attempt = 0; ; attempt++)
 	{
-		User32::ReleaseDC(nullptr, screenDC);
-		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
-	}
-	User32::ReleaseDC(nullptr, screenDC);
+		PVOID screenDC = User32::GetDC(nullptr);
+		if (screenDC == nullptr)
+			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 
-	// GetDIBits requires the bitmap not be selected into a DC (documented
-	// precondition — some drivers enforce it)
-	Gdi32::SelectObject(state->memDC, state->oldBitmap);
-	INT32 scanLines = Gdi32::GetDIBits(state->memDC, state->bitmap, 0, (UINT32)height,
-		state->bgra, &state->bmi, DIB_RGB_COLORS);
-	Gdi32::SelectObject(state->memDC, state->bitmap);
-	if (scanLines == 0)
-		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
+		BOOL blit = Gdi32::BitBlt(state->memDC, 0, 0, width, height,
+			screenDC, device.Left, device.Top, SRCCOPY);
+		User32::ReleaseDC(nullptr, screenDC);
+
+		if (blit)
+		{
+			// GetDIBits requires the bitmap not be selected into a DC
+			// (documented precondition — some drivers enforce it)
+			Gdi32::SelectObject(state->memDC, state->oldBitmap);
+			scanLines = Gdi32::GetDIBits(state->memDC, state->bitmap, 0, (UINT32)height,
+				state->bgra, &state->bmi, DIB_RGB_COLORS);
+			Gdi32::SelectObject(state->memDC, state->bitmap);
+		}
+
+		if (scanLines != 0)
+			break;
+
+		if (attempt >= 1 || !RebuildGdiObjects(state, width, height))
+			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
+	}
 
 	// Convert BGRA → RGB
 	UINT32 pixelCount = device.Width * device.Height;

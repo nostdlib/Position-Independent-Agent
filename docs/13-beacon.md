@@ -376,10 +376,10 @@ screen capture (X11, Wayland, GDI, etc.). On Windows the handler passes
 persistent GDI resources (memory DC, compatible bitmap, BGRA conversion buffer)
 created once per display via `Screen::CreateCaptureState` and held in
 `Graphics::captureState`; GDI object creation otherwise dominates a per-call
-capture. A dimension mismatch rebuilds the state in place (display-mode change),
-and any capture failure through the state drops it and retries once statelessly,
-so the next request self-heals. Other platforms ignore the state (nullptr) and
-capture statelessly.
+capture. The platform layer rebuilds the state in place on a dimension
+mismatch (display-mode change) and on a capture failure retries once after a
+rebuild before reporting failure. Other platforms ignore the state (nullptr)
+and capture statelessly through the same entry point.
 
 **Stage 3 -- Fused difference + dirty detection.** The handler calls the fused
 `ImageProcessor::FindDirtyRects(current, previous, w, h, 64, 24)` overload: one

@@ -698,19 +698,12 @@ VOID JpegCallback(PVOID context, PVOID data, INT32 size)
     // Grow the reusable JPEG buffer when this chunk no longer fits.
     if ((USIZE)jpegBuffer->offset + (USIZE)size > jpegBuffer->size)
     {
-        USIZE newSize = Math::Max((USIZE)jpegBuffer->size * 2, (USIZE)jpegBuffer->size + (USIZE)size);
+        USIZE newSize = Math::Max((USIZE)jpegBuffer->size * 2, (USIZE)jpegBuffer->offset + (USIZE)size);
         if (newSize > 0xFFFFFFFF)
             newSize = 0xFFFFFFFF;
-        PUINT8 newBuffer = new UINT8[newSize];
-        if (newBuffer == nullptr)
-        {
-            jpegBuffer->allocationFailed = true;
+        jpegBuffer->EnsureCapacity((UINT32)newSize);
+        if (jpegBuffer->allocationFailed)
             return;
-        }
-        Memory::Copy(newBuffer, jpegBuffer->outputBuffer, jpegBuffer->offset);
-        delete[] jpegBuffer->outputBuffer;
-        jpegBuffer->outputBuffer = newBuffer;
-        jpegBuffer->size = (UINT32)newSize;
     }
 
     Memory::Copy(jpegBuffer->outputBuffer + jpegBuffer->offset, data, (USIZE)size);
@@ -764,8 +757,8 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     if (!graphics.IsInitialized())
         graphics.Init(device);
 
-    // Persistent capture resources (Windows GDI reuse): created on first use,
-    // re-created after failures so a display-mode change self-heals next request
+    // Persistent capture resources (Windows GDI reuse): created on first use;
+    // the platform layer rebuilds them in place on mode changes and failures
     if (graphics.captureState == nullptr)
     {
         auto state = Screen::CreateCaptureState(device);
@@ -773,34 +766,18 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             graphics.captureState = state.Value();
     }
 
-    BOOL hadCaptureState = graphics.captureState != nullptr;
     if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height), graphics.captureState))
     {
-        // A failing stateless capture would just repeat the identical call —
-        // only a stale persistent state is worth one stateless retry
-        if (hadCaptureState)
-        {
-            graphics.ReleaseCaptureState();
-            if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height)))
-            {
-                LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
-                WriteErrorResponse(response, responseLength, StatusCode::StatusError);
-                return;
-            }
-        }
-        else
-        {
-            LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
-            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
-            return;
-        }
+        LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
+        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        return;
     }
 
     // In case of full screen request, encode the whole screenshot as JPEG and send it back
     if (isFullScreen)
     {
         graphics.jpegBuffer.Reset();
-        graphics.jpegBuffer.EnsureCapacity((UINT32)((USIZE)device.Width * device.Height * 3 / 8 + 4096));
+        graphics.jpegBuffer.ReserveForImage(device.Width, device.Height);
         auto encodeResult = JpegEncoder::Encode(JpegCallback, &graphics.jpegBuffer, (INT32)quality, (INT32)device.Width, (INT32)device.Height, 3, Span<const UINT8>((UINT8 *)graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB)));
         if (encodeResult.IsErr() || graphics.jpegBuffer.allocationFailed)
         {
@@ -896,7 +873,7 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             Memory::Copy(graphics.rectBuffer + j * rectWidth, graphics.currentScreenshot + (dr.Y + j) * device.Width + dr.X, (USIZE)rectWidth * sizeof(RGB));
 
         graphics.jpegBuffer.Reset();
-        graphics.jpegBuffer.EnsureCapacity((UINT32)((USIZE)rectWidth * rectHeight * 3 / 8 + 4096));
+        graphics.jpegBuffer.ReserveForImage((UINT32)rectWidth, (UINT32)rectHeight);
         auto encodeResult = JpegEncoder::Encode(JpegCallback, &graphics.jpegBuffer, (INT32)quality, rectWidth, rectHeight, 3, Span<const UINT8>((UINT8 *)graphics.rectBuffer, rectWidth * rectHeight * sizeof(RGB)));
         if (encodeResult.IsErr() || graphics.jpegBuffer.allocationFailed)
         {

@@ -376,27 +376,27 @@ private:
 	// 90 and above keep the original 4:4:4 (all 0x11)
 	static BOOL TestSOF0SamplingQualityGate()
 	{
-		UINT8 s[3];
+		struct
+		{
+			INT32 quality;
+			UINT8 expected[3];
+		} cases[4] = {
+			{75, {0x22, 0x11, 0x11}},
+			{89, {0x22, 0x11, 0x11}},
+			{90, {0x11, 0x11, 0x11}},
+			{95, {0x11, 0x11, 0x11}}};
 
-		if (!EncodeAndReadSampling(75, 64, 64, s) || s[0] != 0x22 || s[1] != 0x11 || s[2] != 0x11)
+		for (UINT32 c = 0; c < 4; c++)
 		{
-			LOG_ERROR("q75 sampling: expected 22/11/11, got %02X/%02X/%02X", s[0], s[1], s[2]);
-			return false;
-		}
-		if (!EncodeAndReadSampling(89, 64, 64, s) || s[0] != 0x22 || s[1] != 0x11)
-		{
-			LOG_ERROR("q89 sampling: expected 22/11/x, got %02X/%02X/%02X", s[0], s[1], s[2]);
-			return false;
-		}
-		if (!EncodeAndReadSampling(90, 64, 64, s) || s[0] != 0x11 || s[1] != 0x11 || s[2] != 0x11)
-		{
-			LOG_ERROR("q90 sampling: expected 11/11/11, got %02X/%02X/%02X", s[0], s[1], s[2]);
-			return false;
-		}
-		if (!EncodeAndReadSampling(95, 64, 64, s) || s[0] != 0x11 || s[1] != 0x11)
-		{
-			LOG_ERROR("q95 sampling: expected 11/11/x, got %02X/%02X/%02X", s[0], s[1], s[2]);
-			return false;
+			UINT8 s[3];
+			if (!EncodeAndReadSampling(cases[c].quality, 64, 64, s) ||
+			    s[0] != cases[c].expected[0] || s[1] != cases[c].expected[1] || s[2] != cases[c].expected[2])
+			{
+				LOG_ERROR("q%d sampling: expected %02X/%02X/%02X, got %02X/%02X/%02X",
+				          cases[c].quality, cases[c].expected[0], cases[c].expected[1], cases[c].expected[2],
+				          s[0], s[1], s[2]);
+				return false;
+			}
 		}
 		return true;
 	}

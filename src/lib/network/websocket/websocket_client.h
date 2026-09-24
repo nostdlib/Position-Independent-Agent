@@ -13,6 +13,7 @@
  */
 
 #include "platform/platform.h"
+#include "core/containers/buffer.h"
 #include "lib/network/tls/tls_client.h"
 
 /**
@@ -166,6 +167,7 @@ private:
 	UINT16 port;         ///< Server port number
 	TlsClient tlsContext;///< Underlying TLS/plaintext transport
 	BOOL isConnected;    ///< Whether the WebSocket connection is in the OPEN state
+	Buffer<CHAR> sendScratch; ///< Reusable masked-frame staging (grown on demand, kept across frames)
 
 	/**
 	 * @brief Performs the WebSocket opening handshake
@@ -277,7 +279,8 @@ public:
 	WebSocketClient(WebSocketClient &&other) noexcept
 		: ipAddress(other.ipAddress), port(other.port),
 		  tlsContext(static_cast<TlsClient &&>(other.tlsContext)),
-		  isConnected(other.isConnected)
+		  isConnected(other.isConnected),
+		  sendScratch(static_cast<Buffer<CHAR> &&>(other.sendScratch))
 	{
 		Memory::Copy(hostName, other.hostName, sizeof(hostName));
 		other.port = 0;
@@ -295,6 +298,7 @@ public:
 			port = other.port;
 			tlsContext = static_cast<TlsClient &&>(other.tlsContext);
 			isConnected = other.isConnected;
+			sendScratch = static_cast<Buffer<CHAR> &&>(other.sendScratch);
 			other.port = 0;
 			other.isConnected = false;
 		}

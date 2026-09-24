@@ -16,22 +16,6 @@ private:
 	static constexpr USIZE BenchBytes = 1024 * 1024;
 	static constexpr UINT32 RecordMax = 1024 * 16; // TLS max plaintext per record
 
-	static UINT64 Median5(UINT64 *samples)
-	{
-		for (UINT32 i = 1; i < 5; i++)
-		{
-			UINT64 key = samples[i];
-			INT32 j = (INT32)i - 1;
-			while (j >= 0 && samples[j] > key)
-			{
-				samples[j + 1] = samples[j];
-				j--;
-			}
-			samples[j + 1] = key;
-		}
-		return samples[2];
-	}
-
 	// Current Write() pattern: mask each 256-byte chunk into a stack buffer,
 	// then hand it to the TLS layer (which copies it into its staging buffer).
 	static VOID MaskChunked(const UINT8 *src, UINT8 *dst, USIZE size, const UINT8 *maskKey)
@@ -103,8 +87,8 @@ private:
 		MaskChunked(dst, dst, BenchBytes, maskKey);
 		ok = ok && Memory::Compare(dst, src, BenchBytes) == 0;
 
-		DOUBLE chunkedMs = (DOUBLE)Median5(chunked) / 1000000.0;
-		DOUBLE singleMs = (DOUBLE)Median5(single) / 1000000.0;
+		DOUBLE chunkedMs = (DOUBLE)Median(chunked, 5) / 1000000.0;
+		DOUBLE singleMs = (DOUBLE)Median(single, 5) / 1000000.0;
 		LOG_INFO("  mask 1 MiB chunked (256B stack): %.2f ms", chunkedMs);
 		LOG_INFO("  mask 1 MiB single-pass:          %.2f ms", singleMs);
 
@@ -181,9 +165,11 @@ private:
 			large[r] = t1 - t0;
 		}
 
-		DOUBLE smallMs = (DOUBLE)Median5(small) / 1000000.0;
-		DOUBLE largeMs = (DOUBLE)Median5(large) / 1000000.0;
-		DOUBLE perRecord = ((DOUBLE)Median5(small) - (DOUBLE)Median5(large)) / (DOUBLE)(BenchBytes / 256 - BenchBytes / RecordMax);
+		UINT64 smallMedian = Median(small, 5);
+		UINT64 largeMedian = Median(large, 5);
+		DOUBLE smallMs = (DOUBLE)smallMedian / 1000000.0;
+		DOUBLE largeMs = (DOUBLE)largeMedian / 1000000.0;
+		DOUBLE perRecord = ((DOUBLE)smallMedian - (DOUBLE)largeMedian) / (DOUBLE)(BenchBytes / 256 - BenchBytes / RecordMax);
 		LOG_INFO("  AEAD 1 MiB in 256B records:  %.2f ms (%u records)", smallMs, (UINT32)(BenchBytes / 256));
 		LOG_INFO("  AEAD 1 MiB in 16KiB records: %.2f ms (%u records)", largeMs, (UINT32)(BenchBytes / RecordMax));
 		LOG_INFO("  per-record AEAD overhead:    ~%.0f ns", perRecord);
@@ -238,8 +224,8 @@ private:
 
 		if (ok)
 		{
-			LOG_INFO("  64 KiB send (write only, median of 5): %.2f ms", (DOUBLE)Median5(writeNs) / 1000000.0);
-			LOG_INFO("  64 KiB echo round trip (wss, median of 5): %.2f ms", (DOUBLE)Median5(times) / 1000000.0);
+			LOG_INFO("  64 KiB send (write only, median of 5): %.2f ms", (DOUBLE)Median(writeNs, 5) / 1000000.0);
+			LOG_INFO("  64 KiB echo round trip (wss, median of 5): %.2f ms", (DOUBLE)Median(times, 5) / 1000000.0);
 		}
 
 		delete[] frame;
