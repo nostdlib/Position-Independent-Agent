@@ -405,8 +405,33 @@ private:
 		}
 
 		if (captured)
-			LOG_INFO("  Screen::Capture %ux%u: %.2f ms/frame (median of %u)",
+			LOG_INFO("  Screen::Capture %ux%u stateless: %.2f ms/frame (median of %u)",
 			         device.Width, device.Height, (DOUBLE)Median(ns, captureCount) / 1000000.0, captureCount);
+
+		// Shipped beacon path: persistent capture state across frames
+		if (captured)
+		{
+			auto state = Screen::CreateCaptureState(device);
+			if (state)
+			{
+				UINT64 statefulNs[10];
+				UINT32 statefulCount = 0;
+				for (UINT32 r = 0; r < 10; r++)
+				{
+					UINT64 t0 = DateTime::GetMonotonicNanoseconds();
+					auto capture = Screen::Capture(device, Span<RGB>(buffer, pixels), state.Value());
+					UINT64 t1 = DateTime::GetMonotonicNanoseconds();
+					if (!capture)
+						break;
+					statefulNs[r] = t1 - t0;
+					statefulCount++;
+				}
+				if (statefulCount > 0)
+					LOG_INFO("  Screen::Capture %ux%u stateful:  %.2f ms/frame (median of %u)",
+					         device.Width, device.Height, (DOUBLE)Median(statefulNs, statefulCount) / 1000000.0, statefulCount);
+				Screen::DestroyCaptureState(state.Value());
+			}
+		}
 
 		delete[] buffer;
 		devices.Value().Free();

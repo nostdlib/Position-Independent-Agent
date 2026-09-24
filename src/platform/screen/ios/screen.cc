@@ -25,10 +25,25 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 }
 
 // =============================================================================
+// Screen::CreateCaptureState (iOS — not supported)
+// =============================================================================
+
+Result<PVOID, Error> Screen::CreateCaptureState([[maybe_unused]] const ScreenDevice &device)
+{
+	return Result<PVOID, Error>::Err(Error(Error::Screen_CaptureFailed));
+}
+
+// Screen::DestroyCaptureState (iOS — not supported)
+// =============================================================================
+
+VOID Screen::DestroyCaptureState([[maybe_unused]] PVOID captureState)
+{
+}
+
 // Screen::Capture (iOS — not supported)
 // =============================================================================
 
-Result<VOID, Error> Screen::Capture([[maybe_unused]] const ScreenDevice &device, [[maybe_unused]] Span<RGB> buffer)
+Result<VOID, Error> Screen::Capture([[maybe_unused]] const ScreenDevice &device, [[maybe_unused]] Span<RGB> buffer, [[maybe_unused]] PVOID captureState)
 {
 	return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 }

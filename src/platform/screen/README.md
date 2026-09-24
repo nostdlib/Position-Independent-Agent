@@ -27,6 +27,10 @@ GetDC(NULL)                          → screen DC (entire virtual desktop)
 
 Multi-monitor support: `EnumDisplayDevicesW` iterates adapters, `EnumDisplaySettingsW` gets resolution, and `DEVMODEW.dmPositionX/Y` provides the virtual desktop offset for `BitBlt`.
 
+### Persistent capture state
+
+`Screen::CreateCaptureState(device)` allocates the GDI objects and BGRA conversion buffer once per display; `Screen::Capture(device, buffer, state)` reuses them per frame (only `GetDC`/`ReleaseDC` and the `BitBlt`/`GetDIBits` pair run per call). A width/height change rebuilds the objects in place. Callers pass `nullptr` to take the create-per-call path (tests, one-shot captures); on a stateful failure the caller drops the state and retries statelessly. `Screen::DestroyCaptureState` releases everything. Non-Windows platforms accept the state parameter but report no state to own (`CreateCaptureState` returns `Ok(nullptr)`).
+
 ## Linux: Three-Tier Capture Strategy
 
 Linux has no single standard screen capture API. The runtime tries three methods in order:

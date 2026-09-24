@@ -764,11 +764,26 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     if (!graphics.IsInitialized())
         graphics.Init(device);
 
-    if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height)))
+    // Persistent capture resources (Windows GDI reuse): created on first use,
+    // re-created after failures so a display-mode change self-heals next request
+    if (graphics.captureState == nullptr)
     {
-        LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
-        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
-        return;
+        auto state = Screen::CreateCaptureState(device);
+        if (state)
+            graphics.captureState = state.Value();
+    }
+
+    if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height), graphics.captureState))
+    {
+        // Stale persistent objects (mode change, lost DC): drop them and retry
+        // once through the stateless path before reporting failure
+        graphics.ReleaseCaptureState();
+        if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height)))
+        {
+            LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
+            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+            return;
+        }
     }
 
     // In case of full screen request, encode the whole screenshot as JPEG and send it back

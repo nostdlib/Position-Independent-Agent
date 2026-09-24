@@ -55,16 +55,28 @@ struct JpegBuffer
 
 struct Graphics
 {
-    PRGB currentScreenshot; 
-    PRGB screenshot;     
-    PUCHAR bidiff;          
-    PRGB rectBuffer;        
+    PRGB currentScreenshot;
+    PRGB screenshot;
+    PUCHAR bidiff;
+    PRGB rectBuffer;
     JpegBuffer jpegBuffer;
+    PVOID captureState; // Opaque per-display resources from Screen::CreateCaptureState
 
-    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), bidiff(nullptr), rectBuffer(nullptr) {}
+    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), bidiff(nullptr), rectBuffer(nullptr), captureState(nullptr) {}
+
+    // Drop the persistent capture state; the next capture re-creates it
+    VOID ReleaseCaptureState()
+    {
+        if (captureState != nullptr)
+        {
+            Screen::DestroyCaptureState(captureState);
+            captureState = nullptr;
+        }
+    }
 
     ~Graphics()
     {
+        ReleaseCaptureState();
         if (currentScreenshot)
         {
             delete[] currentScreenshot;

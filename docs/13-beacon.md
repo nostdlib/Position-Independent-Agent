@@ -323,6 +323,7 @@ struct Graphics
     PUCHAR bidiff;          // binary difference map (1 byte per pixel)
     PRGB rectBuffer;        // reusable buffer for rectangle extraction
     JpegBuffer jpegBuffer;  // reusable JPEG encoding buffer
+    PVOID captureState;     // opaque per-display capture resources
 };
 ```
 
@@ -370,9 +371,16 @@ Each screenshot command executes these stages:
 sizeof(RGB)), plus a diff buffer and a rect extraction buffer. This happens
 once and the buffers persist in the `ScreenCaptureContext`.
 
-**Stage 2 -- Capture.** `Screen::Capture(device, rgbBuffer)` fills the current
-frame buffer with raw pixels. The platform layer handles the actual screen
-capture (X11, Wayland, GDI, etc.).
+**Stage 2 -- Capture.** `Screen::Capture(device, rgbBuffer, captureState)` fills
+the current frame buffer with raw pixels. The platform layer handles the actual
+screen capture (X11, Wayland, GDI, etc.). On Windows the handler passes
+persistent GDI resources (memory DC, compatible bitmap, BGRA conversion buffer)
+created once per display via `Screen::CreateCaptureState` and held in
+`Graphics::captureState`; GDI object creation otherwise dominates a per-call
+capture. A dimension mismatch rebuilds the state in place (display-mode change),
+and any capture failure through the state drops it and retries once statelessly,
+so the next request self-heals. Other platforms ignore the state (nullptr) and
+capture statelessly.
 
 **Stage 3 -- Compute binary difference.** Compare each pixel of the current
 frame against the previous frame. But not with exact equality. The comparison
