@@ -53,6 +53,13 @@ private:
 		return VerifyEcho(ws, data, opcode, label);
 	}
 
+	// Helper: fill a buffer with a position-dependent pseudo-random pattern
+	static VOID FillPattern(PCHAR buffer, UINT32 size)
+	{
+		for (UINT32 i = 0; i < size; i++)
+			buffer[i] = (CHAR)((i * 31 + (i >> 8)) & 0xFF);
+	}
+
 	// Connection 1: All echo-based tests on a single connection
 	static BOOL TestEchoSuite()
 	{
@@ -151,6 +158,219 @@ private:
 				}
 
 				delete[] largeMessage;
+			}
+		}
+
+		// --- Frame length encoding boundaries: 7-bit max, 16-bit min/max, 64-bit min ---
+		{
+			LOG_INFO("Test: Frame Length Boundaries");
+			const UINT32 sizes[4] = {125, 126, 65535, 65536};
+			PCHAR buffer = new CHAR[65536];
+			if (!buffer)
+			{
+				LOG_ERROR("Failed to allocate memory for boundary frames");
+				allPassed = false;
+			}
+			else
+			{
+				BOOL boundariesPassed = true;
+				for (UINT32 i = 0; i < 4; i++)
+				{
+					FillPattern(buffer, sizes[i]);
+					if (!SendAndVerifyEcho(ws, Span<const CHAR>(buffer, sizes[i]), WebSocketOpcode::Binary, "boundary frame"))
+						boundariesPassed = false;
+				}
+
+				if (boundariesPassed)
+					LOG_INFO("  PASSED: Frame length boundaries");
+				else
+				{
+					LOG_ERROR("  FAILED: Frame length boundaries");
+					allPassed = false;
+				}
+
+				delete[] buffer;
+			}
+		}
+
+		// --- Minimum payload and mask-phase tails (payload % 4 == 1..3) ---
+		{
+			LOG_INFO("Test: Payload Alignment Tails");
+			const UINT32 sizes[3] = {1, 300 * 1024 + 1, 300 * 1024 + 3};
+			PCHAR buffer = new CHAR[300 * 1024 + 3];
+			if (!buffer)
+			{
+				LOG_ERROR("Failed to allocate memory for alignment frames");
+				allPassed = false;
+			}
+			else
+			{
+				BOOL tailsPassed = true;
+				for (UINT32 i = 0; i < 3; i++)
+				{
+					FillPattern(buffer, sizes[i]);
+					if (!SendAndVerifyEcho(ws, Span<const CHAR>(buffer, sizes[i]), WebSocketOpcode::Binary, "alignment frame"))
+						tailsPassed = false;
+				}
+
+				if (tailsPassed)
+					LOG_INFO("  PASSED: Payload alignment tails");
+				else
+				{
+					LOG_ERROR("  FAILED: Payload alignment tails");
+					allPassed = false;
+				}
+
+				delete[] buffer;
+			}
+		}
+
+		// --- Oversized frame: multi-TLS-record masked payload (size % 4 == 0) ---
+		{
+			LOG_INFO("Test: Large Frame Mask Continuity");
+			UINT32 bigSize = 300 * 1024;
+			PCHAR bigMessage = new CHAR[bigSize];
+			if (!bigMessage)
+			{
+				LOG_ERROR("Failed to allocate memory for oversized frame");
+				allPassed = false;
+			}
+			else
+			{
+				FillPattern(bigMessage, bigSize);
+
+				if (SendAndVerifyEcho(ws, Span<const CHAR>(bigMessage, bigSize), WebSocketOpcode::Binary, "300KiB frame"))
+					LOG_INFO("  PASSED: Large frame mask continuity");
+				else
+				{
+					LOG_ERROR("  FAILED: Large frame mask continuity");
+					allPassed = false;
+				}
+
+				delete[] bigMessage;
+			}
+		}
+
+		// --- WriteResponse splice equivalence: [status][corrId][body] on the wire ---
+		{
+			LOG_INFO("Test: WriteResponse Splice Equivalence");
+			const UINT32 status = 0x12345678;
+			const UINT32 corrId = 0xDEADBEEF;
+
+			// Status-only reply (8-byte payload, small-frame path, prefix only)
+			{
+				UINT8 expected[8];
+				Memory::Copy(expected, &status, sizeof(status));
+				Memory::Copy(expected + 4, &corrId, sizeof(corrId));
+
+				BOOL ok = true;
+				auto writeResult = ws.WriteResponse(status, corrId, Span<const CHAR>(), WebSocketOpcode::Binary);
+				if (!writeResult)
+					ok = false;
+				else
+				{
+					auto readResult = ws.Read();
+					if (!readResult || readResult.Value().Length != sizeof(expected) ||
+					    Memory::Compare(readResult.Value().Data, expected, sizeof(expected)) != 0)
+						ok = false;
+				}
+
+				if (ok)
+					LOG_INFO("  PASSED: WriteResponse status-only reply");
+				else
+				{
+					LOG_ERROR("  FAILED: WriteResponse status-only reply");
+					allPassed = false;
+				}
+			}
+
+			// Small body crossing the 7-bit length boundary: payload = 8 + 118 = 126
+			// (16-bit header, prefix + body both masked in the small-frame path)
+			{
+				UINT32 bodySize = 126 - 8;
+				PCHAR body = new CHAR[bodySize];
+				PCHAR spliced = new CHAR[bodySize + 8];
+				if (!body || !spliced)
+				{
+					LOG_ERROR("Failed to allocate memory for WriteResponse boundary case");
+					allPassed = false;
+					delete[] body;
+					delete[] spliced;
+				}
+				else
+				{
+					FillPattern(body, bodySize);
+					Memory::Copy(spliced, &status, sizeof(status));
+					Memory::Copy(spliced + 4, &corrId, sizeof(corrId));
+					Memory::Copy(spliced + 8, body, bodySize);
+
+					BOOL ok = true;
+					auto writeResult = ws.WriteResponse(status, corrId, Span<const CHAR>(body, bodySize), WebSocketOpcode::Binary);
+					if (!writeResult)
+						ok = false;
+					else
+					{
+						auto readResult = ws.Read();
+						if (!readResult || readResult.Value().Length != bodySize + 8 ||
+						    Memory::Compare(readResult.Value().Data, spliced, bodySize + 8) != 0)
+							ok = false;
+					}
+
+					if (ok)
+						LOG_INFO("  PASSED: WriteResponse boundary-length splice");
+					else
+					{
+						LOG_ERROR("  FAILED: WriteResponse boundary-length splice");
+						allPassed = false;
+					}
+
+					delete[] body;
+					delete[] spliced;
+				}
+			}
+
+			// Large body reply (64-bit length path, multi-record) vs a manual splice
+			{
+				UINT32 bodySize = 70000;
+				PCHAR body = new CHAR[bodySize];
+				PCHAR spliced = new CHAR[bodySize + 8];
+				if (!body || !spliced)
+				{
+					LOG_ERROR("Failed to allocate memory for WriteResponse equivalence");
+					allPassed = false;
+					delete[] body;
+					delete[] spliced;
+				}
+				else
+				{
+					FillPattern(body, bodySize);
+					Memory::Copy(spliced, &status, sizeof(status));
+					Memory::Copy(spliced + 4, &corrId, sizeof(corrId));
+					Memory::Copy(spliced + 8, body, bodySize);
+
+					BOOL ok = true;
+					auto writeResult = ws.WriteResponse(status, corrId, Span<const CHAR>(body, bodySize), WebSocketOpcode::Binary);
+					if (!writeResult)
+						ok = false;
+					else
+					{
+						auto readResult = ws.Read();
+						if (!readResult || readResult.Value().Length != bodySize + 8 ||
+						    Memory::Compare(readResult.Value().Data, spliced, bodySize + 8) != 0)
+							ok = false;
+					}
+
+					if (ok)
+						LOG_INFO("  PASSED: WriteResponse large splice equivalence");
+					else
+					{
+						LOG_ERROR("  FAILED: WriteResponse large splice equivalence");
+						allPassed = false;
+					}
+
+					delete[] body;
+					delete[] spliced;
+				}
 			}
 		}
 

@@ -95,6 +95,8 @@
 #include "shell_platform_test.h"
 #include "shell_manager_tests.h"
 #include "environment_tests.h"
+#include "transport_bench.h"
+#include "screen_bench.h"
 
 static BOOL RunPIRTests()
 {
@@ -163,6 +165,18 @@ static BOOL RunPIRTests()
 	// unused on headless routers). Tracked for a follow-up alignment fix.
 	RunTestSuite<ImageTests>(allPassed);
 	RunTestSuite<JpegTests>(allPassed);
+#endif
+
+#if !defined(ARCHITECTURE_MIPS)
+	// Perf benches are opt-in via PIR_BENCH=1: they log measurements for
+	// before/after PR comparisons and are not part of the deterministic gate.
+	// Same MIPS exclusion as the screen/network suites they exercise.
+	CHAR benchFlag[8];
+	if (Environment::GetVariable("PIR_BENCH", Span<CHAR>(benchFlag, sizeof(benchFlag))) > 0 && benchFlag[0] == '1')
+	{
+		RunTestSuite<TransportBench>(allPassed);
+		RunTestSuite<ScreenBench>(allPassed);
+	}
 #endif
 
 	// Size Report always runs last since it's just informational and doesn't test functionality

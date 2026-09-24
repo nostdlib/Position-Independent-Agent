@@ -298,29 +298,14 @@ INT32 start()
                 *(PUINT32)response = StatusCode::StatusUnknownCommand;
             }
 
-            // Splice the echoed correlation id between status and body so every handler's
-            // response layout stays untouched.
-            {
-                PCHAR wire = new CHAR[responseLength + sizeof(UINT32)];
-                if (wire == nullptr)
-                {
-                    LOG_ERROR("Failed to allocate the wire buffer for %s response, reconnecting...",
-                              CommandTypeName(commandType));
-                    delete[] response;
-                    break;
-                }
-                Memory::Copy(wire, response, sizeof(UINT32));
-                Memory::Copy(wire + sizeof(UINT32), &correlationId, sizeof(correlationId));
-                if (responseLength > sizeof(UINT32))
-                    Memory::Copy(wire + sizeof(UINT32) + sizeof(UINT32),
-                                 response + sizeof(UINT32), responseLength - sizeof(UINT32));
-                delete[] response;
-                response = wire;
-                responseLength += sizeof(UINT32);
-            }
-
+            // Send [status][correlationId][body]: the transport splices the echoed
+            // correlation id between status and body in its masked frame buffer,
+            // so no separate wire copy of the response is needed here.
             LOG_DEBUG("Sending response (%u bytes) to server", (UINT32)responseLength);
-            auto writeResult = wsClient.Write(Span<const CHAR>(response, responseLength), WebSocketOpcode::Binary);
+            auto writeResult = wsClient.WriteResponse(*(PUINT32)response, correlationId,
+                                                       Span<const CHAR>(response + sizeof(UINT32),
+                                                                        responseLength - sizeof(UINT32)),
+                                                       WebSocketOpcode::Binary);
             delete[] response;
 
             if (!writeResult)

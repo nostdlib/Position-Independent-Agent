@@ -240,6 +240,21 @@ private:
 	 */
 	static VOID MaskFrame(WebSocketFrame &frame, UINT32 maskKey);
 
+	/**
+	 * @brief Shared framing path: builds one masked frame over a two-part payload
+	 * @param prefix Payload bytes sent before body (may be empty)
+	 * @param body Payload bytes after prefix (may be empty)
+	 * @param opcode Frame opcode
+	 * @return Ok(payload bytes sent) on success, Err(Ws_WriteFailed | Ws_NotConnected) on failure
+	 *
+	 * @details Builds the frame header for prefix.Size() + body.Size() payload bytes,
+	 * masks the concatenated payload per RFC 6455 Section 5.3, and hands the whole
+	 * masked frame to the transport in a single write — small payloads from a stack
+	 * chunk, large payloads from a heap scratch buffer. One write per frame lets the
+	 * TLS layer emit full 16 KiB records instead of one record per small chunk.
+	 */
+	[[nodiscard]] Result<UINT32, Error> WritePayload(Span<const CHAR> prefix, Span<const CHAR> body, WebSocketOpcode opcode);
+
 	// Private constructor — only used by Create()
 	WebSocketClient(const CHAR (&host)[254], const IPAddress &ip, UINT16 portNum, TlsClient &&tls)
 		: ipAddress(ip), port(portNum), tlsContext(static_cast<TlsClient &&>(tls)), isConnected(false)
@@ -367,8 +382,9 @@ public:
 	 *      - 65536+: 64-bit extended length (network byte order)
 	 *   3. Generates a random 32-bit masking key (all client frames MUST be masked per Section 5.3)
 	 *   4. XOR-masks the payload with the masking key
-	 *   5. For small payloads (<=242 bytes): combines header + masked payload into one TLS write
-	 *      For large payloads: writes header first, then streams masked chunks of 256 bytes
+	 *   5. Writes header + masked payload in a single transport write (stack chunk for
+	 *      small payloads, heap scratch buffer for large ones), so large payloads cross
+	 *      TLS as full 16 KiB records instead of one record per 256-byte chunk
 	 *
 	 * @see RFC 6455 Section 5.2 — Base Framing Protocol
 	 *      https://datatracker.ietf.org/doc/html/rfc6455#section-5.2
@@ -376,4 +392,18 @@ public:
 	 *      https://datatracker.ietf.org/doc/html/rfc6455#section-5.3
 	 */
 	[[nodiscard]] Result<UINT32, Error> Write(Span<const CHAR> buffer, WebSocketOpcode opcode = WebSocketOpcode::Binary);
+
+	/**
+	 * @brief Sends a command response frame with the correlation id spliced in
+	 * @param status First UINT32 of the payload (the handler's status code)
+	 * @param correlationId Correlation id spliced between status and body
+	 * @param body Response body (everything after the status UINT32)
+	 * @param opcode Frame opcode (default: Binary)
+	 * @return Ok(payload bytes sent) on success, Err(Ws_WriteFailed | Ws_NotConnected) on failure
+	 *
+	 * @details Produces the same wire bytes as Write() over `[status][corrId][body]`
+	 * but assembles them inside the transport's masked scratch buffer, skipping the
+	 * caller's separate splice allocation and full-payload copy per response.
+	 */
+	[[nodiscard]] Result<UINT32, Error> WriteResponse(UINT32 status, UINT32 correlationId, Span<const CHAR> body, WebSocketOpcode opcode = WebSocketOpcode::Binary);
 };
