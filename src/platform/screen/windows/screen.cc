@@ -210,8 +210,12 @@ static Result<VOID, Error> CaptureStateless(const ScreenDevice &device, Span<RGB
 	bmi.biBitCount = 32;
 	bmi.biCompression = BI_RGB;
 
+	// GetDIBits requires the bitmap not be selected into a DC (documented
+	// precondition — some drivers enforce it)
+	Gdi32::SelectObject(memDC, oldBitmap);
 	INT32 scanLines = Gdi32::GetDIBits(memDC, bitmap, 0, (UINT32)height,
 		tempBuf, &bmi, DIB_RGB_COLORS);
+	Gdi32::SelectObject(memDC, bitmap);
 
 	// Cleanup GDI resources
 	Gdi32::SelectObject(memDC, oldBitmap);
@@ -316,8 +320,12 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	}
 	User32::ReleaseDC(nullptr, screenDC);
 
+	// GetDIBits requires the bitmap not be selected into a DC (documented
+	// precondition — some drivers enforce it)
+	Gdi32::SelectObject(state->memDC, state->oldBitmap);
 	INT32 scanLines = Gdi32::GetDIBits(state->memDC, state->bitmap, 0, (UINT32)height,
 		state->bgra, &state->bmi, DIB_RGB_COLORS);
+	Gdi32::SelectObject(state->memDC, state->bitmap);
 	if (scanLines == 0)
 		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 

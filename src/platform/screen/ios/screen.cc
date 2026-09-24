@@ -28,9 +28,11 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 // Screen::CreateCaptureState (iOS — not supported)
 // =============================================================================
 
+// Contract: platforms without persistent resources return Ok(nullptr);
+// capture itself reports the unsupported error
 Result<PVOID, Error> Screen::CreateCaptureState([[maybe_unused]] const ScreenDevice &device)
 {
-	return Result<PVOID, Error>::Err(Error(Error::Screen_CaptureFailed));
+	return Result<PVOID, Error>::Ok(nullptr);
 }
 
 // Screen::DestroyCaptureState (iOS — not supported)

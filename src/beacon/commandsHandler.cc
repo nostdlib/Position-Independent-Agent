@@ -773,12 +773,22 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             graphics.captureState = state.Value();
     }
 
+    BOOL hadCaptureState = graphics.captureState != nullptr;
     if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height), graphics.captureState))
     {
-        // Stale persistent objects (mode change, lost DC): drop them and retry
-        // once through the stateless path before reporting failure
-        graphics.ReleaseCaptureState();
-        if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height)))
+        // A failing stateless capture would just repeat the identical call —
+        // only a stale persistent state is worth one stateless retry
+        if (hadCaptureState)
+        {
+            graphics.ReleaseCaptureState();
+            if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height)))
+            {
+                LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
+                WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+                return;
+            }
+        }
+        else
         {
             LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
             WriteErrorResponse(response, responseLength, StatusCode::StatusError);
