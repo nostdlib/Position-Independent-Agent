@@ -60,6 +60,47 @@ private:
 			buffer[i] = (CHAR)((i * 31 + (i >> 8)) & 0xFF);
 	}
 
+	// Helper: WriteResponse must produce the same wire bytes as a manual
+	// [status][corrId][body] splice, echoed back by the server
+	static BOOL VerifySplicedEcho(WebSocketClient &ws, UINT32 status, UINT32 corrId, UINT32 bodySize, PCCHAR label)
+	{
+		PCHAR body = new CHAR[bodySize];
+		PCHAR spliced = new CHAR[bodySize + 8];
+		if (!body || !spliced)
+		{
+			LOG_ERROR("Failed to allocate memory for %s", label);
+			delete[] body;
+			delete[] spliced;
+			return false;
+		}
+
+		FillPattern(body, bodySize);
+		Memory::Copy(spliced, &status, sizeof(status));
+		Memory::Copy(spliced + 4, &corrId, sizeof(corrId));
+		Memory::Copy(spliced + 8, body, bodySize);
+
+		BOOL ok = true;
+		auto writeResult = ws.WriteResponse(status, corrId, Span<const CHAR>(body, bodySize), WebSocketOpcode::Binary);
+		if (!writeResult)
+			ok = false;
+		else
+		{
+			auto readResult = ws.Read();
+			if (!readResult || readResult.Value().Length != bodySize + 8 ||
+			    Memory::Compare(readResult.Value().Data, spliced, bodySize + 8) != 0)
+				ok = false;
+		}
+
+		if (ok)
+			LOG_INFO("  PASSED: %s", label);
+		else
+			LOG_ERROR("  FAILED: %s", label);
+
+		delete[] body;
+		delete[] spliced;
+		return ok;
+	}
+
 	// Connection 1: All echo-based tests on a single connection
 	static BOOL TestEchoSuite()
 	{
@@ -284,94 +325,11 @@ private:
 				}
 			}
 
-			// Small body crossing the 7-bit length boundary: payload = 8 + 118 = 126
-			// (16-bit header, prefix + body both masked in the small-frame path)
-			{
-				UINT32 bodySize = 126 - 8;
-				PCHAR body = new CHAR[bodySize];
-				PCHAR spliced = new CHAR[bodySize + 8];
-				if (!body || !spliced)
-				{
-					LOG_ERROR("Failed to allocate memory for WriteResponse boundary case");
-					allPassed = false;
-					delete[] body;
-					delete[] spliced;
-				}
-				else
-				{
-					FillPattern(body, bodySize);
-					Memory::Copy(spliced, &status, sizeof(status));
-					Memory::Copy(spliced + 4, &corrId, sizeof(corrId));
-					Memory::Copy(spliced + 8, body, bodySize);
-
-					BOOL ok = true;
-					auto writeResult = ws.WriteResponse(status, corrId, Span<const CHAR>(body, bodySize), WebSocketOpcode::Binary);
-					if (!writeResult)
-						ok = false;
-					else
-					{
-						auto readResult = ws.Read();
-						if (!readResult || readResult.Value().Length != bodySize + 8 ||
-						    Memory::Compare(readResult.Value().Data, spliced, bodySize + 8) != 0)
-							ok = false;
-					}
-
-					if (ok)
-						LOG_INFO("  PASSED: WriteResponse boundary-length splice");
-					else
-					{
-						LOG_ERROR("  FAILED: WriteResponse boundary-length splice");
-						allPassed = false;
-					}
-
-					delete[] body;
-					delete[] spliced;
-				}
-			}
-
-			// Large body reply (64-bit length path, multi-record) vs a manual splice
-			{
-				UINT32 bodySize = 70000;
-				PCHAR body = new CHAR[bodySize];
-				PCHAR spliced = new CHAR[bodySize + 8];
-				if (!body || !spliced)
-				{
-					LOG_ERROR("Failed to allocate memory for WriteResponse equivalence");
-					allPassed = false;
-					delete[] body;
-					delete[] spliced;
-				}
-				else
-				{
-					FillPattern(body, bodySize);
-					Memory::Copy(spliced, &status, sizeof(status));
-					Memory::Copy(spliced + 4, &corrId, sizeof(corrId));
-					Memory::Copy(spliced + 8, body, bodySize);
-
-					BOOL ok = true;
-					auto writeResult = ws.WriteResponse(status, corrId, Span<const CHAR>(body, bodySize), WebSocketOpcode::Binary);
-					if (!writeResult)
-						ok = false;
-					else
-					{
-						auto readResult = ws.Read();
-						if (!readResult || readResult.Value().Length != bodySize + 8 ||
-						    Memory::Compare(readResult.Value().Data, spliced, bodySize + 8) != 0)
-							ok = false;
-					}
-
-					if (ok)
-						LOG_INFO("  PASSED: WriteResponse large splice equivalence");
-					else
-					{
-						LOG_ERROR("  FAILED: WriteResponse large splice equivalence");
-						allPassed = false;
-					}
-
-					delete[] body;
-					delete[] spliced;
-				}
-			}
+			// Small body crossing the 7-bit length boundary (payload 8 + 118 = 126)
+			// and a large multi-record body, both vs a manual splice
+			if (!VerifySplicedEcho(ws, status, corrId, 126 - 8, "WriteResponse boundary-length splice") ||
+			    !VerifySplicedEcho(ws, status, corrId, 70000, "WriteResponse large splice equivalence"))
+				allPassed = false;
 		}
 
 		// --- Close handshake ---

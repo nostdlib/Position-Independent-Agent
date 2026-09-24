@@ -29,6 +29,8 @@ public:
 		RunTest(allPassed, &TestEncodeQualityBounds, "JPEG encode with clamped quality");
 		RunTest(allPassed, &TestEncodeAllBlack, "JPEG encode all-black image");
 		RunTest(allPassed, &TestEncodeAllWhite, "JPEG encode all-white image");
+		RunTest(allPassed, &TestSOF0SamplingQualityGate, "JPEG SOF0 sampling quality gate (4:2:0 below q90)");
+		RunTest(allPassed, &TestEncodeSubsampledEdgeSizes, "JPEG encode 4:2:0 partial-MCU edge sizes");
 
 		if (allPassed)
 			LOG_INFO("All JPEG tests passed!");
@@ -329,5 +331,98 @@ private:
 			return false;
 		}
 		return VerifyJpegMarkers(buf);
+	}
+
+	// Find the SOF0 marker and return the three components' sampling factors
+	static BOOL ReadSOF0Sampling(const CaptureBuffer &buf, UINT8 sampling[3])
+	{
+		for (USIZE i = 0; i + 19 <= buf.size; i++)
+		{
+			if (buf.data[i] == 0xFF && buf.data[i + 1] == 0xC0)
+			{
+				if (buf.data[i + 9] != 3)
+					return false;
+				for (INT32 c = 0; c < 3; c++)
+					sampling[c] = buf.data[i + 10 + c * 3 + 1];
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// Encode a deterministic gradient at the given quality/size and read back
+	// the SOF0 sampling factors
+	static BOOL EncodeAndReadSampling(INT32 quality, INT32 width, INT32 height, UINT8 sampling[3])
+	{
+		UINT8 pixels[64 * 64 * 3];
+		for (INT32 i = 0; i < width * height * 3; ++i)
+			pixels[i] = (UINT8)((i * 7 + (i >> 4) * 13) & 0xFF);
+
+		CaptureBuffer buf;
+		buf.size = 0;
+		auto r = JpegEncoder::Encode(&CaptureCallback, &buf, quality, width, height, 3,
+		                             Span<const UINT8>(pixels, (USIZE)width * height * 3));
+		if (!r)
+		{
+			LOG_ERROR("Encode %dx%d q%d failed: %e", width, height, quality, r.Error());
+			return false;
+		}
+		if (!VerifyJpegMarkers(buf))
+			return false;
+		return ReadSOF0Sampling(buf, sampling);
+	}
+
+	// Quality gate: below 90 encodes 4:2:0 (luma 0x22, chroma 0x11);
+	// 90 and above keep the original 4:4:4 (all 0x11)
+	static BOOL TestSOF0SamplingQualityGate()
+	{
+		struct
+		{
+			INT32 quality;
+			UINT8 expected[3];
+		} cases[4] = {
+			{75, {0x22, 0x11, 0x11}},
+			{89, {0x22, 0x11, 0x11}},
+			{90, {0x11, 0x11, 0x11}},
+			{95, {0x11, 0x11, 0x11}}};
+
+		for (UINT32 c = 0; c < 4; c++)
+		{
+			UINT8 s[3];
+			if (!EncodeAndReadSampling(cases[c].quality, 64, 64, s) ||
+			    s[0] != cases[c].expected[0] || s[1] != cases[c].expected[1] || s[2] != cases[c].expected[2])
+			{
+				LOG_ERROR("q%d sampling: expected %02X/%02X/%02X, got %02X/%02X/%02X",
+				          cases[c].quality, cases[c].expected[0], cases[c].expected[1], cases[c].expected[2],
+				          s[0], s[1], s[2]);
+				return false;
+			}
+		}
+		return true;
+	}
+
+	// 4:2:0 MCU edge clamping: sizes that force partial 16x16 MCUs
+	static BOOL TestEncodeSubsampledEdgeSizes()
+	{
+		const INT32 sizes[4][2] = {{1, 1}, {13, 7}, {16, 16}, {17, 33}};
+		for (INT32 c = 0; c < 4; c++)
+		{
+			UINT8 pixels[17 * 33 * 3];
+			for (INT32 i = 0; i < sizes[c][0] * sizes[c][1] * 3; ++i)
+				pixels[i] = (UINT8)((i * 11 + (i >> 3)) & 0xFF);
+
+			CaptureBuffer buf;
+			buf.size = 0;
+			auto r = JpegEncoder::Encode(&CaptureCallback, &buf, 75, sizes[c][0], sizes[c][1], 3,
+			                             Span<const UINT8>(pixels, (USIZE)sizes[c][0] * sizes[c][1] * 3));
+			if (!r)
+			{
+				LOG_ERROR("Encode %dx%d q75 failed: %e", sizes[c][0], sizes[c][1], r.Error());
+				return false;
+			}
+			if (!VerifyJpegMarkers(buf))
+				return false;
+		}
+		return true;
 	}
 };

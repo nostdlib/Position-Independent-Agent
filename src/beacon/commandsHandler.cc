@@ -698,19 +698,12 @@ VOID JpegCallback(PVOID context, PVOID data, INT32 size)
     // Grow the reusable JPEG buffer when this chunk no longer fits.
     if ((USIZE)jpegBuffer->offset + (USIZE)size > jpegBuffer->size)
     {
-        USIZE newSize = Math::Max((USIZE)jpegBuffer->size * 2, (USIZE)jpegBuffer->size + (USIZE)size);
+        USIZE newSize = Math::Max((USIZE)jpegBuffer->size * 2, (USIZE)jpegBuffer->offset + (USIZE)size);
         if (newSize > 0xFFFFFFFF)
             newSize = 0xFFFFFFFF;
-        PUINT8 newBuffer = new UINT8[newSize];
-        if (newBuffer == nullptr)
-        {
-            jpegBuffer->allocationFailed = true;
+        jpegBuffer->EnsureCapacity((UINT32)newSize);
+        if (jpegBuffer->allocationFailed)
             return;
-        }
-        Memory::Copy(newBuffer, jpegBuffer->outputBuffer, jpegBuffer->offset);
-        delete[] jpegBuffer->outputBuffer;
-        jpegBuffer->outputBuffer = newBuffer;
-        jpegBuffer->size = (UINT32)newSize;
     }
 
     Memory::Copy(jpegBuffer->outputBuffer + jpegBuffer->offset, data, (USIZE)size);
@@ -764,7 +757,16 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     if (!graphics.IsInitialized())
         graphics.Init(device);
 
-    if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height)))
+    // Persistent capture resources (Windows GDI reuse): created on first use;
+    // the platform layer rebuilds them in place on mode changes and failures
+    if (graphics.captureState == nullptr)
+    {
+        auto state = Screen::CreateCaptureState(device);
+        if (state)
+            graphics.captureState = state.Value();
+    }
+
+    if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height), graphics.captureState))
     {
         LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
@@ -775,6 +777,7 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     if (isFullScreen)
     {
         graphics.jpegBuffer.Reset();
+        graphics.jpegBuffer.ReserveForImage(device.Width, device.Height);
         auto encodeResult = JpegEncoder::Encode(JpegCallback, &graphics.jpegBuffer, (INT32)quality, (INT32)device.Width, (INT32)device.Height, 3, Span<const UINT8>((UINT8 *)graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB)));
         if (encodeResult.IsErr() || graphics.jpegBuffer.allocationFailed)
         {
@@ -783,7 +786,9 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             return;
         }
 
-        Memory::Copy(graphics.screenshot, graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB));
+        // The encoded JPEG is already copied out; make this frame the
+        // comparison base by pointer swap (no full-frame copy)
+        graphics.SwapFrames();
 
         Rectangle rect(0, 0, graphics.jpegBuffer.offset, graphics.jpegBuffer.outputBuffer);
 
@@ -805,17 +810,13 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         return;
     }
 
-    // Threshold of 24 ignores minor JPEG compression artifacts from prior frames
-    ImageProcessor::CalculateBiDifference(Span<const RGB>(graphics.currentScreenshot, device.Width * device.Height),
-                                          Span<const RGB>(graphics.screenshot, device.Width * device.Height),
-                                          device.Width, device.Height,
-                                          Span<UCHAR>(graphics.bidiff, device.Width * device.Height),
-                                          24);
-
-    // Find dirty rectangles using tile-based detection (replaces RemoveNoise + FindContours)
+    // Fused diff + tile detection in one pass. Threshold of 24 ignores minor
+    // JPEG compression artifacts from prior frames; early exit stops each
+    // tile's scan at its first dirty pixel (no bidiff map materialized).
     auto dirtyResult = ImageProcessor::FindDirtyRects(
-        Span<const UINT8>(graphics.bidiff, device.Width * device.Height),
-        device.Width, device.Height, 64);
+        Span<const RGB>(graphics.currentScreenshot, device.Width * device.Height),
+        Span<const RGB>(graphics.screenshot, device.Width * device.Height),
+        device.Width, device.Height, 64, 24);
     if (dirtyResult.IsErr())
     {
         LOG_ERROR("Failed to find dirty rectangles for display index: %u", displayIndex);
@@ -823,6 +824,25 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         return;
     }
     auto &dirtyRects = dirtyResult.Value();
+
+    // Identical frames: reply success with an empty section list — skip all
+    // packet allocation and encoding work
+    if (dirtyRects.Count == 0)
+    {
+        dirtyRects.Free();
+        *responseLength = sizeof(UINT32) + sizeof(UINT32);
+        *response = new CHAR[*responseLength];
+        if (*response == nullptr)
+        {
+            LOG_ERROR("Failed to allocate the empty screenshot response for display index: %u", displayIndex);
+            *responseLength = 0;
+            return;
+        }
+        BinaryWriter writer{Span<UINT8>((UINT8 *)*response, *responseLength)};
+        writer.Write<UINT32>(StatusCode::StatusSuccess);
+        writer.Write<UINT32>(0);
+        return;
+    }
 
     UINT32 countOfRects = 0;
 
@@ -853,6 +873,7 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             Memory::Copy(graphics.rectBuffer + j * rectWidth, graphics.currentScreenshot + (dr.Y + j) * device.Width + dr.X, (USIZE)rectWidth * sizeof(RGB));
 
         graphics.jpegBuffer.Reset();
+        graphics.jpegBuffer.ReserveForImage((UINT32)rectWidth, (UINT32)rectHeight);
         auto encodeResult = JpegEncoder::Encode(JpegCallback, &graphics.jpegBuffer, (INT32)quality, rectWidth, rectHeight, 3, Span<const UINT8>((UINT8 *)graphics.rectBuffer, rectWidth * rectHeight * sizeof(RGB)));
         if (encodeResult.IsErr() || graphics.jpegBuffer.allocationFailed)
         {
@@ -876,8 +897,9 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         rect.toBuffer((UINT8 *)packet.Data + packet.Size - rectEntrySize);
     }
 
-    // Copy the current screenshot to the screenshot buffer for the next comparison
-    Memory::Copy(graphics.screenshot, graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB));
+    // All dirty rects were encoded from rectBuffer copies; the current frame
+    // becomes the comparison base by pointer swap (no full-frame copy)
+    graphics.SwapFrames();
 
     // Fill in the response header over the finished packet, then hand the exact
     // accumulated array to the caller (the caller deletes[] *response)

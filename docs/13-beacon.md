@@ -320,9 +320,9 @@ struct Graphics
 {
     PRGB currentScreenshot; // current frame (raw pixels)
     PRGB screenshot;        // previous frame (for comparison)
-    PUCHAR bidiff;          // binary difference map (1 byte per pixel)
     PRGB rectBuffer;        // reusable buffer for rectangle extraction
     JpegBuffer jpegBuffer;  // reusable JPEG encoding buffer
+    PVOID captureState;     // opaque per-display capture resources
 };
 ```
 
@@ -370,20 +370,28 @@ Each screenshot command executes these stages:
 sizeof(RGB)), plus a diff buffer and a rect extraction buffer. This happens
 once and the buffers persist in the `ScreenCaptureContext`.
 
-**Stage 2 -- Capture.** `Screen::Capture(device, rgbBuffer)` fills the current
-frame buffer with raw pixels. The platform layer handles the actual screen
-capture (X11, Wayland, GDI, etc.).
+**Stage 2 -- Capture.** `Screen::Capture(device, rgbBuffer, captureState)` fills
+the current frame buffer with raw pixels. The platform layer handles the actual
+screen capture (X11, Wayland, GDI, etc.). On Windows the handler passes
+persistent GDI resources (memory DC, compatible bitmap, BGRA conversion buffer)
+created once per display via `Screen::CreateCaptureState` and held in
+`Graphics::captureState`; GDI object creation otherwise dominates a per-call
+capture. The platform layer rebuilds the state in place on a dimension
+mismatch (display-mode change) and on a capture failure retries once after a
+rebuild before reporting failure. Other platforms ignore the state (nullptr)
+and capture statelessly through the same entry point.
 
-**Stage 3 -- Compute binary difference.** Compare each pixel of the current
-frame against the previous frame. But not with exact equality. The comparison
-uses a threshold of 24:
+**Stage 3 -- Fused difference + dirty detection.** The handler calls the fused
+`ImageProcessor::FindDirtyRects(current, previous, w, h, 64, 24)` overload: one
+pass over 64x64 tiles, per-pixel SAD against the previous frame with an early
+exit at each tile's first changed pixel. Not exact equality -- a threshold of 24:
 
 ```
 For each pixel (r1,g1,b1) in current vs (r2,g2,b2) in previous:
-    if |r1-r2| < 24 AND |g1-g2| < 24 AND |b1-b2| < 24:
-        bidiff[i] = 0   (unchanged)
+    if |r1-r2| + |g1-g2| + |b1-b2| <= 24:
+        pixel is unchanged
     else:
-        bidiff[i] = 1   (changed)
+        tile is dirty (scan stops here)
 ```
 
 Why 24? Because JPEG is lossy. The operator's display decodes each JPEG tile
@@ -393,13 +401,25 @@ will still differ slightly due to JPEG compression artifacts from the previous
 encode cycle. A threshold of 24 filters that noise. The value is empirical --
 high enough to absorb compression error, low enough to catch real changes.
 
-**Stage 4 -- Find dirty rectangles.** Divide the screen into 64x64 pixel tiles.
-Any tile containing at least one changed pixel (bidiff = 1) is marked dirty.
-Adjacent dirty tiles are merged into rectangles.
+The fused overload produces exactly the same rectangles as the older two-step
+pipeline (`CalculateBiDifference` into a bidiff map, then a separate tile scan)
+and is golden-tested against it; the two-step functions remain for callers that
+want the per-pixel map. When no tile is dirty, the handler replies success with
+an empty section list immediately -- no packet allocation, no encoding.
+
+**Stage 4 -- Find dirty rectangles.** Adjacent dirty tiles are merged into
+rectangles by the same call (greedy row-span merge, width aligned to a
+multiple of 4 for the JPEG MCU, regions smaller than 32x32 dropped).
 
 **Stage 5 -- Encode and serialize.** For each dirty rectangle, extract the
 region from the current frame into `rectBuffer`, JPEG-encode it, and append
-to the response:
+to the response. The encoder is baseline JFIF with a quality-gated chroma
+layout: below quality 90 it encodes 4:2:0 (16x16 MCUs, 2x2 box-filtered
+chroma — roughly 40% less encode time and typically 25-40% smaller output
+for screen content), while quality 90 and above keep 4:4:4 with the same
+bitstream as the original encoder apart from the removed empty 4-byte COM
+segment. Every section remains an
+independently decodable baseline JPEG either way:
 
 ```cpp
 struct Rectangle
