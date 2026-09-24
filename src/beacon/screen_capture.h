@@ -43,6 +43,39 @@ struct JpegBuffer
         }
     }
 
+    /// @brief Grow the backing buffer to at least the requested size, keeping contents
+    /// @param needed Minimum capacity in bytes
+    /// @return void (sets allocationFailed on failure)
+    VOID EnsureCapacity(UINT32 needed)
+    {
+        if (size >= needed || allocationFailed)
+            return;
+        PUINT8 grown = new UINT8[needed];
+        if (grown == nullptr)
+        {
+            allocationFailed = true;
+            return;
+        }
+        if (outputBuffer != nullptr)
+        {
+            Memory::Copy(grown, outputBuffer, offset);
+            delete[] outputBuffer;
+        }
+        outputBuffer = grown;
+        size = needed;
+    }
+
+    /// @brief Pre-size for a whole-frame or single-rect JPEG encode
+    /// @param width Region width in pixels
+    /// @param height Region height in pixels
+    /// @return void (sets allocationFailed on failure)
+    /// @note Screen-content JPEG at q75 fits well under 1/8 of raw RGB plus
+    ///       header slack; underestimates still grow via EnsureCapacity
+    VOID ReserveForImage(UINT32 width, UINT32 height)
+    {
+        EnsureCapacity((UINT32)((USIZE)width * height * 3 / 8 + 4096));
+    }
+
     ~JpegBuffer()
     {
         if (outputBuffer)

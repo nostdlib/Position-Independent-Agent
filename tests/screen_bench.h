@@ -19,18 +19,15 @@ private:
 	static constexpr UINT32 Height = 1080;
 	static constexpr USIZE PixelCount = (USIZE)Width * Height;
 
-	// Growable output sink mirroring the beacon JpegBuffer growth contract
+	// JPEG output sink on the shared Buffer growth
 	struct OutBuffer
 	{
-		PUINT8 data;
-		USIZE capacity;
-		USIZE offset;
+		Buffer<UINT8> bytes;
 		BOOL failed;
 
-		OutBuffer() : data(nullptr), capacity(0), offset(0), failed(false) {}
-		~OutBuffer() { delete[] data; }
+		OutBuffer() : failed(false) {}
 
-		VOID Reset() { offset = 0; failed = false; }
+		VOID Reset() { bytes.Reset(); failed = false; }
 	};
 
 	static VOID BenchJpegCallback(PVOID context, PVOID data, INT32 size)
@@ -38,51 +35,13 @@ private:
 		OutBuffer *out = (OutBuffer *)context;
 		if (out->failed)
 			return;
-		if (out->data == nullptr)
-		{
-			out->data = new UINT8[1024 * 1024];
-			if (!out->data)
-			{
-				out->failed = true;
-				return;
-			}
-			out->capacity = 1024 * 1024;
-		}
-		if (out->offset + (USIZE)size > out->capacity)
-		{
-			USIZE newCapacity = out->capacity * 2;
-			PUINT8 grown = new UINT8[newCapacity];
-			if (!grown)
-			{
-				out->failed = true;
-				return;
-			}
-			Memory::Copy(grown, out->data, out->offset);
-			delete[] out->data;
-			out->data = grown;
-			out->capacity = newCapacity;
-		}
-		Memory::Copy(out->data + out->offset, data, (USIZE)size);
-		out->offset += (USIZE)size;
+		if (!out->bytes.Append(Span<const UINT8>((const UINT8 *)data, (USIZE)size)))
+			out->failed = true;
 	}
 
-	static UINT64 Median(UINT64 *samples, UINT32 count)
-	{
-		for (UINT32 i = 1; i < count; i++)
-		{
-			UINT64 key = samples[i];
-			INT32 j = (INT32)i - 1;
-			while (j >= 0 && samples[j] > key)
-			{
-				samples[j + 1] = samples[j];
-				j--;
-			}
-			samples[j + 1] = key;
-		}
-		return samples[count / 2];
-	}
-
-	// 8x8 blocks of low-variance color: DCT-friendly, like real screen content
+	// 8x8 blocks of low-variance color: DCT-friendly, like real screen content.
+	// Per-pixel jitter is the same delta on all channels (neutral gray noise,
+	// like compression artifacts) — chroma stays flat per block, as on real UI.
 	static VOID FillDesktopLike(Span<RGB> frame, Prng &prng)
 	{
 		for (UINT32 by = 0; by < Height; by += 8)
@@ -99,9 +58,10 @@ private:
 					for (UINT32 x = bx; x < bx + 8 && x < Width; x++)
 					{
 						RGB &p = frame[(USIZE)y * Width + x];
-						p.Red = (UINT8)(base.Red + (prng.Get() & jitterMask));
-						p.Green = (UINT8)(base.Green + (prng.Get() & jitterMask));
-						p.Blue = (UINT8)(base.Blue + (prng.Get() & jitterMask));
+						UINT8 delta = (UINT8)(prng.Get() & jitterMask);
+						p.Red = (UINT8)(base.Red + delta);
+						p.Green = (UINT8)(base.Green + delta);
+						p.Blue = (UINT8)(base.Blue + delta);
 					}
 				}
 			}
@@ -262,7 +222,7 @@ private:
 			}
 			if (ok)
 				LOG_INFO("  JPEG 1920x1080 q%u: %.1f ms, %u B output", q,
-				         (DOUBLE)Median(ns, 3) / 1000000.0, (UINT32)out.offset);
+				         (DOUBLE)Median(ns, 3) / 1000000.0, (UINT32)out.bytes.Size);
 		}
 
 		// Typical dirty-rect sizes at the default quality (median of 5)
@@ -301,7 +261,7 @@ private:
 				}
 				if (ok)
 					LOG_INFO("  JPEG %ux%u q75: %.2f ms, %u B output", rects[i].w, rects[i].h,
-					         (DOUBLE)Median(ns, 5) / 1000000.0, (UINT32)out.offset);
+					         (DOUBLE)Median(ns, 5) / 1000000.0, (UINT32)out.bytes.Size);
 			}
 			delete[] packed;
 		}
@@ -314,13 +274,11 @@ private:
 	{
 		RGB *current = new RGB[PixelCount];
 		RGB *previous = new RGB[PixelCount];
-		UINT8 *bidiff = new UINT8[PixelCount];
 		RGB *rectBuffer = new RGB[PixelCount];
-		if (!current || !previous || !bidiff || !rectBuffer)
+		if (!current || !previous || !rectBuffer)
 		{
 			delete[] current;
 			delete[] previous;
-			delete[] bidiff;
 			delete[] rectBuffer;
 			return false;
 		}
@@ -328,6 +286,8 @@ private:
 
 		OutBuffer jpeg;
 		Buffer<CHAR> packet;
+		if (!packet.Init(sizeof(UINT32) * 2 + PixelCount * sizeof(RGB) / 2))
+			return false;
 		UINT64 ns[5];
 		UINT32 totalRects = 0;
 		USIZE packetBytes = 0;
@@ -347,8 +307,6 @@ private:
 				break;
 			}
 
-			if (!packet.Init(sizeof(UINT32) * 2 + PixelCount * sizeof(RGB) / 2))
-				break;
 			UINT32 packetOffset = sizeof(UINT32) * 2;
 
 			for (UINT32 i = 0; i < dirty.Value().Count; i++)
@@ -371,9 +329,9 @@ private:
 
 				Memory::Copy(packet.Data + packetOffset, &dr.X, sizeof(UINT32));
 				Memory::Copy(packet.Data + packetOffset + 4, &dr.Y, sizeof(UINT32));
-				Memory::Copy(packet.Data + packetOffset + 8, &jpeg.offset, sizeof(UINT32));
-				Memory::Copy(packet.Data + packetOffset + 12, jpeg.data, jpeg.offset);
-				packetOffset += 12 + jpeg.offset;
+				Memory::Copy(packet.Data + packetOffset + 8, &jpeg.bytes.Size, sizeof(UINT32));
+				Memory::Copy(packet.Data + packetOffset + 12, jpeg.bytes.Data, jpeg.bytes.Size);
+				packetOffset += 12 + jpeg.bytes.Size;
 			}
 
 			totalRects = dirty.Value().Count;
@@ -382,8 +340,6 @@ private:
 			ns[r] = t1 - t0;
 			packetBytes = packetOffset;
 
-			// Release the packet allocation so the next rep starts fresh
-			delete[] packet.Release();
 			jpeg.Reset();
 		}
 
@@ -394,7 +350,6 @@ private:
 
 		delete[] current;
 		delete[] previous;
-		delete[] bidiff;
 		delete[] rectBuffer;
 		return totalRects > 0 && packetBytes > 0;
 	}

@@ -376,10 +376,10 @@ screen capture (X11, Wayland, GDI, etc.). On Windows the handler passes
 persistent GDI resources (memory DC, compatible bitmap, BGRA conversion buffer)
 created once per display via `Screen::CreateCaptureState` and held in
 `Graphics::captureState`; GDI object creation otherwise dominates a per-call
-capture. A dimension mismatch rebuilds the state in place (display-mode change),
-and any capture failure through the state drops it and retries once statelessly,
-so the next request self-heals. Other platforms ignore the state (nullptr) and
-capture statelessly.
+capture. The platform layer rebuilds the state in place on a dimension
+mismatch (display-mode change) and on a capture failure retries once after a
+rebuild before reporting failure. Other platforms ignore the state (nullptr)
+and capture statelessly through the same entry point.
 
 **Stage 3 -- Fused difference + dirty detection.** The handler calls the fused
 `ImageProcessor::FindDirtyRects(current, previous, w, h, 64, 24)` overload: one
@@ -413,7 +413,13 @@ multiple of 4 for the JPEG MCU, regions smaller than 32x32 dropped).
 
 **Stage 5 -- Encode and serialize.** For each dirty rectangle, extract the
 region from the current frame into `rectBuffer`, JPEG-encode it, and append
-to the response:
+to the response. The encoder is baseline JFIF with a quality-gated chroma
+layout: below quality 90 it encodes 4:2:0 (16x16 MCUs, 2x2 box-filtered
+chroma — roughly 40% less encode time and typically 25-40% smaller output
+for screen content), while quality 90 and above keep 4:4:4 with the same
+bitstream as the original encoder apart from the removed empty 4-byte COM
+segment. Every section remains an
+independently decodable baseline JPEG either way:
 
 ```cpp
 struct Rectangle

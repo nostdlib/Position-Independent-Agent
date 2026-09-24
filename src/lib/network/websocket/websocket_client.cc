@@ -268,19 +268,20 @@ Result<UINT32, Error> WebSocketClient::WritePayload(Span<const CHAR> prefix, Spa
 		return Result<UINT32, Error>::Ok((UINT32)payloadSize);
 	}
 
-	// Large frames: mask header + payload into one scratch buffer so the single
-	// transport write splits into full-size TLS records at the TLS layer
-	Buffer<CHAR> masked;
-	if (!masked.Init((USIZE)headerLength + payloadSize))
+	// Large frames: mask header + payload into the reusable scratch buffer so
+	// the single transport write splits into full-size TLS records at the TLS
+	// layer. The scratch is grown on demand and kept across frames — no
+	// payload-sized allocation per send
+	if (!sendScratch.Reserve((USIZE)headerLength + payloadSize))
 		return Result<UINT32, Error>::Err(Error::Ws_WriteFailed);
-	Memory::Copy(masked.Data, header, headerLength);
+	Memory::Copy(sendScratch.Data, header, headerLength);
 
-	PUINT8 dst = (PUINT8)masked.Data + headerLength;
+	PUINT8 dst = (PUINT8)sendScratch.Data + headerLength;
 	MaskSpan(dst, (const UINT8 *)prefix.Data(), prefix.Size(), 0, maskKey);
 	MaskSpan(dst + prefix.Size(), (const UINT8 *)body.Data(), body.Size(), prefix.Size(), maskKey);
 
 	UINT32 frameLength = headerLength + (UINT32)payloadSize;
-	auto frameWrite = tlsContext.Write(Span<const CHAR>(masked.Data, frameLength));
+	auto frameWrite = tlsContext.Write(Span<const CHAR>(sendScratch.Data, frameLength));
 	if (!frameWrite)
 		return Result<UINT32, Error>::Err(frameWrite, Error::Ws_WriteFailed);
 	if (frameWrite.Value() != frameLength)
@@ -319,23 +320,8 @@ Result<VOID, Error> WebSocketClient::ReceiveRestrict(Span<CHAR> buffer)
  */
 VOID WebSocketClient::MaskFrame(WebSocketFrame &frame, UINT32 maskKey)
 {
-	PUINT8 mask = (PUINT8)&maskKey;
-	PUINT8 d = (PUINT8)frame.Data;
-	UINT32 len = (UINT32)frame.Length;
-
-	// Process 4 bytes at a time (unrolled, no modulo in main loop)
-	UINT32 i = 0;
-	for (; i + 4 <= len; i += 4)
-	{
-		d[i] ^= mask[0];
-		d[i + 1] ^= mask[1];
-		d[i + 2] ^= mask[2];
-		d[i + 3] ^= mask[3];
-	}
-
-	// Remaining 0-3 bytes
-	for (; i < len; i++)
-		d[i] ^= mask[i & 3];
+	// In place at phase 0 — the same helper the send path uses
+	MaskSpan((PUINT8)frame.Data, (const UINT8 *)frame.Data, (USIZE)frame.Length, 0, (const UINT8 *)&maskKey);
 }
 
 /**

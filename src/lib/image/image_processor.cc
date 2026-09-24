@@ -18,6 +18,15 @@
 	return x < 0 ? -x : x;
 }
 
+/// @brief Per-pixel sum of absolute channel differences — the single dirty
+/// predicate shared by the bidiff map and the fused tile scan
+[[nodiscard]] static constexpr UINT32 PixelSad(const RGB &a, const RGB &b)
+{
+	return (UINT32)AbsInt((INT32)a.Red - (INT32)b.Red) +
+	       (UINT32)AbsInt((INT32)a.Green - (INT32)b.Green) +
+	       (UINT32)AbsInt((INT32)a.Blue - (INT32)b.Blue);
+}
+
 // ============================================================
 //  Public API
 // ============================================================
@@ -75,12 +84,7 @@ VOID ImageProcessor::CalculateBiDifference(
 		// Threshold path: sum of absolute differences per channel.
 		// Ignores minor pixel differences caused by JPEG compression artifacts.
 		for (UINT32 i = 0; i < totalPixels; ++i)
-		{
-			UINT32 sad = (UINT32)AbsInt((INT32)image1[i].Red - (INT32)image2[i].Red) +
-						 (UINT32)AbsInt((INT32)image1[i].Green - (INT32)image2[i].Green) +
-						 (UINT32)AbsInt((INT32)image1[i].Blue - (INT32)image2[i].Blue);
-			biDiff[i] = (sad > threshold) ? 1 : 0;
-		}
+			biDiff[i] = (PixelSad(image1[i], image2[i]) > threshold) ? 1 : 0;
 	}
 }
 
@@ -269,10 +273,7 @@ static BOOL IsTileDirty(
 				const RGB *prev = previous.Data() + (USIZE)y * width + startX;
 				for (UINT32 x = 0; x < endX - startX; ++x)
 				{
-					UINT32 sad = (UINT32)AbsInt((INT32)cur[x].Red - (INT32)prev[x].Red) +
-					             (UINT32)AbsInt((INT32)cur[x].Green - (INT32)prev[x].Green) +
-					             (UINT32)AbsInt((INT32)cur[x].Blue - (INT32)prev[x].Blue);
-					if (sad > threshold)
+					if (PixelSad(cur[x], prev[x]) > threshold)
 					{
 						tileDirty = true;
 						break;
