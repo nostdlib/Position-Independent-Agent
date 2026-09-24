@@ -177,6 +177,22 @@ Result<UINT32, Error> WebSocketClient::WriteResponse(UINT32 status, UINT32 corre
 	return WritePayload(Span<const CHAR>((PCHAR)prefix, sizeof(prefix)), body, opcode);
 }
 
+// XOR-mask size bytes continuing the mask phase at payload offset `phase`
+// (RFC 6455 Section 5.3 — 4 bytes per iteration in the main loop)
+static VOID MaskSpan(UINT8 *dst, const UINT8 *src, USIZE size, USIZE phase, const UINT8 *maskKey)
+{
+	USIZE i = 0;
+	for (; i + 4 <= size; i += 4)
+	{
+		dst[i] = src[i] ^ maskKey[(phase + i) & 3];
+		dst[i + 1] = src[i + 1] ^ maskKey[(phase + i + 1) & 3];
+		dst[i + 2] = src[i + 2] ^ maskKey[(phase + i + 2) & 3];
+		dst[i + 3] = src[i + 3] ^ maskKey[(phase + i + 3) & 3];
+	}
+	for (; i < size; i++)
+		dst[i] = src[i] ^ maskKey[(phase + i) & 3];
+}
+
 /**
  * @brief Shared framing path: builds one masked frame over prefix + body
  * @return Ok(payload bytes sent) on success, Err(Ws_WriteFailed | Ws_NotConnected) on failure
@@ -239,12 +255,8 @@ Result<UINT32, Error> WebSocketClient::WritePayload(Span<const CHAR> prefix, Spa
 	{
 		Memory::Copy(chunk, header, headerLength);
 		UINT8 *dst = chunk + headerLength;
-		for (USIZE i = 0; i < prefix.Size(); i++)
-			dst[i] = (UINT8)prefix.Data()[i] ^ maskKey[i & 3];
-		UINT8 *dstBody = dst + prefix.Size();
-		PUINT8 src = (PUINT8)body.Data();
-		for (USIZE i = 0; i < body.Size(); i++)
-			dstBody[i] = src[i] ^ maskKey[(prefix.Size() + i) & 3];
+		MaskSpan(dst, (const UINT8 *)prefix.Data(), prefix.Size(), 0, maskKey);
+		MaskSpan(dst + prefix.Size(), (const UINT8 *)body.Data(), body.Size(), prefix.Size(), maskKey);
 
 		UINT32 frameLength = headerLength + (UINT32)payloadSize;
 		auto smallWrite = tlsContext.Write(Span<const CHAR>((PCHAR)chunk, frameLength));
@@ -264,23 +276,8 @@ Result<UINT32, Error> WebSocketClient::WritePayload(Span<const CHAR> prefix, Spa
 	Memory::Copy(masked.Data, header, headerLength);
 
 	PUINT8 dst = (PUINT8)masked.Data + headerLength;
-	for (USIZE i = 0; i < prefix.Size(); i++)
-		dst[i] = (UINT8)prefix.Data()[i] ^ maskKey[i & 3];
-
-	// Body mask continues the payload phase; prefix length is a multiple of 4
-	USIZE base = prefix.Size();
-	PUINT8 src = (PUINT8)body.Data();
-	USIZE size = body.Size();
-	USIZE i = 0;
-	for (; i + 4 <= size; i += 4)
-	{
-		dst[base + i] = src[i] ^ maskKey[(base + i) & 3];
-		dst[base + i + 1] = src[i + 1] ^ maskKey[(base + i + 1) & 3];
-		dst[base + i + 2] = src[i + 2] ^ maskKey[(base + i + 2) & 3];
-		dst[base + i + 3] = src[i + 3] ^ maskKey[(base + i + 3) & 3];
-	}
-	for (; i < size; i++)
-		dst[base + i] = src[i] ^ maskKey[(base + i) & 3];
+	MaskSpan(dst, (const UINT8 *)prefix.Data(), prefix.Size(), 0, maskKey);
+	MaskSpan(dst + prefix.Size(), (const UINT8 *)body.Data(), body.Size(), prefix.Size(), maskKey);
 
 	UINT32 frameLength = headerLength + (UINT32)payloadSize;
 	auto frameWrite = tlsContext.Write(Span<const CHAR>(masked.Data, frameLength));
