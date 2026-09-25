@@ -84,7 +84,7 @@ static USIZE BuildIdentityHeaders(const SystemInfo &info, const CHAR *sessionKey
 
     // Fixed 37-byte buffer (36 chars + NUL)
     CHAR uuid[37];
-    (VOID)info.MachineUUID.ToString(Span<CHAR>(uuid, sizeof(uuid)));
+    (VOID) info.MachineUUID.ToString(Span<CHAR>(uuid, sizeof(uuid)));
 
     // Hostname/username are the only free-text values in the block.
     CHAR deviceName[256];
@@ -124,7 +124,7 @@ static USIZE BuildIdentityHeaders(const SystemInfo &info, const CHAR *sessionKey
     return ok ? writer.GetOffset() : 0;
 }
 
-static const CHAR *CommandTypeName(UINT8 type)
+[[maybe_unused]] static const CHAR *CommandTypeName(UINT8 type)
 {
     switch (type)
     {
@@ -167,24 +167,24 @@ INT32 start()
     Span<const CHAR> urlSpan(urlBuffer, urlLen);
 
     Context context;
-    UINT32 connectionAttempt = 0;
+    [[maybe_unused]] UINT32 connectionAttempt = 0;
 
     CommandHandler commandHandlers[CommandType::CommandTypeCount] = {nullptr};
     // Core (mandatory, always registered)
     commandHandlers[CommandType::Command_Exit] = Handle_ExitCommand;
 #if SUPPORT_FILESYSTEM
     commandHandlers[CommandType::Command_GetDirectoryContent] = Handle_GetDirectoryContentCommand;
-    commandHandlers[CommandType::Command_GetFileContent]      = Handle_GetFileContentCommand;
-    commandHandlers[CommandType::Command_GetFileChunkHash]    = Handle_GetFileChunkHashCommand;
+    commandHandlers[CommandType::Command_GetFileContent] = Handle_GetFileContentCommand;
+    commandHandlers[CommandType::Command_GetFileChunkHash] = Handle_GetFileChunkHashCommand;
 #endif
 #if SUPPORT_SHELL
-    commandHandlers[CommandType::Command_OpenShell]  = Handle_OpenShellCommand;
+    commandHandlers[CommandType::Command_OpenShell] = Handle_OpenShellCommand;
     commandHandlers[CommandType::Command_CloseShell] = Handle_CloseShellCommand;
-    commandHandlers[CommandType::Command_ReadShell]  = Handle_ReadShellCommand;
+    commandHandlers[CommandType::Command_ReadShell] = Handle_ReadShellCommand;
     commandHandlers[CommandType::Command_WriteShell] = Handle_WriteShellCommand;
 #endif
 #if SUPPORT_DISPLAY
-    commandHandlers[CommandType::Command_GetDisplays]   = Handle_GetDisplaysCommand;
+    commandHandlers[CommandType::Command_GetDisplays] = Handle_GetDisplaysCommand;
     commandHandlers[CommandType::Command_GetScreenshot] = Handle_GetScreenshotCommand;
 #endif
 
@@ -197,7 +197,7 @@ INT32 start()
     Random random;
     CHAR sessionKey[37];
     sessionKey[0] = '\0';
-    (VOID)random.RandomUUID().ToString(Span<CHAR>(sessionKey, sizeof(sessionKey)));
+    (VOID) random.RandomUUID().ToString(Span<CHAR>(sessionKey, sizeof(sessionKey)));
 
     while (!context.shouldExit)
     {
@@ -211,7 +211,7 @@ INT32 start()
         SystemInfo identityInfo;
         GetSystemInfo(&identityInfo);
         CHAR deviceUuid[37];
-        (VOID)identityInfo.MachineUUID.ToString(Span<CHAR>(deviceUuid, sizeof(deviceUuid)));
+        (VOID) identityInfo.MachineUUID.ToString(Span<CHAR>(deviceUuid, sizeof(deviceUuid)));
         LOG_DEBUG("Identity: host=%s user=%s device=%s os=%s", identityInfo.Hostname, identityInfo.Username, deviceUuid, identityInfo.OSVersion);
         CHAR identityHeaders[1024];
         USIZE identityHeadersLen = BuildIdentityHeaders(identityInfo, sessionKey, Span<CHAR>(identityHeaders, sizeof(identityHeaders)));
@@ -230,7 +230,7 @@ INT32 start()
         WebSocketClient &wsClient = createResult.Value();
         LOG_INFO("WebSocket connection established (attempt #%u)", connectionAttempt);
 
-        UINT32 messageCount = 0;
+        [[maybe_unused]] UINT32 messageCount = 0;
         while (!context.shouldExit)
         {
             LOG_DEBUG("Waiting for next WebSocket message...");
@@ -281,7 +281,7 @@ INT32 start()
                     LOG_ERROR("Command %s produced no response buffer, reconnecting...", CommandTypeName(commandType));
                     break;
                 }
-                UINT32 statusCode = *(PUINT32)response;
+                [[maybe_unused]] UINT32 statusCode = *(PUINT32)response;
                 LOG_INFO("Command %s completed: status=%u, response_length=%u",
                          CommandTypeName(commandType), statusCode, (UINT32)responseLength);
             }
@@ -303,9 +303,9 @@ INT32 start()
             // so no separate wire copy of the response is needed here.
             LOG_DEBUG("Sending response (%u bytes) to server", (UINT32)responseLength);
             auto writeResult = wsClient.WriteResponse(*(PUINT32)response, correlationId,
-                                                       Span<const CHAR>(response + sizeof(UINT32),
-                                                                        responseLength - sizeof(UINT32)),
-                                                       WebSocketOpcode::Binary);
+                                                      Span<const CHAR>(response + sizeof(UINT32),
+                                                                       responseLength - sizeof(UINT32)),
+                                                      WebSocketOpcode::Binary);
             delete[] response;
 
             if (!writeResult)
