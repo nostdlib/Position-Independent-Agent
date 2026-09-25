@@ -1,4 +1,5 @@
 #include "lib/network/websocket/websocket_client.h"
+#include "core/containers/buffer.h"
 #include "core/memory/memory.h"
 #include "core/string/string.h"
 #include "platform/system/random.h"
@@ -145,17 +146,70 @@ Result<VOID, Error> WebSocketClient::Close()
  * @brief Constructs and sends a masked WebSocket frame (RFC 6455 Section 5.2, 5.3)
  * @details Builds the frame header with FIN=1 and the appropriate payload length encoding
  * (7-bit / 16-bit / 64-bit). Generates a random 32-bit masking key and XOR-masks the
- * entire payload — client-to-server frames MUST be masked per Section 5.1. Small frames
- * are coalesced into a single TLS write; large frames stream in 256-byte masked chunks.
+ * entire payload — client-to-server frames MUST be masked per Section 5.1. The masked
+ * frame is handed to the transport in a single write so large payloads cross TLS as
+ * full 16 KiB records instead of one tiny record per masked chunk.
  * @see https://datatracker.ietf.org/doc/html/rfc6455#section-5.2
  * @see https://datatracker.ietf.org/doc/html/rfc6455#section-5.3
  */
 Result<UINT32, Error> WebSocketClient::Write(Span<const CHAR> buffer, WebSocketOpcode opcode)
 {
+	return WritePayload(Span<const CHAR>(), buffer, opcode);
+}
+
+/**
+ * @brief Sends a command response frame with the correlation id spliced in
+ * @param status First UINT32 of the payload (the handler's status code)
+ * @param correlationId Correlation id spliced between status and body
+ * @param body Response body (everything after the status UINT32)
+ * @param opcode Frame opcode (default: Binary)
+ * @return Ok(payload bytes sent) on success, Err on failure
+ *
+ * @details Produces the same wire bytes as Write() over `[status][corrId][body]`
+ * but assembles them inside the transport's masked scratch buffer, so the
+ * caller's separate splice allocation and full-payload copy are skipped.
+ */
+Result<UINT32, Error> WebSocketClient::WriteResponse(UINT32 status, UINT32 correlationId, Span<const CHAR> body, WebSocketOpcode opcode)
+{
+	UINT8 prefix[8];
+	Memory::Copy(prefix, &status, sizeof(status));
+	Memory::Copy(prefix + sizeof(status), &correlationId, sizeof(correlationId));
+	return WritePayload(Span<const CHAR>((PCHAR)prefix, sizeof(prefix)), body, opcode);
+}
+
+// XOR-mask size bytes continuing the mask phase at payload offset `phase`
+// (RFC 6455 Section 5.3 — 4 bytes per iteration in the main loop)
+static VOID MaskSpan(UINT8 *dst, const UINT8 *src, USIZE size, USIZE phase, const UINT8 *maskKey)
+{
+	USIZE i = 0;
+	for (; i + 4 <= size; i += 4)
+	{
+		dst[i] = src[i] ^ maskKey[(phase + i) & 3];
+		dst[i + 1] = src[i + 1] ^ maskKey[(phase + i + 1) & 3];
+		dst[i + 2] = src[i + 2] ^ maskKey[(phase + i + 2) & 3];
+		dst[i + 3] = src[i + 3] ^ maskKey[(phase + i + 3) & 3];
+	}
+	for (; i < size; i++)
+		dst[i] = src[i] ^ maskKey[(phase + i) & 3];
+}
+
+/**
+ * @brief Shared framing path: builds one masked frame over prefix + body
+ * @return Ok(payload bytes sent) on success, Err(Ws_WriteFailed | Ws_NotConnected) on failure
+ *
+ * @details The payload is prefix followed by body (either may be empty). Small
+ * payloads are masked into a stack chunk and written once; large payloads are
+ * masked into a heap scratch buffer (header included) and written once. The
+ * mask phase runs over the concatenated payload per RFC 6455 Section 5.3.
+ */
+Result<UINT32, Error> WebSocketClient::WritePayload(Span<const CHAR> prefix, Span<const CHAR> body, WebSocketOpcode opcode)
+{
 	if (!isConnected && opcode != WebSocketOpcode::Close)
 	{
 		return Result<UINT32, Error>::Err(Error::Ws_NotConnected);
 	}
+
+	USIZE payloadSize = prefix.Size() + body.Size();
 
 	// Build frame header on stack (max 14 bytes: 2 base + 8 ext length + 4 mask key)
 	UINT8 header[14];
@@ -170,16 +224,16 @@ Result<UINT32, Error> WebSocketClient::Write(Span<const CHAR> buffer, WebSocketO
 	PUINT8 maskKey = (PUINT8)&maskKeyVal;
 
 	// RFC 6455 Section 5.2: byte 1 = MASK (bit 7) | payload length (bits 0-6)
-	if (buffer.Size() <= 125)
+	if (payloadSize <= 125)
 	{
-		header[1] = (UINT8)(buffer.Size() | 0x80);
+		header[1] = (UINT8)(payloadSize | 0x80);
 		Memory::Copy(header + 2, maskKey, 4);
 		headerLength = 6;
 	}
-	else if (buffer.Size() <= 0xFFFF)
+	else if (payloadSize <= 0xFFFF)
 	{
 		header[1] = (126 | 0x80);
-		UINT16 len16 = ByteOrder::Swap16((UINT16)buffer.Size());
+		UINT16 len16 = ByteOrder::Swap16((UINT16)payloadSize);
 		Memory::Copy(header + 2, &len16, 2);
 		Memory::Copy(header + 4, maskKey, 4);
 		headerLength = 8;
@@ -187,7 +241,7 @@ Result<UINT32, Error> WebSocketClient::Write(Span<const CHAR> buffer, WebSocketO
 	else
 	{
 		header[1] = (127 | 0x80);
-		UINT64 len64 = ByteOrder::Swap64((UINT64)buffer.Size());
+		UINT64 len64 = ByteOrder::Swap64((UINT64)payloadSize);
 		Memory::Copy(header + 2, &len64, 8);
 		Memory::Copy(header + 10, maskKey, 4);
 		headerLength = 14;
@@ -197,52 +251,43 @@ Result<UINT32, Error> WebSocketClient::Write(Span<const CHAR> buffer, WebSocketO
 	UINT8 chunk[256];
 
 	// Small frames: combine header + masked payload into a single write
-	if (buffer.Size() <= sizeof(chunk) - headerLength)
+	if (payloadSize <= sizeof(chunk) - headerLength)
 	{
 		Memory::Copy(chunk, header, headerLength);
-		PUINT8 dst = chunk + headerLength;
-		PUINT8 src = (PUINT8)buffer.Data();
-		for (UINT32 i = 0; i < (UINT32)buffer.Size(); i++)
-			dst[i] = src[i] ^ maskKey[i & 3];
+		UINT8 *dst = chunk + headerLength;
+		MaskSpan(dst, (const UINT8 *)prefix.Data(), prefix.Size(), 0, maskKey);
+		MaskSpan(dst + prefix.Size(), (const UINT8 *)body.Data(), body.Size(), prefix.Size(), maskKey);
 
-		UINT32 frameLength = headerLength + (UINT32)buffer.Size();
+		UINT32 frameLength = headerLength + (UINT32)payloadSize;
 		auto smallWrite = tlsContext.Write(Span<const CHAR>((PCHAR)chunk, frameLength));
 		if (!smallWrite)
 			return Result<UINT32, Error>::Err(smallWrite, Error::Ws_WriteFailed);
 		if (smallWrite.Value() != frameLength)
 			return Result<UINT32, Error>::Err(Error::Ws_WriteFailed);
 
-		return Result<UINT32, Error>::Ok((UINT32)buffer.Size());
+		return Result<UINT32, Error>::Ok((UINT32)payloadSize);
 	}
 
-	// Large frames: write header, then mask and write payload in chunks
-	auto headerWrite = tlsContext.Write(Span<const CHAR>((PCHAR)header, headerLength));
-	if (!headerWrite)
-		return Result<UINT32, Error>::Err(headerWrite, Error::Ws_WriteFailed);
-	if (headerWrite.Value() != headerLength)
+	// Large frames: mask header + payload into the reusable scratch buffer so
+	// the single transport write splits into full-size TLS records at the TLS
+	// layer. The scratch is grown on demand and kept across frames — no
+	// payload-sized allocation per send
+	if (!sendScratch.Reserve((USIZE)headerLength + payloadSize))
+		return Result<UINT32, Error>::Err(Error::Ws_WriteFailed);
+	Memory::Copy(sendScratch.Data, header, headerLength);
+
+	PUINT8 dst = (PUINT8)sendScratch.Data + headerLength;
+	MaskSpan(dst, (const UINT8 *)prefix.Data(), prefix.Size(), 0, maskKey);
+	MaskSpan(dst + prefix.Size(), (const UINT8 *)body.Data(), body.Size(), prefix.Size(), maskKey);
+
+	UINT32 frameLength = headerLength + (UINT32)payloadSize;
+	auto frameWrite = tlsContext.Write(Span<const CHAR>(sendScratch.Data, frameLength));
+	if (!frameWrite)
+		return Result<UINT32, Error>::Err(frameWrite, Error::Ws_WriteFailed);
+	if (frameWrite.Value() != frameLength)
 		return Result<UINT32, Error>::Err(Error::Ws_WriteFailed);
 
-	PUINT8 src = (PUINT8)buffer.Data();
-	USIZE offset = 0;
-	USIZE remaining = buffer.Size();
-
-	while (remaining > 0)
-	{
-		UINT32 chunkSize = (UINT32)((remaining < sizeof(chunk)) ? remaining : sizeof(chunk));
-		for (UINT32 i = 0; i < chunkSize; i++)
-			chunk[i] = src[offset + i] ^ maskKey[(offset + i) & 3];
-
-		auto chunkWrite = tlsContext.Write(Span<const CHAR>((PCHAR)chunk, chunkSize));
-		if (!chunkWrite)
-			return Result<UINT32, Error>::Err(chunkWrite, Error::Ws_WriteFailed);
-		if (chunkWrite.Value() != chunkSize)
-			return Result<UINT32, Error>::Err(Error::Ws_WriteFailed);
-
-		offset += chunkSize;
-		remaining -= chunkSize;
-	}
-
-	return Result<UINT32, Error>::Ok((UINT32)buffer.Size());
+	return Result<UINT32, Error>::Ok((UINT32)payloadSize);
 }
 
 /**
@@ -275,23 +320,8 @@ Result<VOID, Error> WebSocketClient::ReceiveRestrict(Span<CHAR> buffer)
  */
 VOID WebSocketClient::MaskFrame(WebSocketFrame &frame, UINT32 maskKey)
 {
-	PUINT8 mask = (PUINT8)&maskKey;
-	PUINT8 d = (PUINT8)frame.Data;
-	UINT32 len = (UINT32)frame.Length;
-
-	// Process 4 bytes at a time (unrolled, no modulo in main loop)
-	UINT32 i = 0;
-	for (; i + 4 <= len; i += 4)
-	{
-		d[i] ^= mask[0];
-		d[i + 1] ^= mask[1];
-		d[i + 2] ^= mask[2];
-		d[i + 3] ^= mask[3];
-	}
-
-	// Remaining 0-3 bytes
-	for (; i < len; i++)
-		d[i] ^= mask[i & 3];
+	// In place at phase 0 — the same helper the send path uses
+	MaskSpan((PUINT8)frame.Data, (const UINT8 *)frame.Data, (USIZE)frame.Length, 0, (const UINT8 *)&maskKey);
 }
 
 /**

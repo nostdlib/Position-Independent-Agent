@@ -87,10 +87,25 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 }
 
 // =============================================================================
+// Screen::CreateCaptureState / Screen::DestroyCaptureState
+// =============================================================================
+
+// Persistent capture state is a Windows optimization; GOP captures take the
+// stateless path and report no state to own
+Result<PVOID, Error> Screen::CreateCaptureState([[maybe_unused]] const ScreenDevice &device)
+{
+	return Result<PVOID, Error>::Ok(nullptr);
+}
+
+VOID Screen::DestroyCaptureState([[maybe_unused]] PVOID captureState)
+{
+}
+
+// =============================================================================
 // Screen::Capture
 // =============================================================================
 
-Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState)
 {
 	EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = LocateGop();
 	if (gop == nullptr)

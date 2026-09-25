@@ -86,6 +86,27 @@ public:
 	[[nodiscard]] static Result<ScreenDeviceList, Error> GetDevices();
 
 	/**
+	 * @brief Create opaque per-display state for fast repeated captures
+	 *
+	 * @details Allocates the heavyweight capture resources (Windows: compatible
+	 * memory DC, bitmap, and conversion buffer) so per-frame Capture() calls
+	 * reuse them instead of recreating and destroying everything. The state is
+	 * bound to the device dimensions; Capture() rebuilds it on a mode change.
+	 * Platforms without persistent resources return Ok(nullptr).
+	 *
+	 * @param device Display device the state is bound to (from GetDevices())
+	 * @return Ok(state) on success, Err on allocation or initialization failure
+	 */
+	[[nodiscard]] static Result<PVOID, Error> CreateCaptureState(const ScreenDevice &device);
+
+	/**
+	 * @brief Release capture state created by CreateCaptureState
+	 *
+	 * @param state State to release; nullptr is a no-op
+	 */
+	static VOID DestroyCaptureState(PVOID state);
+
+	/**
 	 * @brief Capture a screenshot of the specified display device
 	 *
 	 * @details Copies the current framebuffer contents of the given display
@@ -94,11 +115,15 @@ public:
 	 *
 	 * @param device Display device to capture (from GetDevices())
 	 * @param buffer Output RGB pixel buffer (top-down, left-to-right)
+	 * @param captureState Optional state from CreateCaptureState() for repeated
+	 *        captures of the same display; nullptr takes the stateless
+	 *        create-per-call path
 	 * @return Ok on success, Err on capture failure
 	 */
 	[[nodiscard]] static Result<VOID, Error> Capture(
 		const ScreenDevice &device,
-		Span<RGB> buffer);
+		Span<RGB> buffer,
+		PVOID captureState = nullptr);
 };
 
 /** @} */ // end of display group

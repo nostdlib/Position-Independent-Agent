@@ -79,6 +79,27 @@ constexpr INT32 MP_DEVICE_LEFT = -3000;
 #include "platform/kernel/solaris/system.h"
 #endif
 
+// This file is also compiled (empty) on macOS/iOS, whose own screen.cc provides
+// the Screen interface — gate everything this file defines to the posix families
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID) || defined(PLATFORM_FREEBSD) || defined(PLATFORM_SOLARIS)
+
+// =============================================================================
+// Screen::CreateCaptureState / Screen::DestroyCaptureState
+// =============================================================================
+
+// Persistent capture state is a Windows optimization; posix backends take the
+// stateless path and report no state to own
+Result<PVOID, Error> Screen::CreateCaptureState([[maybe_unused]] const ScreenDevice &device)
+{
+	return Result<PVOID, Error>::Ok(nullptr);
+}
+
+VOID Screen::DestroyCaptureState([[maybe_unused]] PVOID captureState)
+{
+}
+
+#endif
+
 #if defined(PLATFORM_SOLARIS)
 
 // =============================================================================
@@ -212,7 +233,7 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 // Screen::Capture (Solaris)
 // =============================================================================
 
-Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState)
 {
 	SSIZE fd = OpenFramebuffer();
 	if (fd < 0)
@@ -2451,7 +2472,7 @@ static Result<VOID, Error> FbCaptureFallback(const ScreenDevice &device, Span<RG
 // Screen::Capture (X11, DRM, or framebuffer dispatch)
 // =============================================================================
 
-Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState)
 {
 #if defined(PLATFORM_LINUX)
 	// X11 device: Left <= -1000 encodes -(1000 + displayNum)

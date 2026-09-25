@@ -15,6 +15,7 @@ public:
 		RunTest(allPassed, &TestGetDevices, "GetDevices returns active displays");
 		RunTest(allPassed, &TestGetDevices_HasPrimary, "GetDevices includes a primary display");
 		RunTest(allPassed, &TestCapture, "Capture produces non-zero pixel data");
+		RunTest(allPassed, &TestCaptureStateLifecycle, "Capture state create/reuse/destroy lifecycle");
 
 		if (allPassed)
 			LOG_INFO("All Screen tests passed!");
@@ -163,5 +164,92 @@ private:
 		delete[] pixels;
 		list.Free();
 		return true;
+	}
+
+	// Persistent capture state: create once, capture twice through it (the
+	// second round exercises resource reuse), destroy, then one stateless
+	// capture to pin the nullptr fallback contract
+	static BOOL TestCaptureStateLifecycle()
+	{
+		auto r = Screen::GetDevices();
+		if (!r)
+		{
+			LOG_WARNING("GetDevices unavailable (no display): %e", r.Error());
+			return true;
+		}
+
+		auto list = r.Value();
+		if (list.Count == 0)
+		{
+			LOG_WARNING("No devices to capture (headless?)");
+			list.Free();
+			return true;
+		}
+
+		const ScreenDevice &dev = list.Devices[0];
+		UINT32 pixelCount = dev.Width * dev.Height;
+		RGB *pixels = new RGB[pixelCount];
+		if (pixels == nullptr)
+		{
+			LOG_ERROR("Failed to allocate capture buffer");
+			list.Free();
+			return false;
+		}
+
+		BOOL ok = true;
+		BOOL captureAvailable = false;
+		auto state = Screen::CreateCaptureState(dev);
+		if (!state)
+		{
+			LOG_ERROR("CreateCaptureState failed: %e", state.Error());
+			ok = false;
+		}
+		else
+		{
+			Memory::Zero(pixels, pixelCount * sizeof(RGB));
+			auto captureResult = Screen::Capture(dev, Span<RGB>(pixels, pixelCount), state.Value());
+			if (!captureResult)
+			{
+				// Capture unavailable (headless): not a lifecycle failure — but
+				// only if the stateless path fails the same way
+				auto statelessResult = Screen::Capture(dev, Span<RGB>(pixels, pixelCount));
+				if (!statelessResult)
+				{
+					LOG_WARNING("Capture unavailable (headless?), skipping state lifecycle: %e", captureResult.Error());
+				}
+				else
+				{
+					LOG_ERROR("Stateful capture failed while stateless succeeds: %e", captureResult.Error());
+					ok = false;
+				}
+			}
+			else
+			{
+				captureAvailable = true;
+				// Second round through the same state exercises resource reuse
+				auto second = Screen::Capture(dev, Span<RGB>(pixels, pixelCount), state.Value());
+				if (!second)
+				{
+					LOG_ERROR("Stateful capture reuse round failed: %e", second.Error());
+					ok = false;
+				}
+			}
+			Screen::DestroyCaptureState(state.Value());
+		}
+
+		// After destroy, the stateless path must still capture
+		if (ok && captureAvailable)
+		{
+			auto captureResult = Screen::Capture(dev, Span<RGB>(pixels, pixelCount));
+			if (!captureResult)
+			{
+				LOG_ERROR("Stateless capture after destroy failed: %e", captureResult.Error());
+				ok = false;
+			}
+		}
+
+		delete[] pixels;
+		list.Free();
+		return ok;
 	}
 };

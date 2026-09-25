@@ -23,7 +23,7 @@ Result<HttpClient, Error> HttpClient::Create(Span<const CHAR> url)
 		LOG_ERROR("Failed to resolve hostname %s (error: %e)", host, dnsResult.Error());
 		return Result<HttpClient, Error>::Err(dnsResult, Error::Http_CreateFailed);
 	}
-	auto& ip = dnsResult.Value();
+	auto &ip = dnsResult.Value();
 
 	auto tlsResult = TlsClient::Create(host, ip, port, isSecure);
 
@@ -45,7 +45,6 @@ Result<HttpClient, Error> HttpClient::Create(Span<const CHAR> url)
 	return Result<HttpClient, Error>::Ok(static_cast<HttpClient &&>(client));
 }
 
-
 Result<VOID, Error> HttpClient::Open()
 {
 	auto r = tlsContext.Open();
@@ -62,7 +61,6 @@ Result<VOID, Error> HttpClient::Close()
 	return Result<VOID, Error>::Ok();
 }
 
-
 Result<SSIZE, Error> HttpClient::Read(Span<CHAR> buffer)
 {
 	auto r = tlsContext.Read(buffer);
@@ -78,7 +76,6 @@ Result<UINT32, Error> HttpClient::Write(Span<const CHAR> buffer)
 		return Result<UINT32, Error>::Err(r, Error::Http_WriteFailed);
 	return Result<UINT32, Error>::Ok(r.Value());
 }
-
 
 Result<VOID, Error> HttpClient::SendGetRequest(PCCHAR host, PCCHAR path)
 {
@@ -106,7 +103,6 @@ Result<VOID, Error> HttpClient::SendGetRequest(PCCHAR host, PCCHAR path)
 		return Result<VOID, Error>::Err(Error::Http_SendGetFailed);
 	return Result<VOID, Error>::Ok();
 }
-
 
 Result<VOID, Error> HttpClient::SendPostRequest(PCCHAR host, PCCHAR path, Span<const CHAR> data)
 {
@@ -231,7 +227,7 @@ Result<VOID, Error> HttpClient::ParseUrl(Span<const CHAR> url, CHAR (&host)[254]
 		auto pnumResult = StringUtils::ParseInt64(portBuffer);
 		if (!pnumResult)
 			return Result<VOID, Error>::Err(pnumResult, Error::Http_ParseUrlFailed);
-		auto& pnum = pnumResult.Value();
+		auto &pnum = pnumResult.Value();
 		if (pnum == 0 || pnum > 65535)
 			return Result<VOID, Error>::Err(Error::Http_ParseUrlFailed);
 		port = (UINT16)pnum;
@@ -267,8 +263,8 @@ Result<INT64, Error> HttpClient::ReadResponseHeaders(TlsClient &client, UINT16 e
 	UINT32 tail = 0;
 	UINT32 bytesConsumed = 0;
 	BOOL statusValid = false;
-	UINT16 receivedStatus = 0;
-CHAR reason[64] = {};
+	[[maybe_unused]] UINT16 receivedStatus = 0;
+	CHAR reason[64] = {};
 	UINT32 reasonLength = 0;
 	BOOL reasonDone = false;
 	INT64 contentLength = -1;
