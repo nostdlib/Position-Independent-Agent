@@ -182,18 +182,19 @@ static BOOL IsTileDirty(
 			// Convert tile coordinates to pixel coordinates
 			UINT32 pixelX = runStart * tileSize;
 			UINT32 pixelY = ty * tileSize;
-			UINT32 pixelW = (runEnd - runStart) * tileSize;
-			UINT32 pixelH = (rowEnd - ty) * tileSize;
+			UINT32 spanW = (runEnd - runStart) * tileSize;
+			UINT32 spanH = (rowEnd - ty) * tileSize;
 
-			// Clamp to image bounds
+			// Clamp to image bounds; the JPEG encoder pads partial MCUs
+			// internally, so edge-clamped widths are emitted as-is
+			UINT32 pixelW = spanW;
+			UINT32 pixelH = spanH;
 			if (pixelX + pixelW > width) pixelW = width - pixelX;
 			if (pixelY + pixelH > height) pixelH = height - pixelY;
 
-			// Align width to multiple of 4 (JPEG MCU requirement)
-			if (pixelW % 4 != 0)
-				pixelW -= pixelW % 4;
-
-			if (pixelW >= 32 && pixelH >= 32)
+			// Filter on the tile-span size, not the clamped size: an edge rect
+			// narrower than 32 px still covers a full dirty tile
+			if (spanW >= 32 && spanH >= 32)
 			{
 				DirtyRect rect;
 				rect.X = pixelX;
