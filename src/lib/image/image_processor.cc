@@ -273,15 +273,38 @@ static BOOL IsTileDirty(
 			{
 				const RGB *cur = current.Data() + (USIZE)y * width + startX;
 				const RGB *prev = previous.Data() + (USIZE)y * width + startX;
-				for (UINT32 x = 0; x < endX - startX; ++x)
+				const UINT8 *cur8 = (const UINT8 *)cur;
+				const UINT8 *prev8 = (const UINT8 *)prev;
+				UINT32 rowPixels = endX - startX;
+
+				// 4-byte pre-compare via one unaligned word read per side
+				// (same idiom as the threshold-0 path above): the high byte
+				// belongs to the next pixel on both sides, so an equal word
+				// implies an identical pixel and the SAD is skipped — the
+				// overwhelmingly common case on mostly-identical frames
+				UINT32 x = 0;
+				for (; x + 1 < rowPixels; ++x, cur8 += 3, prev8 += 3)
 				{
-					UINT32 sad = PixelSad(cur[x], prev[x]);
+					if (*(const UINT32 *)cur8 == *(const UINT32 *)prev8)
+						continue;
+
+					UINT32 sad = PixelSad(*(const RGB *)cur8, *(const RGB *)prev8);
 					if (sad > threshold)
 					{
 						tileDirty = true;
 						break;
 					}
 					if (sad != 0)
+						anyDrift = true;
+				}
+				if (!tileDirty)
+				{
+					// Row-final pixel: SAD only — a 4-byte read would touch the
+					// next row, or past the buffer on the frame's last row
+					UINT32 sad = PixelSad(cur[x], prev[x]);
+					if (sad > threshold)
+						tileDirty = true;
+					else if (sad != 0)
 						anyDrift = true;
 				}
 			}

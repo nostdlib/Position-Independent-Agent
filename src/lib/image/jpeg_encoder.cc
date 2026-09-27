@@ -737,7 +737,7 @@ static VOID ConvertChroma420(UINT8 r, UINT8 g, UINT8 b, INT32 *cb, INT32 *cr)
  * produces the same bitstream as the pre-subsampling encoder (the only
  * difference anywhere is the removed empty 4-byte COM segment).
  */
-static VOID LoadFullBlock(const UINT8 *srcData, INT32 width, INT32 height,
+static VOID LoadFullBlock(const UINT8 *srcData, INT32 width, INT32 height, INT32 stride,
 						  INT32 srcNumComponents, INT32 blockX, INT32 blockY,
 						  float *duY, float *duCb, float *duCr, const EncodeConstants *c)
 {
@@ -763,7 +763,7 @@ static VOID LoadFullBlock(const UINT8 *srcData, INT32 width, INT32 height,
 			INT32 col = blockX + offX;
 			if (col >= width)
 				col = width - 1;
-			const UINT8 *px = srcData + (USIZE)(row * width + col) * (USIZE)srcNumComponents;
+			const UINT8 *px = srcData + (USIZE)(row * stride + col) * (USIZE)srcNumComponents;
 			UINT8 b = px[2];
 			UINT8 g = px[1];
 			UINT8 r = px[0];
@@ -789,7 +789,7 @@ static VOID LoadFullBlock(const UINT8 *srcData, INT32 width, INT32 height,
  * order Y1 (top-left), Y2 (top-right), Y3 (bottom-left), Y4 (bottom-right).
  * Edge pixels replicate into partial MCUs via row/col clamping.
  */
-static VOID LoadMcu(const UINT8 *srcData, INT32 width, INT32 height,
+static VOID LoadMcu(const UINT8 *srcData, INT32 width, INT32 height, INT32 stride,
 					INT32 srcNumComponents, INT32 mcuX, INT32 mcuY,
 					float *luma /* [4][64] */, float *duCb, float *duCr,
 					const EncodeConstants *c)
@@ -811,7 +811,7 @@ static VOID LoadMcu(const UINT8 *srcData, INT32 width, INT32 height,
 			INT32 col = mcuX + offX;
 			if (col >= width)
 				col = width - 1;
-			const UINT8 *px = srcData + (USIZE)(row * width + col) * (USIZE)srcNumComponents;
+			const UINT8 *px = srcData + (USIZE)(row * stride + col) * (USIZE)srcNumComponents;
 
 			UINT32 accIdx = (USIZE)(offY >> 1) * 8 + (UINT32)(offX >> 1);
 			rAcc[accIdx] += px[0];
@@ -849,12 +849,14 @@ static VOID LoadMcu(const UINT8 *srcData, INT32 width, INT32 height,
  * @param width Image width
  * @param height Image height
  * @param srcNumComponents Bytes per pixel (3 or 4)
+ * @param stride Row pitch in pixels (width for packed rows; the enclosing
+ *        frame's width when encoding an in-place sub-rectangle)
  * @param subsampleChroma True encodes 4:2:0 (16x16 MCU, 2x2 box-filtered
  *        chroma); false keeps the original 4:4:4 8x8 block layout
  */
 static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 							INT32 width, INT32 height, INT32 srcNumComponents,
-							BOOL subsampleChroma)
+							INT32 stride, BOOL subsampleChroma)
 {
 	UINT8 zigZag[64];
 	InitZigZag(zigZag);
@@ -998,7 +1000,7 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 		{
 			for (INT32 x = 0; x < width; x += 16)
 			{
-				LoadMcu(srcData, width, height, srcNumComponents, x, y, luma, duCb, duCr, &c);
+				LoadMcu(srcData, width, height, stride, srcNumComponents, x, y, luma, duCb, duCr, &c);
 
 				for (UINT32 q = 0; q < 4; ++q)
 					EncodeBlock(state, luma + q * 64, pqt.luma, true, zigZag, &c, &predY, &bitbuffer, &bitLocation);
@@ -1014,7 +1016,7 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 		{
 			for (INT32 x = 0; x < width; x += 8)
 			{
-				LoadFullBlock(srcData, width, height, srcNumComponents, x, y, duY, duCb, duCr, &c);
+				LoadFullBlock(srcData, width, height, stride, srcNumComponents, x, y, duY, duCb, duCr, &c);
 
 				EncodeBlock(state, duY, pqt.luma, true, zigZag, &c, &predY, &bitbuffer, &bitLocation);
 				EncodeBlock(state, duCb, pqt.chroma, false, zigZag, &c, &predCb, &bitbuffer, &bitLocation);
@@ -1054,8 +1056,22 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 	INT32 numComponents,
 	Span<const UINT8> srcData)
 {
+	// Packed rows: the row pitch equals the image width
+	return Encode(func, context, quality, width, height, numComponents, srcData, width);
+}
+
+[[nodiscard]] Result<VOID, Error> JpegEncoder::Encode(
+	JpegWriteFunc *func,
+	PVOID context,
+	INT32 quality,
+	INT32 width,
+	INT32 height,
+	INT32 numComponents,
+	Span<const UINT8> srcData,
+	INT32 stride)
+{
 	if ((numComponents != 3 && numComponents != 4) || width <= 0 || height <= 0 ||
-		width > 0xFFFF || height > 0xFFFF)
+		width > 0xFFFF || height > 0xFFFF || stride < width)
 	{
 		return Result<VOID, Error>::Err(Error::Jpeg_InvalidParams);
 	}
@@ -1234,7 +1250,7 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 	// DCT/entropy work and shrinks output 25-40% with little visual loss on
 	// screen content; 90+ keeps the original 4:4:4 fidelity
 	BOOL subsampleChroma = quality < 90;
-	EncodeImageData(&state, srcData.Data(), width, height, numComponents, subsampleChroma);
+	EncodeImageData(&state, srcData.Data(), width, height, numComponents, stride, subsampleChroma);
 
 	return Result<VOID, Error>::Ok();
 }

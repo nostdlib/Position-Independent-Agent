@@ -710,6 +710,28 @@ VOID JpegCallback(PVOID context, PVOID data, INT32 size)
     jpegBuffer->offset += (UINT32)size;
 }
 
+/// @brief Append target for encoding a dirty rect straight into the reply packet
+struct PacketJpegContext
+{
+    Buffer<CHAR> *packet;
+    BOOL failed;
+};
+
+// JPEG write sink for the incremental reply: compressed bytes are appended
+// directly into the persistent packet. JpegEncoder::Encode takes a void
+// callback, so the flag carries any allocation failure to the caller — the
+// same pattern as JpegBuffer::allocationFailed
+VOID PacketJpegCallback(PVOID context, PVOID data, INT32 size)
+{
+    PacketJpegContext *encodeContext = (PacketJpegContext *)context;
+
+    if (encodeContext->failed)
+        return;
+
+    if (!encodeContext->packet->Append(Span<const CHAR>((const CHAR *)data, (USIZE)size)))
+        encodeContext->failed = true;
+}
+
 VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR response, PUSIZE responseLength, Context *context)
 {
     if (commandLength < 3 * sizeof(UINT32))
@@ -849,13 +871,27 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
 
     UINT32 countOfRects = 0;
 
-    // Pre-allocate the packet buffer with a generous initial capacity to avoid
-    // per-rect reallocation, then let it double on demand. The first UINT32 is
-    // the status code, the second the rect count; both are written last, once
+    // Persistent packet buffer, reused across frames: Reset() keeps the
+    // capacity and the per-reply Release() below empties it, so Init() runs
+    // on the first frame, after every reply, and after an aborted encode.
+    // Sized to the actual rects (screen-content JPEG fits ~1/8 of raw RGB
+    // plus header slack, the ReserveForImage heuristic) instead of a flat
+    // w*h/2; underestimates still grow by doubling. The first UINT32 is the
+    // status code, the second the rect count — both are written last, once
     // the final size is known.
-    Buffer<CHAR> packet;
-    if (!packet.Init(*responseLength + sizeof(UINT32) + (USIZE)device.Width * device.Height / 2) ||
-        !packet.Resize(sizeof(UINT32) + sizeof(UINT32)))
+    USIZE packetCapacity = *responseLength + sizeof(UINT32) + sizeof(UINT32);
+    for (UINT32 i = 0; i < dirtyRects.Count; i++)
+    {
+        const DirtyRect &dr = dirtyRects.Rects[i];
+        packetCapacity += (USIZE)dr.Width * dr.Height * 3 / 8 + 4096 + sizeof(UINT32) * 3;
+    }
+    BOOL packetReady = (graphics.packet.Data != nullptr) || graphics.packet.Init(packetCapacity);
+    if (packetReady)
+    {
+        graphics.packet.Reset();
+        packetReady = graphics.packet.Resize(sizeof(UINT32) + sizeof(UINT32));
+    }
+    if (!packetReady)
     {
         dirtyRects.Free();
         LOG_ERROR("Failed to allocate the screenshot packet for display index: %u", displayIndex);
@@ -871,24 +907,11 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
 
         countOfRects++;
 
-        // Copy rectangle region row-by-row
-        for (INT32 j = 0; j < rectHeight; j++)
-            Memory::Copy(graphics.rectBuffer + j * rectWidth, graphics.currentScreenshot + (dr.Y + j) * device.Width + dr.X, (USIZE)rectWidth * sizeof(RGB));
-
-        graphics.jpegBuffer.Reset();
-        graphics.jpegBuffer.ReserveForImage((UINT32)rectWidth, (UINT32)rectHeight);
-        auto encodeResult = JpegEncoder::Encode(JpegCallback, &graphics.jpegBuffer, (INT32)quality, rectWidth, rectHeight, 3, Span<const UINT8>((UINT8 *)graphics.rectBuffer, rectWidth * rectHeight * sizeof(RGB)));
-        if (encodeResult.IsErr() || graphics.jpegBuffer.allocationFailed)
-        {
-            dirtyRects.Free();
-            LOG_ERROR("Failed to encode the screenshot for display index: %u", displayIndex);
-            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
-            return;
-        }
-
-        // Grow the packet to fit this entry (x + y + sizeOfData + jpegData);
-        USIZE rectEntrySize = graphics.jpegBuffer.offset + sizeof(UINT32) * 3;
-        if (!packet.Resize(packet.Size + rectEntrySize))
+        // Placeholder [x, y, jpegLen] header — the jpeg length is known only
+        // after the encode, so it is patched in place below
+        USIZE headerOffset = graphics.packet.Size;
+        UINT32 rectHeader[3] = {dr.X, dr.Y, 0};
+        if (!graphics.packet.Append(Span<const CHAR>((const CHAR *)rectHeader, sizeof(rectHeader))))
         {
             dirtyRects.Free();
             LOG_ERROR("Failed to grow the screenshot packet for display index: %u", displayIndex);
@@ -896,22 +919,43 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             return;
         }
 
-        Rectangle rect(dr.X, dr.Y, graphics.jpegBuffer.offset, graphics.jpegBuffer.outputBuffer);
-        rect.toBuffer((UINT8 *)packet.Data + packet.Size - rectEntrySize);
+        // Encode straight out of the frame buffer (stride = frame width) — no
+        // per-rect row gather into a staging buffer; compressed bytes land
+        // directly in the packet via the callback below
+        PacketJpegContext encodeContext;
+        encodeContext.packet = &graphics.packet;
+        encodeContext.failed = false;
+        auto encodeResult = JpegEncoder::Encode(
+            PacketJpegCallback, &encodeContext, (INT32)quality, rectWidth, rectHeight, 3,
+            Span<const UINT8>((UINT8 *)(graphics.currentScreenshot + (USIZE)dr.Y * device.Width + dr.X),
+                              ((USIZE)device.Width * device.Height - ((USIZE)dr.Y * device.Width + dr.X)) * sizeof(RGB)),
+            (INT32)device.Width);
+        if (encodeResult.IsErr() || encodeContext.failed)
+        {
+            dirtyRects.Free();
+            LOG_ERROR("Failed to encode the screenshot for display index: %u", displayIndex);
+            WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+            return;
+        }
+
+        // Patch the real jpeg length into the rect header
+        UINT32 jpegLength = (UINT32)(graphics.packet.Size - headerOffset - sizeof(rectHeader));
+        Memory::Copy(graphics.packet.Data + headerOffset + sizeof(UINT32) * 2, &jpegLength, sizeof(jpegLength));
     }
 
-    // All dirty rects were encoded from rectBuffer copies; the current frame
-    // becomes the comparison base by pointer swap (no full-frame copy)
+    // All dirty rects were encoded straight from the current frame; it becomes
+    // the comparison base by pointer swap (no full-frame copy)
     graphics.SwapFrames();
 
     // Fill in the response header over the finished packet, then hand the exact
-    // accumulated array to the caller (the caller deletes[] *response)
-    BinaryWriter writer{Span<UINT8>((UINT8 *)packet.Data, packet.Size)};
+    // accumulated array to the caller (the caller deletes[] *response). Release
+    // detaches the buffer, so the next reply re-initializes it
+    BinaryWriter writer{Span<UINT8>((UINT8 *)graphics.packet.Data, graphics.packet.Size)};
     writer.Write<UINT32>(StatusCode::StatusSuccess);
     writer.Write<UINT32>(countOfRects);
 
-    *responseLength = packet.Size;
-    *response = packet.Release();
+    *responseLength = graphics.packet.Size;
+    *response = graphics.packet.Release();
 
     dirtyRects.Free();
 }

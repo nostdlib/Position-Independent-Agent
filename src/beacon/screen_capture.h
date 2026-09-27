@@ -90,11 +90,14 @@ struct Graphics
 {
     PRGB currentScreenshot;
     PRGB screenshot;
-    PRGB rectBuffer;
     JpegBuffer jpegBuffer;
+    // Persistent incremental-reply packet: Reset() keeps the capacity across
+    // frames; Release() (the per-reply ownership handoff) empties it, so the
+    // handler re-Init()s on the next request
+    Buffer<CHAR> packet;
     PVOID captureState; // Opaque per-display resources from Screen::CreateCaptureState
 
-    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), rectBuffer(nullptr), captureState(nullptr) {}
+    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), captureState(nullptr) {}
 
     // Drop the persistent capture state; the next capture re-creates it
     VOID ReleaseCaptureState()
@@ -128,16 +131,11 @@ struct Graphics
             delete[] screenshot;
             screenshot = nullptr;
         }
-        if (rectBuffer)
-        {
-            delete[] rectBuffer;
-            rectBuffer = nullptr;
-        }
     }
 
     BOOL IsInitialized() const
     {
-        return currentScreenshot != nullptr && screenshot != nullptr && rectBuffer != nullptr;
+        return currentScreenshot != nullptr && screenshot != nullptr;
     }
 
     VOID Init(const ScreenDevice &device)
@@ -150,10 +148,6 @@ struct Graphics
         if (screenshot == nullptr)
         {
             screenshot = new RGB[pixelCount];
-        }
-        if (rectBuffer == nullptr)
-        {
-            rectBuffer = new RGB[pixelCount];
         }
     }
 };
