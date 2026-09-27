@@ -10,13 +10,8 @@
 #include "core/containers/vector.h"
 
 #if defined(ARCHITECTURE_X86_64)
-// SSE2 is baseline on x86_64. Pre-define the mm_malloc guards (clang's
-// __MM_MALLOC_H and gcc's _MM_MALLOC_H_INCLUDED) so emmintrin skips it —
-// mm_malloc pulls stdlib.h, absent from the freestanding Windows cross
-// target — only the intrinsics themselves are used
-#define __MM_MALLOC_H
-#define _MM_MALLOC_H_INCLUDED
-#include <emmintrin.h>
+// SSE2 via the project's own declarations — no compiler headers
+#include "core/compiler/sse2.h"
 #endif
 
 // ============================================================
@@ -335,17 +330,14 @@ static BOOL IsTileDirty(
 				// ends at least one pixel before the row end
 				for (; x + 16 <= rowPixels; x += 16, cur8 += 48, prev8 += 48)
 				{
-					__m128i d0 = _mm_xor_si128(_mm_loadu_si128((const __m128i *)cur8),
-					                           _mm_loadu_si128((const __m128i *)prev8));
-					__m128i d1 = _mm_xor_si128(_mm_loadu_si128((const __m128i *)(cur8 + 16)),
-					                           _mm_loadu_si128((const __m128i *)(prev8 + 16)));
-					__m128i d2 = _mm_xor_si128(_mm_loadu_si128((const __m128i *)(cur8 + 32)),
-					                           _mm_loadu_si128((const __m128i *)(prev8 + 32)));
-					__m128i d = _mm_or_si128(d0, _mm_or_si128(d1, d2));
+					SseVec16b d0 = SseLoadU(cur8) ^ SseLoadU(prev8);
+					SseVec16b d1 = SseLoadU(cur8 + 16) ^ SseLoadU(prev8 + 16);
+					SseVec16b d2 = SseLoadU(cur8 + 32) ^ SseLoadU(prev8 + 32);
+					SseVec16b d = d0 | (d1 | d2);
 
 					// All 48 bytes equal: 16 pixels of SAD 0 — no drift, no
 					// dirty, and the per-pixel SAD loop is skipped entirely
-					if (_mm_movemask_epi8(_mm_cmpeq_epi8(d, _mm_setzero_si128())) == 0xFFFF)
+					if (SseAllZero(d))
 						continue;
 
 					if (ScanPixelsScalar(cur8, prev8, 16, threshold, anyDrift))
