@@ -98,14 +98,16 @@ public:
 	/**
 	 * @brief Fused difference + dirty rectangle detection in a single pass
 	 *
-	 * @details Produces the exact same rectangles as running
-	 * CalculateBiDifference (with <paramref name="threshold"/>) followed by
-	 * FindDirtyRects, but walks each tile once, computing the per-pixel SAD
-	 * inline and stopping at the first dirty pixel — with no intermediate
-	 * binary difference map materialized and no second scan. This is the
-	 * screenshot handler's hot path.
+	 * @details Walks each tile once, computing the per-pixel SAD inline and
+	 * stopping at the first dirty pixel — no binary difference map and no
+	 * second scan. This is the screenshot handler's hot path. A tile whose
+	 * pixels all changed by LESS than the threshold counts as clean: its
+	 * sub-threshold drift is reverted to the previous content so the diff
+	 * base stays what the receiver actually has — otherwise the frame swap
+	 * absorbs the drift and a slowly-changing region is never re-sent.
 	 *
-	 * @param current Current frame RGB pixels
+	 * @param current Current frame RGB pixels (MUTATED: clean tiles with
+	 * sub-threshold drift are reverted to previous)
 	 * @param previous Previous frame RGB pixels (same dimensions)
 	 * @param width Image width in pixels
 	 * @param height Image height in pixels
@@ -114,7 +116,7 @@ public:
 	 * @return Ok(DirtyRectResult) on success, or error on allocation failure
 	 */
 	[[nodiscard]] static Result<DirtyRectResult, Error> FindDirtyRects(
-		Span<const RGB> current,
+		Span<RGB> current,
 		Span<const RGB> previous,
 		UINT32 width,
 		UINT32 height,

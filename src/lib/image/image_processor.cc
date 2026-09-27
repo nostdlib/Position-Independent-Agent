@@ -239,7 +239,7 @@ static BOOL IsTileDirty(
 }
 
 [[nodiscard]] Result<DirtyRectResult, Error> ImageProcessor::FindDirtyRects(
-	Span<const RGB> current,
+	Span<RGB> current,
 	Span<const RGB> previous,
 	UINT32 width,
 	UINT32 height,
@@ -268,22 +268,40 @@ static BOOL IsTileDirty(
 			if (endX > width) endX = width;
 
 			BOOL tileDirty = false;
+			BOOL anyDrift = false;
 			for (UINT32 y = startY; y < endY && !tileDirty; ++y)
 			{
 				const RGB *cur = current.Data() + (USIZE)y * width + startX;
 				const RGB *prev = previous.Data() + (USIZE)y * width + startX;
 				for (UINT32 x = 0; x < endX - startX; ++x)
 				{
-					if (PixelSad(cur[x], prev[x]) > threshold)
+					UINT32 sad = PixelSad(cur[x], prev[x]);
+					if (sad > threshold)
 					{
 						tileDirty = true;
 						break;
 					}
+					if (sad != 0)
+						anyDrift = true;
 				}
 			}
 
 			if (tileDirty)
+			{
 				dirty.Set(ty * tilesX + tx);
+			}
+			else if (anyDrift)
+			{
+				// Revert the sub-threshold drift so the diff base stays what
+				// the receiver has — the next capture re-diffs the accumulated
+				// change against the same base until it crosses the threshold
+				for (UINT32 y = startY; y < endY; ++y)
+				{
+					RGB *dst = current.Data() + (USIZE)y * width + startX;
+					const RGB *src = previous.Data() + (USIZE)y * width + startX;
+					Memory::Copy(dst, src, (USIZE)(endX - startX) * sizeof(RGB));
+				}
+			}
 		}
 	}
 

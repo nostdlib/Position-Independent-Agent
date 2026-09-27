@@ -143,7 +143,7 @@ private:
 			// The handler's shipped fused single-pass diff
 			t0 = DateTime::GetMonotonicNanoseconds();
 			auto fused = ImageProcessor::FindDirtyRects(
-				Span<const RGB>(current, PixelCount), Span<const RGB>(previous, PixelCount),
+				Span<RGB>(current, PixelCount), Span<const RGB>(previous, PixelCount),
 				Width, Height, 64, 24);
 			t1 = DateTime::GetMonotonicNanoseconds();
 			fusedNs[r] = t1 - t0;
@@ -165,7 +165,7 @@ private:
 		{
 			UINT64 t0 = DateTime::GetMonotonicNanoseconds();
 			auto fused = ImageProcessor::FindDirtyRects(
-				Span<const RGB>(current, PixelCount), Span<const RGB>(previous, PixelCount),
+				Span<RGB>(current, PixelCount), Span<const RGB>(previous, PixelCount),
 				Width, Height, 64, 24);
 			UINT64 t1 = DateTime::GetMonotonicNanoseconds();
 			idleNs[r] = t1 - t0;
@@ -299,7 +299,7 @@ private:
 
 			// Fused single-pass diff (the handler's shipped path)
 			auto dirty = ImageProcessor::FindDirtyRects(
-				Span<const RGB>(current, PixelCount), Span<const RGB>(previous, PixelCount),
+				Span<RGB>(current, PixelCount), Span<const RGB>(previous, PixelCount),
 				Width, Height, 64, 24);
 			if (!dirty)
 			{

@@ -47,6 +47,7 @@ public:
 		// share MergeDirtyTiles, so equivalence alone cannot catch edge bugs)
 		RunTest(allPassed, &TestFused_RightEdgeTileOnly, "Fused diff right-edge-only rect on 1366-wide frame");
 		RunTest(allPassed, &TestFused_RightEdgePlusInterior, "Fused diff right-edge plus interior rects");
+		RunTest(allPassed, &TestFused_DriftAccumulates, "Fused diff sub-threshold drift reverts and accumulates");
 
 		if (allPassed)
 			LOG_INFO("All Image Processing tests passed!");
@@ -491,7 +492,7 @@ private:
 	// CalculateBiDifference + FindDirtyRects run in sequence.
 
 	// Run both pipelines on the same frame pair and compare rect-by-rect
-	static BOOL CompareFusedVsTwoStep(const RGB *current, const RGB *previous,
+	static BOOL CompareFusedVsTwoStep(RGB *current, const RGB *previous,
 	                                  UINT32 width, UINT32 height, UINT32 threshold)
 	{
 		UINT8 *biDiff = new UINT8[(USIZE)width * height];
@@ -505,7 +506,7 @@ private:
 		auto twoStep = ImageProcessor::FindDirtyRects(
 			Span<const UINT8>(biDiff, (USIZE)width * height), width, height, 64);
 		auto fused = ImageProcessor::FindDirtyRects(
-			Span<const RGB>(current, (USIZE)width * height),
+			Span<RGB>(current, (USIZE)width * height),
 			Span<const RGB>(previous, (USIZE)width * height),
 			width, height, 64, threshold);
 
@@ -674,7 +675,7 @@ private:
 
 		BOOL pass = false;
 		auto r = ImageProcessor::FindDirtyRects(
-			Span<const RGB>(current, (USIZE)width * height),
+			Span<RGB>(current, (USIZE)width * height),
 			Span<const RGB>(previous, (USIZE)width * height),
 			width, height, 64, threshold);
 		if (!r)
@@ -724,5 +725,68 @@ private:
 	{
 		const DirtyRect expected[] = {{1344, 0, 22, 64}, {320, 64, 64, 64}};
 		return RunFusedRectCase(1366, 128, 24, &MutateRightEdgeAndInterior, expected, 2, "FusedRightEdgePlusInterior");
+	}
+
+	// Sub-threshold drift must not be absorbed into the diff base: a clean
+	// tile's small change is reverted so the base keeps the sent content and
+	// the accumulated change crosses the threshold on a later capture
+	static BOOL TestFused_DriftAccumulates()
+	{
+		const USIZE px = 64 * 64;
+		RGB *base = new RGB[px];
+		RGB *frame = new RGB[px];
+		if (base == nullptr || frame == nullptr)
+		{
+			delete[] base;
+			delete[] frame;
+			return false;
+		}
+		for (USIZE i = 0; i < px; i++)
+		{
+			base[i] = {10, 10, 10};
+			frame[i] = {18, 18, 18}; // +8 per channel = SAD 24, not over it
+		}
+
+		BOOL pass = false;
+		auto r1 = ImageProcessor::FindDirtyRects(
+			Span<RGB>(frame, px), Span<const RGB>(base, px), 64, 64, 64, 24);
+		if (!r1)
+		{
+			LOG_ERROR("DriftAccumulates: fused pass failed: %e", r1.Error());
+		}
+		else
+		{
+			pass = r1.Value().Count == 0;
+			r1.Value().Free();
+			// The drift must be reverted: the current frame equals the base again
+			for (USIZE i = 0; pass && i < px; i++)
+				if (frame[i].Red != 10 || frame[i].Green != 10 || frame[i].Blue != 10)
+					pass = false;
+		}
+
+		// The screen kept fading — a fresh capture is +16 per channel over the
+		// ORIGINAL base and must now be detected
+		if (pass)
+		{
+			for (USIZE i = 0; i < px; i++)
+				frame[i] = {26, 26, 26};
+			auto r2 = ImageProcessor::FindDirtyRects(
+				Span<RGB>(frame, px), Span<const RGB>(base, px), 64, 64, 64, 24);
+			if (!r2)
+			{
+				LOG_ERROR("DriftAccumulates: second pass failed: %e", r2.Error());
+				pass = false;
+			}
+			else
+			{
+				const DirtyRect expected[] = {{0, 0, 64, 64}};
+				pass = RectsMatch(r2.Value(), expected, 1, "DriftAccumulates");
+				r2.Value().Free();
+			}
+		}
+
+		delete[] base;
+		delete[] frame;
+		return pass;
 	}
 };

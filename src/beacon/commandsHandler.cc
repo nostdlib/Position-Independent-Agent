@@ -813,8 +813,11 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     // Fused diff + tile detection in one pass. Threshold of 24 ignores minor
     // JPEG compression artifacts from prior frames; early exit stops each
     // tile's scan at its first dirty pixel (no bidiff map materialized).
+    // Clean tiles carrying sub-threshold drift are reverted inside, keeping
+    // the diff base equal to what the receiver has (slow changes accumulate
+    // until they cross the threshold instead of being silently absorbed).
     auto dirtyResult = ImageProcessor::FindDirtyRects(
-        Span<const RGB>(graphics.currentScreenshot, device.Width * device.Height),
+        Span<RGB>(graphics.currentScreenshot, device.Width * device.Height),
         Span<const RGB>(graphics.screenshot, device.Width * device.Height),
         device.Width, device.Height, 64, 24);
     if (dirtyResult.IsErr())
