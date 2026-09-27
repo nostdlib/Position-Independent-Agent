@@ -10,7 +10,12 @@
 #include "core/containers/vector.h"
 
 #if defined(ARCHITECTURE_X86_64)
-// SSE2 is baseline on x86_64; the compiler's own freestanding header
+// SSE2 is baseline on x86_64. Pre-define the mm_malloc guards (clang's
+// __MM_MALLOC_H and gcc's _MM_MALLOC_H_INCLUDED) so emmintrin skips it —
+// mm_malloc pulls stdlib.h, absent from the freestanding Windows cross
+// target — only the intrinsics themselves are used
+#define __MM_MALLOC_H
+#define _MM_MALLOC_H_INCLUDED
 #include <emmintrin.h>
 #endif
 
