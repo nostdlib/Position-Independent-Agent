@@ -1,5 +1,6 @@
 #pragma once
 #include "runtime.h"
+#include "logger.h"
 
 struct JpegBuffer
 {
@@ -86,6 +87,17 @@ struct JpegBuffer
     }
 };
 
+// Motion-budget pacing: under heavy motion the whole screen goes dirty and a
+// full-area reply costs near-full-frame encode time, collapsing frame pacing.
+// The budget bounds the encoded area per reply; overflow rects are deferred.
+static constexpr DOUBLE MotionBudgetTargetMs = 25.0;     // target per-reply encode time in ms
+static constexpr DOUBLE MotionBudgetStartFraction = 0.4; // seed budget as a fraction of frame pixels
+static constexpr DOUBLE MotionBudgetHeadroom = 0.6;      // grow below 60% of target, shrink only above the target
+static constexpr DOUBLE MotionBudgetGrow = 1.25;         // budget growth factor on a fast reply
+static constexpr DOUBLE MotionBudgetShrink = 0.7;        // budget shrink factor on a slow reply
+static constexpr DOUBLE MotionBudgetMinFraction = 0.1;   // budget floor as a fraction of frame pixels
+static constexpr DOUBLE MotionBudgetEmaAlpha = 0.25;     // EMA weight of the newest encode sample
+
 struct Graphics
 {
     PRGB currentScreenshot;
@@ -96,8 +108,52 @@ struct Graphics
     // handler re-Init()s on the next request
     Buffer<CHAR> packet;
     PVOID captureState; // Opaque per-display resources from Screen::CreateCaptureState
+    DOUBLE encodeEmaMs;     // EMA of recent per-reply encode times; 0 = no sample yet
+    USIZE areaBudgetPixels; // Encoded-area budget in pixels; 0 = seed on first use
 
-    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), captureState(nullptr) {}
+    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), captureState(nullptr), encodeEmaMs(0.0), areaBudgetPixels(0) {}
+
+    /// @brief Effective encoded-area budget for this frame, seeded and clamped
+    /// @param framePixels Total pixels in the frame
+    /// @return Budget in pixels, between the floor and the full frame
+    USIZE AreaBudget(USIZE framePixels)
+    {
+        if (areaBudgetPixels == 0)
+            areaBudgetPixels = (USIZE)((DOUBLE)framePixels * MotionBudgetStartFraction);
+        USIZE floorPixels = (USIZE)((DOUBLE)framePixels * MotionBudgetMinFraction);
+        if (areaBudgetPixels > framePixels)
+            areaBudgetPixels = framePixels;
+        if (areaBudgetPixels < floorPixels)
+            areaBudgetPixels = floorPixels;
+        return areaBudgetPixels;
+    }
+
+    /// @brief Fold one reply's encode time into the EMA and adapt the budget
+    /// @param encodeNs Wall time of this reply's rect-encode loop in ns
+    /// @param framePixels Total pixels in the frame (growth clamp)
+    VOID AdaptMotionBudget(UINT64 encodeNs, USIZE framePixels)
+    {
+        DOUBLE encodeMs = (DOUBLE)encodeNs / 1000000.0;
+        encodeEmaMs = (encodeEmaMs <= 0.0) ? encodeMs : encodeEmaMs + MotionBudgetEmaAlpha * (encodeMs - encodeEmaMs);
+
+        // Deadband: grow while well under the target, shrink only above it
+        USIZE next = areaBudgetPixels;
+        if (encodeEmaMs < MotionBudgetHeadroom * MotionBudgetTargetMs)
+            next = (USIZE)((DOUBLE)areaBudgetPixels * MotionBudgetGrow);
+        else if (encodeEmaMs > MotionBudgetTargetMs)
+            next = (USIZE)((DOUBLE)areaBudgetPixels * MotionBudgetShrink);
+
+        USIZE floorPixels = (USIZE)((DOUBLE)framePixels * MotionBudgetMinFraction);
+        if (next > framePixels)
+            next = framePixels;
+        if (next < floorPixels)
+            next = floorPixels;
+        if (next != areaBudgetPixels)
+        {
+            LOG_DEBUG("Motion budget %u -> %u px (encode EMA %.1f ms)", (UINT32)areaBudgetPixels, (UINT32)next, encodeEmaMs);
+            areaBudgetPixels = next;
+        }
+    }
 
     // Drop the persistent capture state; the next capture re-creates it
     VOID ReleaseCaptureState()

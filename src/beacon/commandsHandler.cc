@@ -871,6 +871,11 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
 
     UINT32 countOfRects = 0;
 
+    // Motion budget: bound the encoded area per reply so heavy motion defers
+    // overflow rects to the next frame instead of collapsing frame pacing
+    USIZE framePixels = (USIZE)device.Width * device.Height;
+    USIZE areaBudget = graphics.AreaBudget(framePixels);
+
     // Persistent packet buffer, reused across frames: Reset() keeps the
     // capacity and the per-reply Release() below empties it, so Init() runs
     // on the first frame, after every reply, and after an aborted encode.
@@ -880,10 +885,18 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     // status code, the second the rect count — both are written last, once
     // the final size is known.
     USIZE packetCapacity = *responseLength + sizeof(UINT32) + sizeof(UINT32);
+    USIZE accumulatedArea = 0;
     for (UINT32 i = 0; i < dirtyRects.Count; i++)
     {
         const DirtyRect &dr = dirtyRects.Rects[i];
-        packetCapacity += (USIZE)dr.Width * dr.Height * 3 / 8 + 4096 + sizeof(UINT32) * 3;
+        USIZE rectArea = (USIZE)dr.Width * dr.Height;
+
+        // The first rect is always encoded (progress guarantee); later rects
+        // are deferred once the accumulated area passes the motion budget
+        if (i > 0 && accumulatedArea + rectArea > areaBudget)
+            continue;
+        accumulatedArea += rectArea;
+        packetCapacity += rectArea * 3 / 8 + 4096 + sizeof(UINT32) * 3;
     }
     BOOL packetReady = (graphics.packet.Data != nullptr) || graphics.packet.Init(packetCapacity);
     if (packetReady)
@@ -899,11 +912,31 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         return;
     }
 
+    UINT64 encodeStartNs = DateTime::GetMonotonicNanoseconds();
+    accumulatedArea = 0;
     for (UINT32 i = 0; i < dirtyRects.Count; i++)
     {
         const DirtyRect &dr = dirtyRects.Rects[i];
         INT32 rectWidth = (INT32)dr.Width;
         INT32 rectHeight = (INT32)dr.Height;
+        USIZE rectArea = (USIZE)dr.Width * dr.Height;
+
+        // Over budget: defer this rect — copy the previous frame's pixels over
+        // the current one row-by-row (the drift-revert mechanism inside
+        // FindDirtyRects, applied to deferred dirty areas) so the swap below
+        // does not absorb the change; the next diff re-detects the region and
+        // it gets its turn. No content is ever lost.
+        if (i > 0 && accumulatedArea + rectArea > areaBudget)
+        {
+            for (UINT32 row = 0; row < dr.Height; row++)
+            {
+                PRGB dst = graphics.currentScreenshot + (USIZE)(dr.Y + row) * device.Width + dr.X;
+                PRGB src = graphics.screenshot + (USIZE)(dr.Y + row) * device.Width + dr.X;
+                Memory::Copy(dst, src, (USIZE)dr.Width * sizeof(RGB));
+            }
+            continue;
+        }
+        accumulatedArea += rectArea;
 
         countOfRects++;
 
@@ -943,8 +976,12 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         Memory::Copy(graphics.packet.Data + headerOffset + sizeof(UINT32) * 2, &jpegLength, sizeof(jpegLength));
     }
 
-    // All dirty rects were encoded straight from the current frame; it becomes
-    // the comparison base by pointer swap (no full-frame copy)
+    // Fold this reply's actual encode time into the pacing budget
+    graphics.AdaptMotionBudget(DateTime::GetMonotonicNanoseconds() - encodeStartNs, framePixels);
+
+    // Encoded rects came straight from the current frame and deferred ones were
+    // reverted to the previous above, so it matches the receiver's canvas and
+    // becomes the comparison base by pointer swap (no full-frame copy)
     graphics.SwapFrames();
 
     // Fill in the response header over the finished packet, then hand the exact
