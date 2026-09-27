@@ -72,6 +72,32 @@ struct ProcessedQT
 	float luma[64];
 };
 
+/// @brief Hot-path float constants, materialized once per encode
+/// @details The F32() volatile register barrier can be neither hoisted nor
+/// CSE-ed, so per-use materialization inside pixel/block loops pays a
+/// GPR->XMM transfer every iteration. One stack struct built per Encode
+/// lets -O3 keep the values in registers across the hot loops.
+struct EncodeConstants
+{
+	float dctC4;	 ///< cos(4*pi/16) * sqrt(2) = 0.707106781
+	float dctC6;	 ///< cos(6*pi/16) * sqrt(2) = 0.382683433
+	float dctC2C6;	 ///< cos(2*pi/16) - cos(6*pi/16) = 0.541196100
+	float dctC2P6;	 ///< cos(2*pi/16) + cos(6*pi/16) = 1.306562965
+	float quantBias; ///< 1024.0f, half-up rounding bias
+	float quantHalf; ///< 0.5f
+	float lumaScale; ///< 2^-16, 16.16 fixed-point to float
+	float neg128;	 ///< -128.0f level shift (negated so FMA contraction needs no 0x80000000 constant-pool splat)
+	float yccR;		 ///< 0.299f
+	float yccG;		 ///< 0.587f
+	float yccB;		 ///< 0.114f
+	float yccCbR;	 ///< -0.1687f
+	float yccCbG;	 ///< 0.3313f (negative in formula)
+	float yccCbB;	 ///< 0.5f
+	float yccCrR;	 ///< 0.5f
+	float yccCrG;	 ///< 0.4187f (negative in formula)
+	float yccCrB;	 ///< 0.0813f (negative in formula)
+};
+
 // ============================================================
 //  Wire-format JPEG segment headers (packed for exact layout)
 // ============================================================
@@ -379,35 +405,66 @@ static VOID CalculateVLI(INT32 value, UINT16 out[2])
 /**
  * @brief Write bits to the output bitstream
  *
- * @details Maintains a 32-bit buffer, flushing complete bytes to output.
- * Inserts byte-stuffing (0x00 after 0xFF) per ITU-T T.81 B.1.1.5.
+ * @details Accumulates bits in a 64-bit buffer; once 32 bits are pending the
+ * four completed bytes are emitted in one batched write, with byte-stuffing
+ * (0x00 after 0xFF) applied per ITU-T T.81 B.1.1.5 only at flush time.
  *
  * @param state Encoder state
  * @param bitbuffer Current bit accumulator
- * @param location Current bit position in the accumulator
+ * @param location Current bit position in the accumulator (< 32 on return)
  * @param numBits Number of bits to write (1–16)
  * @param bits Bit values to write (right-aligned)
  *
  * @see ITU-T T.81 B.1.1.5 — Byte stuffing
  */
-static VOID WriteBits(EncoderState *state, UINT32 *bitbuffer, UINT32 *location,
+static VOID WriteBits(EncoderState *state, UINT64 *bitbuffer, UINT32 *location,
 					  UINT16 numBits, UINT16 bits)
 {
-	UINT32 nloc = *location + numBits;
-	*bitbuffer |= (UINT32)(bits << (32 - nloc));
-	*location = nloc;
-	while (*location >= 8)
+	*bitbuffer |= (UINT64)bits << (64 - (*location + numBits));
+	*location += numBits;
+	if (*location < 32)
+		return;
+
+	UINT8 out[8];
+	UINT32 n = 0;
+	UINT64 buf = *bitbuffer;
+	for (INT32 i = 0; i < 4; ++i)
 	{
-		UINT8 c = (UINT8)((*bitbuffer) >> 24);
-		WriteOutput(state, &c, 1);
+		UINT8 c = (UINT8)(buf >> 56);
+		buf <<= 8;
+		out[n++] = c;
 		if (c == 0xFF)
-		{
-			UINT8 zero = 0;
-			WriteOutput(state, &zero, 1);
-		}
-		*bitbuffer <<= 8;
-		*location -= 8;
+			out[n++] = 0;
 	}
+	WriteOutput(state, out, n);
+	*bitbuffer = buf;
+	*location -= 32;
+}
+
+/**
+ * @brief Drain pending whole bytes from the bit accumulator at scan end
+ *
+ * @param state Encoder state
+ * @param bitbuffer Bit accumulator (left with < 8 bits on return)
+ * @param location Bit position in the accumulator
+ */
+static VOID FlushBitBuffer(EncoderState *state, UINT64 *bitbuffer, UINT32 *location)
+{
+	UINT8 out[8];
+	UINT32 n = 0;
+	UINT32 bytes = *location >> 3;
+	UINT64 buf = *bitbuffer;
+	for (UINT32 i = 0; i < bytes; ++i)
+	{
+		UINT8 c = (UINT8)(buf >> 56);
+		buf <<= 8;
+		out[n++] = c;
+		if (c == 0xFF)
+			out[n++] = 0;
+	}
+	if (n > 0)
+		WriteOutput(state, out, n);
+	*location &= 7;
 }
 
 // ============================================================
@@ -422,20 +479,21 @@ static VOID WriteBits(EncoderState *state, UINT32 *bitbuffer, UINT32 *location,
  * requires division by the scaled quantization matrix rather than the standard one.
  *
  * @param data 64-element float array (8x8 block, row-major)
+ * @param c Encode constants (AAN butterfly factors)
  *
  * @see Arai, Agui, Nakajima — Trans. IEICE E-71(11):1095, 1988
  * @see Pennebaker & Mitchell — JPEG: Still Image Data Compression Standard, Figure 4-8
  */
-static VOID ForwardDCT(float *data)
+static VOID ForwardDCT(float *data, const EncodeConstants *c)
 {
 	float tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7;
 	float tmp10, tmp11, tmp12, tmp13;
 	float z1, z2, z3, z4, z5, z11, z13;
 
-	float c4 = F32(0x3F3504F3);	  // cos(4*pi/16) * sqrt(2) = 0.707106781
-	float c6 = F32(0x3EC3EF15);	  // cos(6*pi/16) * sqrt(2) = 0.382683433
-	float c2c6 = F32(0x3F0A8BD4); // cos(2*pi/16) - cos(6*pi/16) = 0.541196100
-	float c2p6 = F32(0x3FA73D75); // cos(2*pi/16) + cos(6*pi/16) = 1.306562965
+	float c4 = c->dctC4;
+	float c6 = c->dctC6;
+	float c2c6 = c->dctC2C6;
+	float c2p6 = c->dctC2P6;
 
 	// Pass 1: process rows
 	float *dataptr = data;
@@ -546,6 +604,7 @@ static VOID ForwardDCT(float *data)
  * @param huffDcCode DC Huffman code values
  * @param huffAcLen AC Huffman code sizes
  * @param huffAcCode AC Huffman code values
+ * @param c Encode constants (DCT factors, quantize rounding bias)
  * @param pred Previous DC coefficient (updated on return)
  * @param bitbuffer Bit accumulator (updated on return)
  * @param location Bit position in accumulator (updated on return)
@@ -555,25 +614,23 @@ static VOID ForwardDCT(float *data)
 static VOID EncodeMCU(EncoderState *state, float *mcu, float *qt,
 					  UINT8 *huffDcLen, UINT16 *huffDcCode,
 					  UINT8 *huffAcLen, UINT16 *huffAcCode,
-					  const UINT8 *zigZag,
-					  INT32 *pred, UINT32 *bitbuffer, UINT32 *location)
+					  const UINT8 *zigZag, const EncodeConstants *c,
+					  INT32 *pred, UINT64 *bitbuffer, UINT32 *location)
 {
 	INT32 du[64];
 
 	// In place: the caller refills the sample buffer for the next block
-	ForwardDCT(mcu);
+	ForwardDCT(mcu, c);
 
-	float half = F32(0x3F000000); // 0.5f
-	float bias = F32(0x44800000); // 1024.0f
+	// Quantize with a single conversion per coefficient: the biased int minus
+	// 1024 is already the rounded value — the old int->float->int round-trip
+	// rebuilt the integer it already had
+	float bias = c->quantBias;
+	float half = c->quantHalf;
 	for (INT32 i = 0; i < 64; ++i)
 	{
-		float fval = mcu[i] * qt[i];
-		// Floor via truncation with bias to handle negative values
-		fval = fval + bias + half;
-		INT32 ival = (INT32)fval;
-		fval = F32(__builtin_bit_cast(UINT32, (float)ival));
-		fval -= bias;
-		du[zigZag[i]] = (INT32)fval;
+		INT32 ival = (INT32)(mcu[i] * qt[i] + bias + half);
+		du[zigZag[i]] = ival - 1024;
 	}
 
 	UINT16 vli[2];
@@ -636,14 +693,15 @@ static VOID EncodeMCU(EncoderState *state, float *mcu, float *qt,
  * @param luma True for luma (QT 0, HT 0/1), false for chroma (QT 1, HT 2/3)
  */
 static VOID EncodeBlock(EncoderState *state, float *block, float *qt, BOOL luma,
-						const UINT8 *zigZag, INT32 *pred, UINT32 *bitbuffer, UINT32 *location)
+						const UINT8 *zigZag, const EncodeConstants *c,
+						INT32 *pred, UINT64 *bitbuffer, UINT32 *location)
 {
 	UINT32 dc = luma ? LumaDC : ChromaDC;
 	UINT32 ac = luma ? LumaAC : ChromaAC;
 	EncodeMCU(state, block, qt,
 			  state->ehuffsize[dc], state->ehuffcode[dc],
 			  state->ehuffsize[ac], state->ehuffcode[ac],
-			  zigZag, pred, bitbuffer, location);
+			  zigZag, c, pred, bitbuffer, location);
 }
 
 // ============================================================
@@ -657,10 +715,9 @@ static VOID EncodeBlock(EncoderState *state, float *block, float *qt, BOOL luma,
  * multiply over the 16.16 fixed-point accumulator (integer rounding of luma
  * measurably inflates q75 output on luma-dense content).
  */
-static VOID ConvertLuma420(UINT8 r, UINT8 g, UINT8 b, float *y)
+static VOID ConvertLuma420(UINT8 r, UINT8 g, UINT8 b, float *y, const EncodeConstants *c)
 {
-	const float scale = F32(0x37800000); // 2^-16
-	*y = (float)(19595 * (INT32)r + 38470 * (INT32)g + 7471 * (INT32)b) * scale - F32(0x43000000);
+	*y = (float)(19595 * (INT32)r + 38470 * (INT32)g + 7471 * (INT32)b) * c->lumaScale + c->neg128;
 }
 
 /**
@@ -682,19 +739,19 @@ static VOID ConvertChroma420(UINT8 r, UINT8 g, UINT8 b, INT32 *cb, INT32 *cr)
  */
 static VOID LoadFullBlock(const UINT8 *srcData, INT32 width, INT32 height,
 						  INT32 srcNumComponents, INT32 blockX, INT32 blockY,
-						  float *duY, float *duCb, float *duCr)
+						  float *duY, float *duCb, float *duCr, const EncodeConstants *c)
 {
 	// RGB-to-YCbCr conversion constants
-	float kR = F32(0x3E991687);	  // 0.299f
-	float kG = F32(0x3F1645A2);	  // 0.587f
-	float kB = F32(0x3DE978D5);	  // 0.114f
-	float kCbR = F32(0xBE2CBFB1); // -0.1687f
-	float kCbG = F32(0x3EA9A027); // 0.3313f (negative in formula)
-	float kCbB = F32(0x3F000000); // 0.5f
-	float kCrR = F32(0x3F000000); // 0.5f
-	float kCrG = F32(0x3ED65FD9); // 0.4187f (negative in formula)
-	float kCrB = F32(0x3DA6809D); // 0.0813f (negative in formula)
-	float f128 = F32(0x43000000); // 128.0f
+	float kR = c->yccR;
+	float kG = c->yccG;
+	float kB = c->yccB;
+	float kCbR = c->yccCbR;
+	float kCbG = c->yccCbG;
+	float kCbB = c->yccCbB;
+	float kCrR = c->yccCrR;
+	float kCrG = c->yccCrG;
+	float kCrB = c->yccCrB;
+	float neg128 = c->neg128;
 
 	for (INT32 offY = 0; offY < 8; ++offY)
 	{
@@ -716,7 +773,7 @@ static VOID LoadFullBlock(const UINT8 *srcData, INT32 width, INT32 height,
 			float bf = (float)(INT32)b;
 
 			INT32 blockIndex = offY * 8 + offX;
-			duY[blockIndex] = kR * rf + kG * gf + kB * bf - f128;
+			duY[blockIndex] = kR * rf + kG * gf + kB * bf + neg128;
 			duCb[blockIndex] = kCbR * rf - kCbG * gf + kCbB * bf;
 			duCr[blockIndex] = kCrR * rf - kCrG * gf - kCrB * bf;
 		}
@@ -734,7 +791,8 @@ static VOID LoadFullBlock(const UINT8 *srcData, INT32 width, INT32 height,
  */
 static VOID LoadMcu(const UINT8 *srcData, INT32 width, INT32 height,
 					INT32 srcNumComponents, INT32 mcuX, INT32 mcuY,
-					float *luma /* [4][64] */, float *duCb, float *duCr)
+					float *luma /* [4][64] */, float *duCb, float *duCr,
+					const EncodeConstants *c)
 {
 	UINT32 rAcc[64];
 	UINT32 gAcc[64];
@@ -762,7 +820,7 @@ static VOID LoadMcu(const UINT8 *srcData, INT32 width, INT32 height,
 
 			UINT32 quadrant = (UINT32)((offY >= 8) ? 2 : 0) + (UINT32)((offX >= 8) ? 1 : 0);
 			UINT32 blockIndex = (UINT32)((offY & 7) * 8 + (offX & 7));
-			ConvertLuma420(px[0], px[1], px[2], &luma[quadrant * 64 + blockIndex]);
+			ConvertLuma420(px[0], px[1], px[2], &luma[quadrant * 64 + blockIndex], c);
 		}
 	}
 
@@ -813,6 +871,26 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 	aanScales[5] = F32(0x3F49234E); // 0.785694958f
 	aanScales[6] = F32(0x3F0A8BD4); // 0.541196100f
 	aanScales[7] = F32(0x3E8D42AF); // 0.275899379f
+
+	// Hot-path constants, materialized once (see EncodeConstants)
+	EncodeConstants c;
+	c.dctC4 = F32(0x3F3504F3);	  // cos(4*pi/16) * sqrt(2)
+	c.dctC6 = F32(0x3EC3EF15);	  // cos(6*pi/16) * sqrt(2)
+	c.dctC2C6 = F32(0x3F0A8BD4);  // cos(2*pi/16) - cos(6*pi/16)
+	c.dctC2P6 = F32(0x3FA73D75);  // cos(2*pi/16) + cos(6*pi/16)
+	c.quantBias = F32(0x44800000); // 1024.0f
+	c.quantHalf = F32(0x3F000000); // 0.5f
+	c.lumaScale = F32(0x37800000); // 2^-16
+	c.neg128 = F32(0xC3000000);	  // -128.0f
+	c.yccR = F32(0x3E991687);	  // 0.299f
+	c.yccG = F32(0x3F1645A2);	  // 0.587f
+	c.yccB = F32(0x3DE978D5);	  // 0.114f
+	c.yccCbR = F32(0xBE2CBFB1);	  // -0.1687f
+	c.yccCbG = F32(0x3EA9A027);	  // 0.3313f (negative in formula)
+	c.yccCbB = F32(0x3F000000);	  // 0.5f
+	c.yccCrR = F32(0x3F000000);	  // 0.5f
+	c.yccCrG = F32(0x3ED65FD9);	  // 0.4187f (negative in formula)
+	c.yccCrB = F32(0x3DA6809D);	  // 0.0813f (negative in formula)
 
 	ProcessedQT pqt;
 	float one = F32(0x3F800000);   // 1.0f
@@ -909,7 +987,7 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 	INT32 predCb = 0;
 	INT32 predCr = 0;
 
-	UINT32 bitbuffer = 0;
+	UINT64 bitbuffer = 0;
 	UINT32 bitLocation = 0;
 
 	if (subsampleChroma)
@@ -920,12 +998,12 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 		{
 			for (INT32 x = 0; x < width; x += 16)
 			{
-				LoadMcu(srcData, width, height, srcNumComponents, x, y, luma, duCb, duCr);
+				LoadMcu(srcData, width, height, srcNumComponents, x, y, luma, duCb, duCr, &c);
 
 				for (UINT32 q = 0; q < 4; ++q)
-					EncodeBlock(state, luma + q * 64, pqt.luma, true, zigZag, &predY, &bitbuffer, &bitLocation);
-				EncodeBlock(state, duCb, pqt.chroma, false, zigZag, &predCb, &bitbuffer, &bitLocation);
-				EncodeBlock(state, duCr, pqt.chroma, false, zigZag, &predCr, &bitbuffer, &bitLocation);
+					EncodeBlock(state, luma + q * 64, pqt.luma, true, zigZag, &c, &predY, &bitbuffer, &bitLocation);
+				EncodeBlock(state, duCb, pqt.chroma, false, zigZag, &c, &predCb, &bitbuffer, &bitLocation);
+				EncodeBlock(state, duCr, pqt.chroma, false, zigZag, &c, &predCr, &bitbuffer, &bitLocation);
 			}
 		}
 	}
@@ -936,18 +1014,20 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 		{
 			for (INT32 x = 0; x < width; x += 8)
 			{
-				LoadFullBlock(srcData, width, height, srcNumComponents, x, y, duY, duCb, duCr);
+				LoadFullBlock(srcData, width, height, srcNumComponents, x, y, duY, duCb, duCr, &c);
 
-				EncodeBlock(state, duY, pqt.luma, true, zigZag, &predY, &bitbuffer, &bitLocation);
-				EncodeBlock(state, duCb, pqt.chroma, false, zigZag, &predCb, &bitbuffer, &bitLocation);
-				EncodeBlock(state, duCr, pqt.chroma, false, zigZag, &predCr, &bitbuffer, &bitLocation);
+				EncodeBlock(state, duY, pqt.luma, true, zigZag, &c, &predY, &bitbuffer, &bitLocation);
+				EncodeBlock(state, duCb, pqt.chroma, false, zigZag, &c, &predCb, &bitbuffer, &bitLocation);
+				EncodeBlock(state, duCr, pqt.chroma, false, zigZag, &c, &predCr, &bitbuffer, &bitLocation);
 			}
 		}
 	}
 
-	// Flush remaining bits (pad to byte boundary)
-	if (bitLocation > 0 && bitLocation < 8)
-		WriteBits(state, &bitbuffer, &bitLocation, (UINT16)(8 - bitLocation), 0);
+	// Flush remaining bits (pad to byte boundary), then drain whole bytes
+	UINT32 partial = bitLocation & 7;
+	if (partial != 0)
+		WriteBits(state, &bitbuffer, &bitLocation, (UINT16)(8 - partial), 0);
+	FlushBitBuffer(state, &bitbuffer, &bitLocation);
 
 	// Write EOI marker
 	UINT16 eoi = ByteOrder::Swap16(0xFFD9);
