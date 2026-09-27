@@ -2590,7 +2590,7 @@ static Result<VOID, Error> FbCaptureFallback(const ScreenDevice &device, Span<RG
 // Screen::Capture (X11, DRM, or framebuffer dispatch)
 // =============================================================================
 
-Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, PVOID captureState)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState)
 {
 #if defined(PLATFORM_LINUX)
 	// X11 device: Left <= -1000 encodes -(1000 + displayNum)
