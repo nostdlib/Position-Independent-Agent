@@ -45,6 +45,18 @@ set(CMAKE_PDB_OUTPUT_DIRECTORY "${PIR_OUTPUT_DIR}")
 # =============================================================================
 add_executable(${PIR_TRIPLE} ${PIR_SOURCES} ${PIR_HEADERS})
 
+# Screen-stream hot loops (per-pixel convert/diff, per-coefficient DCT/quantize)
+# run 2-3x faster at -O3 than the size-focused -Oz used everywhere else; the
+# binary-size cost is confined to these files (platform filtering excludes the
+# non-native screen.cc from any given build)
+set_source_files_properties(
+    "${PIR_ROOT_DIR}/src/lib/image/jpeg_encoder.cc"
+    "${PIR_ROOT_DIR}/src/lib/image/image_processor.cc"
+    "${PIR_ROOT_DIR}/src/platform/screen/posix/screen.cc"
+    "${PIR_ROOT_DIR}/src/platform/screen/windows/screen.cc"
+    PROPERTIES COMPILE_OPTIONS "-O3"
+)
+
 set_target_properties(${PIR_TRIPLE} PROPERTIES
     OUTPUT_NAME "output"
     SUFFIX "${PIR_EXT}"
