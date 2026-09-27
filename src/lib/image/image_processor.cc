@@ -9,6 +9,11 @@
 #include "lib/image/image_processor.h"
 #include "core/containers/vector.h"
 
+#if defined(ARCHITECTURE_X86_64)
+// SSE2 is baseline on x86_64; the compiler's own freestanding header
+#include <emmintrin.h>
+#endif
+
 // ============================================================
 //  Absolute value helper (no CRT dependency)
 // ============================================================
@@ -25,6 +30,47 @@
 	return (UINT32)AbsInt((INT32)a.Red - (INT32)b.Red) +
 	       (UINT32)AbsInt((INT32)a.Green - (INT32)b.Green) +
 	       (UINT32)AbsInt((INT32)a.Blue - (INT32)b.Blue);
+}
+
+/// @brief Scan n pixels of one row segment left to right — the scalar
+///        reference path shared by the fused scan's SIMD-chunk fallback and
+///        row tail (and by every non-x86_64 build)
+/// @param cur8 Current-frame bytes, 3 per pixel, pixel i at cur8 + 3*i
+/// @param prev8 Previous-frame bytes, same layout
+/// @param n Pixel count (must be >= 1; the last pixel may be the row's)
+/// @param threshold Per-pixel SAD threshold
+/// @param anyDrift Set when any pixel has a nonzero sub-threshold SAD
+/// @return true when a pixel passes the threshold (stops at the first one)
+static BOOL ScanPixelsScalar(
+	const UINT8 *cur8,
+	const UINT8 *prev8,
+	UINT32 n,
+	UINT32 threshold,
+	BOOL &anyDrift)
+{
+	// 4-byte pre-compare via one unaligned word read per side: the high
+	// byte belongs to the next pixel on both sides, so an equal word
+	// implies an identical pixel and the SAD is skipped
+	for (UINT32 i = 0; i + 1 < n; ++i, cur8 += 3, prev8 += 3)
+	{
+		if (*(const UINT32 *)cur8 == *(const UINT32 *)prev8)
+			continue;
+
+		UINT32 sad = PixelSad(*(const RGB *)cur8, *(const RGB *)prev8);
+		if (sad > threshold)
+			return true;
+		if (sad != 0)
+			anyDrift = true;
+	}
+
+	// Final pixel: SAD only — its 4-byte read could cross into the next
+	// row, or past the buffer on the frame's last row
+	UINT32 sad = PixelSad(*(const RGB *)cur8, *(const RGB *)prev8);
+	if (sad > threshold)
+		return true;
+	if (sad != 0)
+		anyDrift = true;
+	return false;
 }
 
 // ============================================================
@@ -277,35 +323,39 @@ static BOOL IsTileDirty(
 				const UINT8 *prev8 = (const UINT8 *)prev;
 				UINT32 rowPixels = endX - startX;
 
-				// 4-byte pre-compare via one unaligned word read per side
-				// (same idiom as the threshold-0 path above): the high byte
-				// belongs to the next pixel on both sides, so an equal word
-				// implies an identical pixel and the SAD is skipped — the
-				// overwhelmingly common case on mostly-identical frames
 				UINT32 x = 0;
-				for (; x + 1 < rowPixels; ++x, cur8 += 3, prev8 += 3)
+#if defined(ARCHITECTURE_X86_64)
+				// 16-px chunks: 48 bytes per side, exactly three 16-byte
+				// loads — every load stays inside the row because the chunk
+				// ends at least one pixel before the row end
+				for (; x + 16 <= rowPixels; x += 16, cur8 += 48, prev8 += 48)
 				{
-					if (*(const UINT32 *)cur8 == *(const UINT32 *)prev8)
+					__m128i d0 = _mm_xor_si128(_mm_loadu_si128((const __m128i *)cur8),
+					                           _mm_loadu_si128((const __m128i *)prev8));
+					__m128i d1 = _mm_xor_si128(_mm_loadu_si128((const __m128i *)(cur8 + 16)),
+					                           _mm_loadu_si128((const __m128i *)(prev8 + 16)));
+					__m128i d2 = _mm_xor_si128(_mm_loadu_si128((const __m128i *)(cur8 + 32)),
+					                           _mm_loadu_si128((const __m128i *)(prev8 + 32)));
+					__m128i d = _mm_or_si128(d0, _mm_or_si128(d1, d2));
+
+					// All 48 bytes equal: 16 pixels of SAD 0 — no drift, no
+					// dirty, and the per-pixel SAD loop is skipped entirely
+					if (_mm_movemask_epi8(_mm_cmpeq_epi8(d, _mm_setzero_si128())) == 0xFFFF)
 						continue;
 
-					UINT32 sad = PixelSad(*(const RGB *)cur8, *(const RGB *)prev8);
-					if (sad > threshold)
+					if (ScanPixelsScalar(cur8, prev8, 16, threshold, anyDrift))
 					{
 						tileDirty = true;
 						break;
 					}
-					if (sad != 0)
-						anyDrift = true;
 				}
-				if (!tileDirty)
+#endif
+				// Row tail (and the whole row on non-x86_64): the helper's
+				// final pixel is the row's last, read as RGB only
+				if (!tileDirty && x < rowPixels)
 				{
-					// Row-final pixel: SAD only — a 4-byte read would touch the
-					// next row, or past the buffer on the frame's last row
-					UINT32 sad = PixelSad(cur[x], prev[x]);
-					if (sad > threshold)
+					if (ScanPixelsScalar(cur8, prev8, rowPixels - x, threshold, anyDrift))
 						tileDirty = true;
-					else if (sad != 0)
-						anyDrift = true;
 				}
 			}
 
