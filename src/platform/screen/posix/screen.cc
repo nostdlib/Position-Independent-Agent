@@ -54,6 +54,7 @@
 
 #include "platform/screen/screen.h"
 #include "core/memory/memory.h"
+#include "platform/console/logger.h"
 #include "platform/system/environment.h"
 #if defined(PLATFORM_ANDROID)
 #include "platform/system/process.h"
@@ -87,8 +88,9 @@ constexpr INT32 MP_DEVICE_LEFT = -3000;
 // Screen::CreateCaptureState / Screen::DestroyCaptureState
 // =============================================================================
 
-// Persistent capture state is a Windows optimization; posix backends take the
-// stateless path and report no state to own
+// Persistent capture state is implemented for the X11 backend (defined beside
+// X11Capture below); the other posix backends stay stateless
+#if !defined(PLATFORM_LINUX)
 Result<PVOID, Error> Screen::CreateCaptureState([[maybe_unused]] const ScreenDevice &device)
 {
 	return Result<PVOID, Error>::Ok(nullptr);
@@ -97,6 +99,7 @@ Result<PVOID, Error> Screen::CreateCaptureState([[maybe_unused]] const ScreenDev
 VOID Screen::DestroyCaptureState([[maybe_unused]] PVOID captureState)
 {
 }
+#endif
 
 #endif
 
@@ -1686,25 +1689,61 @@ static VOID X11GetDevices(ScreenDevice *tempDevices, UINT32 &deviceCount, UINT32
 	deviceCount++;
 }
 
-/// @brief Capture screen via X11 GetImage on root window
-/// @details Opens an X11 connection, sends a GetImage request for the full
-/// root window in ZPixmap format, reads the pixel data line by line, and
-/// converts to RGB using the visual's color masks.
-/// @param device Display device with Left = -(1000 + displayNum)
-/// @param buffer Output RGB pixel buffer (must be device.Width * device.Height)
-/// @return Ok on success, Err on connection/capture failure
-static Result<VOID, Error> X11Capture(const ScreenDevice &device, Span<RGB> buffer)
+/// @brief Persistent X11 capture state: one server connection reused per frame
+/// @details A per-frame connect+auth+handshake costs hundreds of syscalls and
+/// X servers reset a connect that immediately follows a close (observed on
+/// Xvfb and Xwayland), so the stateful path keeps one socket open instead.
+struct X11CaptureState
 {
-	UINT32 displayNum = (UINT32)(-(device.Left + 1000));
+	SSIZE fd;				  ///< Connected socket, -1 when a reconnect is needed
+	UINT32 displayNum;		  ///< Display number the connection belongs to
+	X11ConnectionInfo info;	 ///< Geometry/visuals parsed at connect time
+	UINT8 *chunk;			  ///< Persistent read buffer (whole scanlines)
+	USIZE chunkCap;
+};
 
-	X11ConnectionInfo info;
-	Memory::Zero(&info, sizeof(info));
+/// @brief Close the state's socket and mark it for a fresh connect
+static VOID X11DropConnection(X11CaptureState *state)
+{
+	if (state->fd >= 0)
+		System::Call(SYS_CLOSE, (USIZE)state->fd);
+	state->fd = -1;
+}
 
-	SSIZE fd = X11OpenConnection(displayNum, info);
-	if (fd < 0)
-		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
+/// @brief (Re)connect the state's socket, refreshing geometry and the read buffer
+/// @return true when the socket is usable for a capture
+static BOOL X11ConnectState(X11CaptureState *state)
+{
+	X11DropConnection(state);
+	Memory::Zero(&state->info, sizeof(state->info));
+	state->fd = X11OpenConnection(state->displayNum, state->info);
+	if (state->fd < 0)
+		return false;
 
-	// Send GetImage request for the full root window
+	// Size the read buffer for ~5 scanlines per recv
+	UINT32 bytesPerPixel = state->info.Bpp / 8;
+	if (bytesPerPixel == 0)
+		bytesPerPixel = 4;
+	UINT32 bytesPerLine = state->info.Width * bytesPerPixel;
+	USIZE want = (USIZE)(bytesPerLine + (4 - (bytesPerLine % 4)) % 4) * 5;
+	if (want > state->chunkCap)
+	{
+		if (state->chunk != nullptr)
+			delete[] state->chunk;
+		state->chunk = new UINT8[want];
+		state->chunkCap = state->chunk != nullptr ? want : 0;
+	}
+	return state->chunk != nullptr;
+}
+
+/// @brief One GetImage round trip on an already-connected socket
+/// @details Sends the request for the full root window, reads the reply in
+/// whole-scanline chunks, and converts with a 32bpp/8-bit-channel fast path.
+/// Drains trailing reply pad so a persistent connection starts each frame clean.
+/// @return true on success
+static BOOL X11CaptureOnSocket(const ScreenDevice &device, const X11ConnectionInfo &info,
+	SSIZE fd, Span<RGB> buffer, UINT8 *chunk, USIZE chunkCap)
+{
 	X11GetImageRequest req;
 	req.Opcode = X11_OPCODE_GETIMAGE;
 	req.Format = X11_FORMAT_ZPIXMAP;
@@ -1717,96 +1756,175 @@ static Result<VOID, Error> X11Capture(const ScreenDevice &device, Span<RGB> buff
 	req.PlaneMask = 0xFFFFFFFF;
 
 	if (!UnixSendAll(fd, &req, sizeof(req)))
-	{
-		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
-	}
+		return false;
 
-	// Read 32-byte reply header
-	// Reply format: type(1), depth(1), sequence(2), length(4),
-	//               visual(4), unused(20)
+	// Reply format: type(1), depth(1), sequence(2), length(4), visual(4), unused(20)
 	UINT8 replyHeader[32];
-	if (!UnixRecvAll(fd, replyHeader, 32))
-	{
-		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
-	}
+	if (!UnixRecvAll(fd, replyHeader, sizeof(replyHeader)) || replyHeader[0] != 1)
+		return false;
+	USIZE totalDataBytes = (USIZE)(*(UINT32 *)(replyHeader + 4)) * 4;
 
-	// Byte 0 must be 1 (Reply), not 0 (Error)
-	if (replyHeader[0] != 1)
-	{
-		System::Call(SYS_CLOSE, (USIZE)fd);
-		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
-	}
-
-	UINT32 replyDataLen = *(UINT32 *)(replyHeader + 4); // 4-byte units
-	USIZE totalDataBytes = (USIZE)replyDataLen * 4;
-
-	// Compute scanline metrics
 	UINT32 bytesPerPixel = info.Bpp / 8;
 	if (bytesPerPixel == 0)
 		bytesPerPixel = 4;
 	UINT32 bytesPerLine = device.Width * bytesPerPixel;
-	UINT32 linePad = (4 - (bytesPerLine % 4)) % 4;
-	UINT32 paddedBytesPerLine = bytesPerLine + linePad;
+	UINT32 paddedBytesPerLine = bytesPerLine + (4 - (bytesPerLine % 4)) % 4;
+	if (paddedBytesPerLine == 0 || paddedBytesPerLine > chunkCap)
+		return false;
 
-	// Precompute color channel shift amounts from visual masks
 	UINT32 redShift, redWidth, greenShift, greenWidth, blueShift, blueWidth;
 	X11ComputeMaskShift(info.RedMask, redShift, redWidth);
 	X11ComputeMaskShift(info.GreenMask, greenShift, greenWidth);
 	X11ComputeMaskShift(info.BlueMask, blueShift, blueWidth);
 
+	// Fast path: 32bpp with 8-bit channels folds each pixel to load + 3 shifts
+	BOOL fastPath = bytesPerPixel == 4 && redWidth == 8 && greenWidth == 8 && blueWidth == 8;
 	PRGB rgbBuf = buffer.Data();
 
-	// Read and convert pixel data one scanline at a time
-	// 32KB buffer supports up to 8192 pixels at 32bpp per scanline
-	UINT8 lineBuf[32768];
-	USIZE bytesConsumed = 0;
-
-	for (UINT32 y = 0; y < device.Height; y++)
+	USIZE have = 0;	 // bytes buffered in chunk
+	USIZE received = 0; // bytes pulled from the socket
+	UINT32 line = 0;
+	while (line < device.Height)
 	{
-		if (paddedBytesPerLine > sizeof(lineBuf))
+		if (have < paddedBytesPerLine)
 		{
-			System::Call(SYS_CLOSE, (USIZE)fd);
-			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
+			USIZE want = chunkCap - have;
+			if (want > totalDataBytes - received)
+				want = totalDataBytes - received;
+			if (want == 0)
+				return false; // stream exhausted mid-image
+			SSIZE n = UnixRecv(fd, chunk + have, want);
+			if (n <= 0)
+				return false;
+			have += (USIZE)n;
+			received += (USIZE)n;
 		}
 
-		if (!UnixRecvAll(fd, lineBuf, paddedBytesPerLine))
+		// Convert every complete scanline in the chunk before refilling —
+		// one compaction per recv, not one per scanline
+		USIZE offset = 0;
+		while (offset + paddedBytesPerLine <= have && line < device.Height)
 		{
-			System::Call(SYS_CLOSE, (USIZE)fd);
-			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
+			PRGB dst = rgbBuf + (USIZE)line * device.Width;
+			if (fastPath)
+			{
+				const UINT8 *src = chunk + offset;
+				for (UINT32 x = 0; x < device.Width; x++)
+				{
+					UINT32 pixel = (UINT32)src[0] | ((UINT32)src[1] << 8) |
+						((UINT32)src[2] << 16) | ((UINT32)src[3] << 24);
+					src += 4;
+					dst[x].Red = (UINT8)((pixel >> redShift) & 0xFF);
+					dst[x].Green = (UINT8)((pixel >> greenShift) & 0xFF);
+					dst[x].Blue = (UINT8)((pixel >> blueShift) & 0xFF);
+				}
+			}
+			else
+			{
+				for (UINT32 x = 0; x < device.Width; x++)
+				{
+					const UINT8 *px = chunk + offset + (USIZE)x * bytesPerPixel;
+					UINT32 pixel = 0;
+					for (UINT32 b = 0; b < bytesPerPixel; b++)
+						pixel |= (UINT32)px[b] << (b * 8);
+					dst[x].Red = X11ExtractChannel(pixel, redShift, redWidth);
+					dst[x].Green = X11ExtractChannel(pixel, greenShift, greenWidth);
+					dst[x].Blue = X11ExtractChannel(pixel, blueShift, blueWidth);
+				}
+			}
+			line++;
+			offset += paddedBytesPerLine;
 		}
-		bytesConsumed += paddedBytesPerLine;
-
-		for (UINT32 x = 0; x < device.Width; x++)
-		{
-			UINT8 *src = lineBuf + (USIZE)x * bytesPerPixel;
-			UINT32 pixel = 0;
-
-			// Assemble pixel value from little-endian bytes
-			for (UINT32 b = 0; b < bytesPerPixel; b++)
-				pixel |= (UINT32)src[b] << (b * 8);
-
-			rgbBuf[y * device.Width + x].Red = X11ExtractChannel(pixel, redShift, redWidth);
-			rgbBuf[y * device.Width + x].Green = X11ExtractChannel(pixel, greenShift, greenWidth);
-			rgbBuf[y * device.Width + x].Blue = X11ExtractChannel(pixel, blueShift, blueWidth);
-		}
+		have -= offset;
+		if (have > 0)
+			Memory::Move(chunk, chunk + offset, have);
 	}
 
-	// Drain any remaining reply padding
-	while (bytesConsumed < totalDataBytes)
+	// Drain trailing reply pad — unread bytes would desync the next frame
+	while (received < totalDataBytes)
 	{
-		UINT8 discard[256];
-		USIZE remaining = totalDataBytes - bytesConsumed;
-		if (remaining > sizeof(discard))
-			remaining = sizeof(discard);
-		if (!UnixRecvAll(fd, discard, remaining))
+		USIZE want = totalDataBytes - received;
+		if (want > chunkCap)
+			want = chunkCap;
+		SSIZE n = UnixRecv(fd, chunk, want);
+		if (n <= 0)
 			break;
-		bytesConsumed += remaining;
+		received += (USIZE)n;
+	}
+	return true;
+}
+
+/// @brief Capture screen via X11 GetImage on the root window
+/// @details Stateful path: reuse the persistent connection, reconnect once on
+/// any failure. Stateless path: fresh connection per capture, two attempts
+/// (an X server can reset a connect that immediately follows a close).
+/// @param device Display device with Left = -(1000 + displayNum)
+/// @param buffer Output RGB pixel buffer (must be device.Width * device.Height)
+/// @param state Persistent connection state, or nullptr for the stateless path
+/// @return Ok on success, Err on connection/capture failure
+static Result<VOID, Error> X11Capture(const ScreenDevice &device, Span<RGB> buffer, X11CaptureState *state)
+{
+	if (state != nullptr)
+	{
+		if (state->fd >= 0 && X11CaptureOnSocket(device, state->info, state->fd, buffer, state->chunk, state->chunkCap))
+			return Result<VOID, Error>::Ok();
+		LOG_WARNING("x11 capture failed on the persistent connection, reconnecting");
+		if (X11ConnectState(state) && X11CaptureOnSocket(device, state->info, state->fd, buffer, state->chunk, state->chunkCap))
+			return Result<VOID, Error>::Ok();
+		X11DropConnection(state);
+		LOG_ERROR("x11 capture failed even after a reconnect");
+		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
-	System::Call(SYS_CLOSE, (USIZE)fd);
-	return Result<VOID, Error>::Ok();
+	X11ConnectionInfo info;
+	for (INT32 attempt = 0; attempt < 2; attempt++)
+	{
+		Memory::Zero(&info, sizeof(info));
+		SSIZE fd = X11OpenConnection((UINT32)(-(device.Left + 1000)), info);
+		if (fd >= 0)
+		{
+			UINT8 chunk[32768];
+			if (X11CaptureOnSocket(device, info, fd, buffer, chunk, sizeof(chunk)))
+			{
+				System::Call(SYS_CLOSE, (USIZE)fd);
+				return Result<VOID, Error>::Ok();
+			}
+			System::Call(SYS_CLOSE, (USIZE)fd);
+		}
+	}
+	LOG_ERROR("x11 stateless capture failed (connect or getimage)");
+	return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
+}
+
+Result<PVOID, Error> Screen::CreateCaptureState(const ScreenDevice &device)
+{
+	// Only the X11 backend keeps a connection; DRM/framebuffer stay stateless
+	if (device.Left > -1000)
+		return Result<PVOID, Error>::Ok(nullptr);
+
+	auto *state = new X11CaptureState();
+	Memory::Zero(state, sizeof(X11CaptureState));
+	state->fd = -1;
+	state->displayNum = (UINT32)(-(device.Left + 1000));
+	// A failed initial connect degrades to the stateless path, not an error
+	if (!X11ConnectState(state))
+	{
+		X11DropConnection(state);
+		delete[] state->chunk;
+		delete state;
+		return Result<PVOID, Error>::Ok(nullptr);
+	}
+	return Result<PVOID, Error>::Ok((PVOID)state);
+}
+
+VOID Screen::DestroyCaptureState(PVOID captureState)
+{
+	if (captureState == nullptr)
+		return;
+	auto *state = (X11CaptureState *)captureState;
+	X11DropConnection(state);
+	delete[] state->chunk;
+	delete state;
 }
 
 #endif // PLATFORM_LINUX
@@ -2472,13 +2590,13 @@ static Result<VOID, Error> FbCaptureFallback(const ScreenDevice &device, Span<RG
 // Screen::Capture (X11, DRM, or framebuffer dispatch)
 // =============================================================================
 
-Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, PVOID captureState)
 {
 #if defined(PLATFORM_LINUX)
 	// X11 device: Left <= -1000 encodes -(1000 + displayNum)
 	if (device.Left <= -1000)
 	{
-		auto result = X11Capture(device, buffer);
+		auto result = X11Capture(device, buffer, (X11CaptureState *)captureState);
 		if (result)
 			return result;
 
