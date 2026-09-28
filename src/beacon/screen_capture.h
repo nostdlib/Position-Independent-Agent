@@ -100,6 +100,11 @@ static constexpr UINT64 MotionBudgetStartDen = 5;
 static constexpr UINT64 MotionBudgetMinNum = 1;        // budget floor = framePixels / 10
 static constexpr UINT64 MotionBudgetMinDen = 10;
 
+// Capture-hint ceiling: the rect count a screen diff realistically produces.
+// Above it the screen is in near-full motion — the capture takes a full blt
+// instead of hinting (simple and safe)
+static constexpr UINT32 CaptureHintMax = 64;
+
 struct Graphics
 {
     PRGB currentScreenshot;
@@ -112,8 +117,13 @@ struct Graphics
     PVOID captureState;  // Opaque per-display resources from Screen::CreateCaptureState
     INT64 encodeEmaUs;   // EMA of recent per-reply encode times in µs; 0 = no sample yet
     USIZE areaBudgetPixels; // Encoded-area budget in pixels; 0 = seed on first use
+    // Dirty-region capture hints: the LAST frame's diff result, clamped to the
+    // device bounds. Fed to the next capture so only changed regions are blted
+    // (platforms without region support capture the full frame). 0 = no hints
+    ScreenRegion captureHints[CaptureHintMax];
+    UINT32 captureHintCount;
 
-    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), captureState(nullptr), encodeEmaUs(0), areaBudgetPixels(0) {}
+    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), captureState(nullptr), encodeEmaUs(0), areaBudgetPixels(0), captureHintCount(0) {}
 
     /// @brief Effective encoded-area budget for this frame, seeded and clamped
     /// @param framePixels Total pixels in the frame

@@ -788,8 +788,19 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             graphics.captureState = state.Value();
     }
 
+    // Capture hints: incremental requests blt only the regions the PREVIOUS
+    // frame's diff found dirty (refreshed below after each diff); a full
+    // screen request encodes the whole frame, so it always captures full
+    const ScreenRegion *captureHints = nullptr;
+    UINT32 captureHintCount = 0;
+    if (!isFullScreen && graphics.captureHintCount != 0)
+    {
+        captureHints = graphics.captureHints;
+        captureHintCount = graphics.captureHintCount;
+    }
+
     UINT64 frameStartNs = DateTime::GetMonotonicNanoseconds();
-    if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height), graphics.captureState))
+    if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height), graphics.captureState, captureHints, captureHintCount))
     {
         LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
@@ -800,6 +811,10 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     // In case of full screen request, encode the whole screenshot as JPEG and send it back
     if (isFullScreen)
     {
+        // Drop the hints: the next incremental capture then takes a full blt
+        // (this frame may leave un-blted regions stale) and rebuilds them
+        graphics.captureHintCount = 0;
+
         graphics.jpegBuffer.Reset();
         graphics.jpegBuffer.ReserveForImage(device.Width, device.Height);
         auto encodeResult = JpegEncoder::Encode(JpegCallback, &graphics.jpegBuffer, (INT32)quality, (INT32)device.Width, (INT32)device.Height, 3, Span<const UINT8>((UINT8 *)graphics.currentScreenshot, device.Width * device.Height * sizeof(RGB)));
@@ -855,7 +870,10 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     auto &dirtyRects = dirtyResult.Value();
 
     // Identical frames: reply success with an empty section list — skip all
-    // packet allocation and encoding work
+    // packet allocation and encoding work. The previous hints are kept: they
+    // are the last known motion regions, and re-blting them keeps an idle
+    // screen on the cheap path (zero hints would force a full blt every
+    // frame); the platform's periodic full pass re-syncs everything else
     if (dirtyRects.Count == 0)
     {
         dirtyRects.Free();
@@ -871,6 +889,30 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         writer.Write<UINT32>(StatusCode::StatusSuccess);
         writer.Write<UINT32>(0);
         return;
+    }
+
+    // Next frame's capture hints: this frame's dirty rects, clamped into the
+    // device bounds (the diff's tile grid already fits, this guards the last
+    // row/column). Over the ceiling the screen is in near-full motion — no
+    // hints, so the capture takes a full blt
+    graphics.captureHintCount = 0;
+    if (dirtyRects.Count <= CaptureHintMax)
+    {
+        for (UINT32 i = 0; i < dirtyRects.Count; i++)
+        {
+            const DirtyRect &dr = dirtyRects.Rects[i];
+            if (dr.X >= device.Width || dr.Y >= device.Height)
+                continue;
+            UINT32 hintWidth = (dr.Width > device.Width - dr.X) ? device.Width - dr.X : dr.Width;
+            UINT32 hintHeight = (dr.Height > device.Height - dr.Y) ? device.Height - dr.Y : dr.Height;
+            if (hintWidth == 0 || hintHeight == 0)
+                continue;
+            ScreenRegion &hint = graphics.captureHints[graphics.captureHintCount++];
+            hint.X = dr.X;
+            hint.Y = dr.Y;
+            hint.Width = hintWidth;
+            hint.Height = hintHeight;
+        }
     }
 
     UINT32 countOfRects = 0;
