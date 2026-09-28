@@ -6,11 +6,8 @@
  * EnumDisplayDevicesW/EnumDisplaySettingsW and screen capture via
  * GDI CreateCompatibleDC/BitBlt/GetDIBits. User32 and Gdi32 wrappers
  * auto-load their DLLs via ResolveExportAddress when not already loaded.
- * The stateful path caches the screen DC for the state's lifetime and can
- * blt only the caller's dirty regions (Screen::Capture region overload)
- * instead of the whole frame, with a periodic full pass to bound staleness.
  * Each stateful capture logs a per-stage timing line so live runs show
- * where the frame time goes (blt regions / dibits / convert).
+ * where the frame time goes (blt / dibits / convert).
  *
  * @see EnumDisplayDevicesW
  *      https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumdisplaydevicesw
@@ -86,11 +83,10 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 // =============================================================================
 
 // Persistent per-display capture resources: GDI object creation dominates a
-// per-call capture, so repeated captures reuse one screen DC, memory DC,
-// bitmap, and BGRA conversion buffer (rebuilt when the display mode changes)
+// per-call capture, so repeated captures reuse one memory DC, bitmap, and
+// BGRA conversion buffer (rebuilt when the display mode changes)
 struct WinCaptureState
 {
-	PVOID screenDC;
 	PVOID memDC;
 	PVOID bitmap;
 	PVOID oldBitmap;
@@ -99,17 +95,9 @@ struct WinCaptureState
 	UINT32 bgraSize;
 	INT32 width;
 	INT32 height;
-	UINT32 frameCount;
 };
 
-// Summed hinted area above this share of the frame -> one full blt is cheaper
-static constexpr UINT32 RegionAreaFullPercent = 70;
-
-// Full-frame blt at least every N captures, bounding un-blted region staleness
-static constexpr UINT32 FullRefreshFrames = 10;
-
-// Deselect, delete, and null the owned GDI objects (screenDC and bgra are
-// released by DestroyCaptureState)
+// Deselect, delete, and null the owned GDI objects (bgra is left to the caller)
 static VOID ReleaseGdiObjects(WinCaptureState *state)
 {
 	if (state->memDC != nullptr && state->oldBitmap != nullptr)
@@ -129,33 +117,23 @@ static VOID ReleaseGdiObjects(WinCaptureState *state)
 	}
 }
 
-// Drop and re-acquire the state's cached screen DC (stale-object recovery)
-static BOOL RefreshScreenDC(WinCaptureState *state)
-{
-	if (state->screenDC != nullptr)
-		User32::ReleaseDC(nullptr, state->screenDC);
-	state->screenDC = User32::GetDC(nullptr);
-	return state->screenDC != nullptr;
-}
-
-// (Re)create the compatible memory DC + bitmap bound to the given dimensions,
-// re-acquiring the cached screen DC first — a stale DC (mode change, session
-// switch, driver reset) would fail the compatible-object creation and, on the
-// mode-change path, keep failing
+// (Re)create the compatible memory DC + bitmap bound to the given dimensions
 static BOOL RebuildGdiObjects(WinCaptureState *state, INT32 width, INT32 height)
 {
 	ReleaseGdiObjects(state);
 
-	if (!RefreshScreenDC(state))
+	PVOID screenDC = User32::GetDC(nullptr);
+	if (screenDC == nullptr)
 		return false;
 
-	state->memDC = Gdi32::CreateCompatibleDC(state->screenDC);
+	state->memDC = Gdi32::CreateCompatibleDC(screenDC);
 	if (state->memDC != nullptr)
 	{
-		state->bitmap = Gdi32::CreateCompatibleBitmap(state->screenDC, width, height);
+		state->bitmap = Gdi32::CreateCompatibleBitmap(screenDC, width, height);
 		if (state->bitmap != nullptr)
 			state->oldBitmap = Gdi32::SelectObject(state->memDC, state->bitmap);
 	}
+	User32::ReleaseDC(nullptr, screenDC);
 
 	if (state->memDC == nullptr || state->bitmap == nullptr || state->oldBitmap == nullptr)
 	{
@@ -174,10 +152,6 @@ static BOOL RebuildGdiObjects(WinCaptureState *state, INT32 width, INT32 height)
 
 	state->width = width;
 	state->height = height;
-	// Pin the counter at the full-refresh interval: the fresh bitmap content
-	// is undefined, so the first capture after any rebuild must blt the
-	// full frame before any region blt can rely on it
-	state->frameCount = FullRefreshFrames;
 	return true;
 }
 
@@ -188,11 +162,9 @@ Result<PVOID, Error> Screen::CreateCaptureState(const ScreenDevice &device)
 		return Result<PVOID, Error>::Err(Error(Error::Screen_AllocFailed));
 	Memory::Zero(state, sizeof(WinCaptureState));
 
-	// Cache the screen DC for the state's lifetime: the per-frame blt stage
-	// no longer pays the GetDC/ReleaseDC pair (RebuildGdiObjects acquires it)
 	if (!RebuildGdiObjects(state, (INT32)device.Width, (INT32)device.Height))
 	{
-		Screen::DestroyCaptureState(state);
+		delete state;
 		return Result<PVOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
@@ -200,7 +172,8 @@ Result<PVOID, Error> Screen::CreateCaptureState(const ScreenDevice &device)
 	state->bgra = new UINT8[state->bgraSize];
 	if (state->bgra == nullptr)
 	{
-		Screen::DestroyCaptureState(state);
+		ReleaseGdiObjects(state);
+		delete state;
 		return Result<PVOID, Error>::Err(Error(Error::Screen_AllocFailed));
 	}
 
@@ -214,11 +187,6 @@ VOID Screen::DestroyCaptureState(PVOID captureState)
 
 	WinCaptureState *state = (WinCaptureState *)captureState;
 	ReleaseGdiObjects(state);
-	if (state->screenDC != nullptr)
-	{
-		User32::ReleaseDC(nullptr, state->screenDC);
-		state->screenDC = nullptr;
-	}
 	delete[] state->bgra;
 	delete state;
 }
@@ -259,20 +227,14 @@ static VOID ConvertBgraToRgb(const UINT8 *bgra, PRGB rgb, UINT32 pixelCount)
 
 Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, PVOID captureState)
 {
-	return Capture(device, buffer, captureState, nullptr, 0);
-}
-
-Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, PVOID captureState, const ScreenRegion *regions, UINT32 regionCount)
-{
 	// One-shot callers (tests, single captures) run the same sequence through
-	// a temporary state — one GDI pipeline to maintain, always full-frame
-	// (a fresh memory DC holds no previous frame to leave in place)
+	// a temporary state — one GDI pipeline to maintain
 	if (captureState == nullptr)
 	{
 		auto state = CreateCaptureState(device);
 		if (!state)
 			return Result<VOID, Error>::Err(state.Error());
-		auto result = Capture(device, buffer, state.Value(), nullptr, 0);
+		auto result = Capture(device, buffer, state.Value());
 		DestroyCaptureState(state.Value());
 		return result;
 	}
@@ -300,62 +262,22 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 		}
 	}
 
-	// Region-blt inputs: hinted area vs frame area. Un-blted regions keep the
-	// previous capture's pixels in the memory DC, so the downstream diff
-	// reports no change there — staleness until the next full pass is the
-	// worst case, never corruption
-	USIZE framePixels = (USIZE)device.Width * device.Height;
-	USIZE regionArea = 0;
-	if (regions != nullptr)
-		for (UINT32 i = 0; i < regionCount; i++)
-			regionArea += (USIZE)regions[i].Width * regions[i].Height;
-
-	BOOL hintedPartial = regions != nullptr && regionCount > 0 && framePixels != 0 &&
-		regionArea * 100 <= framePixels * RegionAreaFullPercent;
-
 	// Persistent objects may go stale (lost DC, driver hiccup): rebuild once
-	// (screen DC re-acquired too) and retry before reporting failure. blt
-	// covers the BitBlt(s) only (the screen DC is cached in the state),
-	// dibits the deselect/GetDIBits/reselect pair. The full/partial decision
-	// is re-made per attempt: a rebuild pins frameCount at FullRefreshFrames
-	// (fresh bitmap content is undefined), forcing the retry full
+	// and retry before reporting failure. blt covers GetDC..ReleaseDC around
+	// the BitBlt, dibits the deselect/GetDIBits/reselect pair
 	UINT64 bltNs = 0;
 	UINT64 dibitsNs = 0;
 	INT32 scanLines = 0;
-	UINT32 bltedRegions = 0;
-	BOOL fullBlt = true;
 	for (UINT32 attempt = 0; ; attempt++)
 	{
-		state->frameCount++;
-		fullBlt = !hintedPartial || state->frameCount >= FullRefreshFrames;
-		if (fullBlt)
-			state->frameCount = 0;
-
 		UINT64 stage = DateTime::GetMonotonicNanoseconds();
-		BOOL blit;
-		if (fullBlt)
-		{
-			blit = Gdi32::BitBlt(state->memDC, 0, 0, width, height,
-				state->screenDC, device.Left, device.Top, SRCCOPY);
-		}
-		else
-		{
-			// SRCCOPY only, no CAPTUREBLT — layered/transparent windows were
-			// never captured, and region blts keep the same semantics
-			blit = true;
-			bltedRegions = 0;
-			for (UINT32 i = 0; i < regionCount; i++)
-			{
-				if (!Gdi32::BitBlt(state->memDC, (INT32)regions[i].X, (INT32)regions[i].Y,
-					(INT32)regions[i].Width, (INT32)regions[i].Height, state->screenDC,
-					device.Left + (INT32)regions[i].X, device.Top + (INT32)regions[i].Y, SRCCOPY))
-				{
-					blit = false;
-					break;
-				}
-				bltedRegions++;
-			}
-		}
+		PVOID screenDC = User32::GetDC(nullptr);
+		if (screenDC == nullptr)
+			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
+
+		BOOL blit = Gdi32::BitBlt(state->memDC, 0, 0, width, height,
+			screenDC, device.Left, device.Top, SRCCOPY);
+		User32::ReleaseDC(nullptr, screenDC);
 		bltNs = DateTime::GetMonotonicNanoseconds() - stage;
 
 		if (blit)
@@ -383,15 +305,9 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	ConvertBgraToRgb(state->bgra, buffer.Data(), pixelCount);
 	UINT64 convertNs = DateTime::GetMonotonicNanoseconds() - stage;
 
-	if (fullBlt)
-		LOG_INFO("[capture] blt %u ms (full, %u pct), dibits %u ms, convert %u ms",
-		         (UINT32)(bltNs / 1000000), (UINT32)100,
-		         (UINT32)(dibitsNs / 1000000), (UINT32)(convertNs / 1000000));
-	else
-		LOG_INFO("[capture] blt %u ms (%u regions, %u pct), dibits %u ms, convert %u ms",
-		         (UINT32)(bltNs / 1000000), bltedRegions,
-		         (UINT32)(regionArea * 100 / framePixels),
-		         (UINT32)(dibitsNs / 1000000), (UINT32)(convertNs / 1000000));
+	LOG_INFO("[capture] blt %u ms, dibits %u ms, convert %u ms",
+	         (UINT32)(bltNs / 1000000), (UINT32)(dibitsNs / 1000000),
+	         (UINT32)(convertNs / 1000000));
 
 	return Result<VOID, Error>::Ok();
 }

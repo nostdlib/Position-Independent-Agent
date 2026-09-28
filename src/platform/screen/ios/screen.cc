@@ -28,15 +28,6 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 // Screen::CreateCaptureState (iOS — not supported)
 // =============================================================================
 
-// Region hints are a Windows GDI optimization; capture is unsupported here
-// and reports the same error as the full-frame overload
-Result<VOID, Error> Screen::Capture([[maybe_unused]] const ScreenDevice &device, [[maybe_unused]] Span<RGB> buffer,
-                                    [[maybe_unused]] PVOID captureState, [[maybe_unused]] const ScreenRegion *regions,
-                                    [[maybe_unused]] UINT32 regionCount)
-{
-	return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
-}
-
 // Contract: platforms without persistent resources return Ok(nullptr);
 // capture itself reports the unsupported error
 Result<PVOID, Error> Screen::CreateCaptureState([[maybe_unused]] const ScreenDevice &device)

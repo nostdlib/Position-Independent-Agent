@@ -85,18 +85,6 @@ constexpr INT32 MP_DEVICE_LEFT = -3000;
 #if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID) || defined(PLATFORM_FREEBSD) || defined(PLATFORM_SOLARIS)
 
 // =============================================================================
-// Screen::Capture (region-hint overload)
-// =============================================================================
-
-// Hints are a Windows GDI optimization; posix backends already capture the
-// full frame in a few milliseconds, so the hints are ignored
-Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, PVOID captureState,
-                                    [[maybe_unused]] const ScreenRegion *regions, [[maybe_unused]] UINT32 regionCount)
-{
-	return Capture(device, buffer, captureState);
-}
-
-// =============================================================================
 // Screen::CreateCaptureState / Screen::DestroyCaptureState
 // =============================================================================
 

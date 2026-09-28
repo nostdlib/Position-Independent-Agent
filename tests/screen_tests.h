@@ -233,19 +233,6 @@ private:
 					LOG_ERROR("Stateful capture reuse round failed: %e", second.Error());
 					ok = false;
 				}
-
-				// Region-hint overload: two quadrants = half the frame, under
-				// the full-blt share, so platforms with region support run the
-				// per-region path; hints are advisory, so the capture must
-				// succeed like a full one either way
-				ScreenRegion regions[2] = {{0, 0, dev.Width / 2, dev.Height / 2},
-					{dev.Width / 2, dev.Height / 2, dev.Width - dev.Width / 2, dev.Height - dev.Height / 2}};
-				auto hinted = Screen::Capture(dev, Span<RGB>(pixels, pixelCount), state.Value(), regions, 2);
-				if (!hinted)
-				{
-					LOG_ERROR("Region-hinted capture failed: %e", hinted.Error());
-					ok = false;
-				}
 			}
 			Screen::DestroyCaptureState(state.Value());
 		}

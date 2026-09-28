@@ -90,14 +90,6 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 // Screen::CreateCaptureState / Screen::DestroyCaptureState
 // =============================================================================
 
-// Region hints are a Windows GDI optimization; GOP Blt reads the whole
-// framebuffer anyway — the hints are ignored (full frame)
-Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, PVOID captureState,
-                                    [[maybe_unused]] const ScreenRegion *regions, [[maybe_unused]] UINT32 regionCount)
-{
-	return Capture(device, buffer, captureState);
-}
-
 // Persistent capture state is a Windows optimization; GOP captures take the
 // stateless path and report no state to own
 Result<PVOID, Error> Screen::CreateCaptureState([[maybe_unused]] const ScreenDevice &device)

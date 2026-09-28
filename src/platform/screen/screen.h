@@ -5,9 +5,7 @@
  * @details Provides cross-platform screen device discovery and screenshot
  * capture. GetDevices() enumerates active displays with resolution and
  * position information. Capture() copies the framebuffer contents of a
- * specific display into an RGB pixel buffer; the region-hint overload
- * copies only the given regions, leaving the rest of the buffer at the
- * previous capture's content.
+ * specific display into an RGB pixel buffer.
  *
  * @par Platform Implementations
  * - Windows: User32 EnumDisplayDevicesW/EnumDisplaySettingsW, GDI BitBlt/GetDIBits
@@ -62,22 +60,6 @@ struct ScreenDeviceList
 };
 
 /**
- * @brief Rectangular region of a display, in device pixels
- *
- * @details Platform-layer POD hint for partial captures: it mirrors the
- * beacon's dirty-rect shape without pulling lib/ types into platform
- * headers (layering). Regions are advisory — an implementation may
- * capture more than asked, up to the full frame.
- */
-struct ScreenRegion
-{
-	UINT32 X;	  ///< Left edge in device coordinates
-	UINT32 Y;	  ///< Top edge in device coordinates
-	UINT32 Width;  ///< Region width in pixels
-	UINT32 Height; ///< Region height in pixels
-};
-
-/**
  * @class Screen
  * @brief Screen device enumeration and framebuffer capture
  *
@@ -129,8 +111,7 @@ public:
 	 *
 	 * @details Copies the current framebuffer contents of the given display
 	 * into the provided RGB buffer. The buffer must be at least
-	 * device.Width * device.Height elements. Equivalent to
-	 * Capture(device, buffer, captureState, nullptr, 0).
+	 * device.Width * device.Height elements.
 	 *
 	 * @param device Display device to capture (from GetDevices())
 	 * @param buffer Output RGB pixel buffer (top-down, left-to-right)
@@ -143,33 +124,6 @@ public:
 		const ScreenDevice &device,
 		Span<RGB> buffer,
 		PVOID captureState = nullptr);
-
-	/**
-	 * @brief Capture only the given regions of the specified display device
-	 *
-	 * @details Partial capture for repeated captures through a persistent
-	 * state: each region is copied at its native position and size, so the
-	 * buffer holds a full frame whose un-captured regions keep whatever the
-	 * previous capture left there — a downstream diff then reports no
-	 * change in those regions. Platforms without per-region capture
-	 * support capture the full frame and ignore the hints. The buffer must
-	 * be at least device.Width * device.Height elements.
-	 *
-	 * @param device Display device to capture (from GetDevices())
-	 * @param buffer Output RGB pixel buffer (top-down, left-to-right)
-	 * @param captureState State from CreateCaptureState(); with nullptr the
-	 *        hints are ignored and a full frame is captured
-	 * @param regions Regions to copy (device pixel coordinates, within the
-	 *        device bounds), or nullptr for a full capture
-	 * @param regionCount Number of regions in regions
-	 * @return Ok on success, Err on capture failure
-	 */
-	[[nodiscard]] static Result<VOID, Error> Capture(
-		const ScreenDevice &device,
-		Span<RGB> buffer,
-		PVOID captureState,
-		const ScreenRegion *regions,
-		UINT32 regionCount);
 };
 
 /** @} */ // end of display group
