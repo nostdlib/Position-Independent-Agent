@@ -134,26 +134,21 @@ struct Graphics
     /// @param handlerNs Wall time of the whole capture+diff+encode handler
     /// @param captureNs The capture stage's share (irreducible: GDI cost)
     /// @param framePixels Total pixels in the frame (growth clamp)
-    VOID AdaptMotionBudget(UINT64 handlerNs, UINT64 captureNs, USIZE framePixels)
+    VOID AdaptMotionBudget(UINT64 handlerNs, [[maybe_unused]] UINT64 captureNs, USIZE framePixels)
     {
         INT64 totalUs = (INT64)(handlerNs / 1000);
-        INT64 captureUs = (INT64)(captureNs / 1000);
         // EMA with weight 1/4 (shift-free integer form; truncation is fine here)
         encodeEmaUs = (encodeEmaUs <= 0) ? totalUs : encodeEmaUs + (totalUs - encodeEmaUs) / 4;
 
-        // Adapt on the CONTROLLABLE portion only: capture alone can exceed the
-        // target (GDI floor), and shrinking the encoded area cannot fix that —
-        // chasing it slammed the budget to the floor and shredded the picture.
-        // Grow while the total sits under the target; shrink only when the
-        // post-capture share (diff+encode) itself busts the encode allowance.
-        USIZE next = areaBudgetPixels;
-        if (encodeEmaUs < (INT64)MotionBudgetGrowUs)
-            next = areaBudgetPixels * 5 / 4;
-        else if (encodeEmaUs - captureUs > (INT64)MotionBudgetEncodeShareUs)
-            next = areaBudgetPixels * 7 / 10;
+        // Deferral is DISABLED: encoding a frame's rects from staggered points
+        // in time tears video content (regions of the screen visibly out of
+        // order), which is worse than the pacing it saved. The SIMD encoder
+        // removed the overload the budget was built to absorb. The budget
+        // stays pinned at the full frame; the EMA and the [shot] log line
+        // remain for diagnostics.
+        USIZE next = framePixels;
 
-        // The visual floor keeps deferral from becoming patchwork
-        USIZE floorPixels = framePixels / 4;
+        USIZE floorPixels = framePixels;
         if (next > framePixels)
             next = framePixels;
         if (next < floorPixels)
