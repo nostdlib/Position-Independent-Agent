@@ -983,7 +983,7 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     // budget — adapting on encode alone let the fixed capture cost push the
     // total frame time far past the target
     UINT64 handlerNs = DateTime::GetMonotonicNanoseconds() - frameStartNs;
-    graphics.AdaptMotionBudget(handlerNs, framePixels);
+    graphics.AdaptMotionBudget(handlerNs, captureNs, framePixels);
 
     // Per-frame breakdown for the operator's logs: where the time went and
     // what the pacing budget decided (cap/diff/enc/tot in ms; encoded/total

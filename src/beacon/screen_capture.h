@@ -92,8 +92,9 @@ struct JpegBuffer
 // The budget bounds the encoded area per reply; overflow rects are deferred.
 // Integer arithmetic throughout — floating constants pool into .rdata on
 // PE/COFF i386 and break position-independence.
-static constexpr UINT64 MotionBudgetTargetUs = 25000;  // target per-reply encode time in µs
+static constexpr UINT64 MotionBudgetTargetUs = 25000;  // target per-reply handler time in µs
 static constexpr UINT64 MotionBudgetGrowUs = 15000;    // grow below 60% of the target
+static constexpr UINT64 MotionBudgetEncodeShareUs = 20000; // post-capture (diff+encode) allowance in µs
 static constexpr UINT64 MotionBudgetStartNum = 2;      // seed budget = framePixels * 2/5
 static constexpr UINT64 MotionBudgetStartDen = 5;
 static constexpr UINT64 MotionBudgetMinNum = 1;        // budget floor = framePixels / 10
@@ -129,30 +130,37 @@ struct Graphics
         return areaBudgetPixels;
     }
 
-    /// @brief Fold one reply's encode time into the EMA and adapt the budget
-    /// @param encodeNs Wall time of this reply's rect-encode loop in ns
+    /// @brief Fold one reply's handler time into the EMA and adapt the budget
+    /// @param handlerNs Wall time of the whole capture+diff+encode handler
+    /// @param captureNs The capture stage's share (irreducible: GDI cost)
     /// @param framePixels Total pixels in the frame (growth clamp)
-    VOID AdaptMotionBudget(UINT64 encodeNs, USIZE framePixels)
+    VOID AdaptMotionBudget(UINT64 handlerNs, UINT64 captureNs, USIZE framePixels)
     {
-        INT64 encodeUs = (INT64)(encodeNs / 1000);
+        INT64 totalUs = (INT64)(handlerNs / 1000);
+        INT64 captureUs = (INT64)(captureNs / 1000);
         // EMA with weight 1/4 (shift-free integer form; truncation is fine here)
-        encodeEmaUs = (encodeEmaUs <= 0) ? encodeUs : encodeEmaUs + (encodeUs - encodeEmaUs) / 4;
+        encodeEmaUs = (encodeEmaUs <= 0) ? totalUs : encodeEmaUs + (totalUs - encodeEmaUs) / 4;
 
-        // Deadband: grow while well under the target, shrink only above it
+        // Adapt on the CONTROLLABLE portion only: capture alone can exceed the
+        // target (GDI floor), and shrinking the encoded area cannot fix that —
+        // chasing it slammed the budget to the floor and shredded the picture.
+        // Grow while the total sits under the target; shrink only when the
+        // post-capture share (diff+encode) itself busts the encode allowance.
         USIZE next = areaBudgetPixels;
         if (encodeEmaUs < (INT64)MotionBudgetGrowUs)
             next = areaBudgetPixels * 5 / 4;
-        else if (encodeEmaUs > (INT64)MotionBudgetTargetUs)
+        else if (encodeEmaUs - captureUs > (INT64)MotionBudgetEncodeShareUs)
             next = areaBudgetPixels * 7 / 10;
 
-        USIZE floorPixels = framePixels / MotionBudgetMinDen;
+        // The visual floor keeps deferral from becoming patchwork
+        USIZE floorPixels = framePixels / 4;
         if (next > framePixels)
             next = framePixels;
         if (next < floorPixels)
             next = floorPixels;
         if (next != areaBudgetPixels)
         {
-            LOG_DEBUG("Motion budget %u -> %u px (encode EMA %d us)", (UINT32)areaBudgetPixels, (UINT32)next, (INT32)encodeEmaUs);
+            LOG_DEBUG("Motion budget %u -> %u px (total EMA %d us)", (UINT32)areaBudgetPixels, (UINT32)next, (INT32)encodeEmaUs);
             areaBudgetPixels = next;
         }
     }
