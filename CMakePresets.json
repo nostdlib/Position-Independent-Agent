@@ -44,7 +44,7 @@
     { "name": "arch-mips",    "hidden": true, "cacheVariables": { "ARCHITECTURE": "mips" } },
 
     { "name": "type-debug",   "hidden": true, "cacheVariables": { "BUILD_TYPE": "debug",   "OPTIMIZATION_LEVEL": "O0" } },
-    { "name": "type-release", "hidden": true, "cacheVariables": { "BUILD_TYPE": "release", "OPTIMIZATION_LEVEL": "Oz" } },
+    { "name": "type-release", "hidden": true, "cacheVariables": { "BUILD_TYPE": "release", "OPTIMIZATION_LEVEL": "O3" } },
 
     {
       "name": "docs",

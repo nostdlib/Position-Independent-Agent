@@ -65,8 +65,10 @@ elseif(PIR_BUILD_TYPE STREQUAL "debug")
     set(PIR_OPT_LEVEL "Og")
     pir_log_debug("Optimization: debug default -Og")
 else()
-    set(PIR_OPT_LEVEL "Oz")
-    pir_log_debug("Optimization: release default -Oz")
+    # Release (the deployed artifacts) optimizes for speed; -Oz remains
+    # available via the OPTIMIZATION_LEVEL override
+    set(PIR_OPT_LEVEL "O3")
+    pir_log_debug("Optimization: release default -O3")
 endif()
 
 # =============================================================================
