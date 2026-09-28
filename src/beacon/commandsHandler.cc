@@ -788,12 +788,14 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             graphics.captureState = state.Value();
     }
 
+    UINT64 frameStartNs = DateTime::GetMonotonicNanoseconds();
     if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height), graphics.captureState))
     {
         LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
     }
+    UINT64 captureNs = DateTime::GetMonotonicNanoseconds() - frameStartNs;
 
     // In case of full screen request, encode the whole screenshot as JPEG and send it back
     if (isFullScreen)
@@ -838,10 +840,12 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     // Clean tiles carrying sub-threshold drift are reverted inside, keeping
     // the diff base equal to what the receiver has (slow changes accumulate
     // until they cross the threshold instead of being silently absorbed).
+    UINT64 diffStartNs = DateTime::GetMonotonicNanoseconds();
     auto dirtyResult = ImageProcessor::FindDirtyRects(
         Span<RGB>(graphics.currentScreenshot, device.Width * device.Height),
         Span<const RGB>(graphics.screenshot, device.Width * device.Height),
         device.Width, device.Height, 64, 24);
+    UINT64 diffNs = DateTime::GetMonotonicNanoseconds() - diffStartNs;
     if (dirtyResult.IsErr())
     {
         LOG_ERROR("Failed to find dirty rectangles for display index: %u", displayIndex);
@@ -912,7 +916,6 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         return;
     }
 
-    UINT64 encodeStartNs = DateTime::GetMonotonicNanoseconds();
     accumulatedArea = 0;
     for (UINT32 i = 0; i < dirtyRects.Count; i++)
     {
@@ -976,8 +979,21 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         Memory::Copy(graphics.packet.Data + headerOffset + sizeof(UINT32) * 2, &jpegLength, sizeof(jpegLength));
     }
 
-    // Fold this reply's actual encode time into the pacing budget
-    graphics.AdaptMotionBudget(DateTime::GetMonotonicNanoseconds() - encodeStartNs, framePixels);
+    // Fold the WHOLE handler cost (capture+diff+encode) into the pacing
+    // budget — adapting on encode alone let the fixed capture cost push the
+    // total frame time far past the target
+    UINT64 handlerNs = DateTime::GetMonotonicNanoseconds() - frameStartNs;
+    graphics.AdaptMotionBudget(handlerNs, framePixels);
+
+    // Per-frame breakdown for the operator's logs: where the time went and
+    // what the pacing budget decided (cap/diff/enc/tot in ms; encoded/total
+    // rects; encoded area vs frame; current budget and encode EMA in us)
+    LOG_INFO("[shot] cap=%u diff=%u enc=%u tot=%u ms; rects=%u/%u area=%u/%u budget=%u ema=%uus len=%u",
+        (UINT32)(captureNs / 1000000), (UINT32)(diffNs / 1000000),
+        (UINT32)((handlerNs - captureNs - diffNs) / 1000000), (UINT32)(handlerNs / 1000000),
+        countOfRects, dirtyRects.Count, (UINT32)accumulatedArea, (UINT32)framePixels,
+        (UINT32)graphics.AreaBudget(framePixels), (UINT32)graphics.encodeEmaUs,
+        (UINT32)graphics.packet.Size);
 
     // Encoded rects came straight from the current frame and deferred ones were
     // reverted to the previous above, so it matches the receiver's canvas and
