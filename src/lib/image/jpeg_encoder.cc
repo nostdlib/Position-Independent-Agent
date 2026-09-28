@@ -9,6 +9,14 @@
  * Internal float constants are embedded as UINT32 immediates via
  * __builtin_bit_cast to avoid .rdata section generation.
  *
+ * On x86_64 the per-MCU hot loops run through an SSE2 path (baseline on
+ * that arch, so no runtime dispatch): the 4:2:0 color conversion and the
+ * forward DCT process four blocks per 128-bit lane. The vector surface is
+ * declared locally (clang vector types + __builtin_ia32_* / shufflevector,
+ * no compiler headers) and every vector constant is an integer splat forced
+ * through a GPR barrier so the backend can never pool it into .rodata.cst*,
+ * which would break the PIC build.
+ *
  * @note Original DCT implementation by Thomas G. Lane (via NVIDIA SDK).
  *
  * @see ITU-T T.81 — JPEG standard
@@ -36,6 +44,438 @@ static FORCE_INLINE float F32(UINT32 bits)
 	__asm__ volatile("" : "+r"(bits));
 	return __builtin_bit_cast(float, bits);
 }
+
+// ============================================================
+//  SSE2 hot-loop surface (x86_64 only)
+//
+//  No compiler headers: the vector types are clang vector extensions and
+//  the operations are __builtin_ia32_* intrinsics (SSE2 is baseline on
+//  x86_64) plus __builtin_shufflevector, which the backend lowers to the
+//  matching single SSE2 instruction. Lane permutes built this way never
+//  constant-pool; every data-carrying constant goes through VSplat's GPR
+//  barrier below for the same reason.
+// ============================================================
+
+#if defined(ARCHITECTURE_X86_64)
+
+/// @brief 128-bit vector of 8-bit lanes
+typedef INT8 V16B __attribute__((__vector_size__(16)));
+/// @brief 128-bit vector of 16-bit lanes
+typedef INT16 V8S __attribute__((__vector_size__(16)));
+/// @brief 128-bit vector of 32-bit lanes
+typedef INT32 V4S __attribute__((__vector_size__(16)));
+/// @brief 128-bit vector of float lanes
+typedef float V4F __attribute__((__vector_size__(16)));
+/// @brief The byte vector with byte alignment, for unaligned access
+typedef V16B V16Bu __attribute__((__aligned__(1)));
+
+/// @brief Bit-cast reinterpretation between same-width vector types
+template <typename D, typename S>
+static FORCE_INLINE D VecCast(S v)
+{
+	return (D)v;
+}
+
+/// @brief Load 16 bytes from an arbitrarily aligned address
+static FORCE_INLINE V16B LoadU(const UINT8 *p)
+{
+	return *(const V16Bu *)p;
+}
+
+/// @brief Unpack low bytes of two vectors into interleaved byte lanes
+static FORCE_INLINE V16B PunpckLBW(V16B a, V16B b)
+{
+	return __builtin_shufflevector(a, b, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+}
+
+/// @brief Unpack high bytes of two vectors into interleaved byte lanes
+static FORCE_INLINE V16B PunpckHBW(V16B a, V16B b)
+{
+	return __builtin_shufflevector(a, b, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+}
+
+/// @brief Unpack low 16-bit lanes of two vectors, interleaved
+static FORCE_INLINE V8S PunpckLWD(V8S a, V8S b)
+{
+	return __builtin_shufflevector(a, b, 0, 8, 1, 9, 2, 10, 3, 11);
+}
+
+/// @brief Unpack high 16-bit lanes of two vectors, interleaved
+static FORCE_INLINE V8S PunpckHWD(V8S a, V8S b)
+{
+	return __builtin_shufflevector(a, b, 4, 12, 5, 13, 6, 14, 7, 15);
+}
+
+/// @brief Unpack low 32-bit lanes of two vectors, interleaved
+static FORCE_INLINE V4S PunpckLDQ(V4S a, V4S b)
+{
+	return __builtin_shufflevector(a, b, 0, 4, 1, 5);
+}
+
+/// @brief Unpack high 32-bit lanes of two vectors, interleaved
+static FORCE_INLINE V4S PunpckHDQ(V4S a, V4S b)
+{
+	return __builtin_shufflevector(a, b, 2, 6, 3, 7);
+}
+
+/// @brief Unpack low 64-bit halves of two vectors, interleaved
+static FORCE_INLINE V4S PunpckLQDQ(V4S a, V4S b)
+{
+	return __builtin_shufflevector(a, b, 0, 1, 4, 5);
+}
+
+/// @brief Unpack high 64-bit halves of two vectors, interleaved
+static FORCE_INLINE V4S PunpckHQDQ(V4S a, V4S b)
+{
+	return __builtin_shufflevector(a, b, 2, 3, 6, 7);
+}
+
+/// @brief Byte-granular left shift of the whole register by 8 (pslldq)
+static FORCE_INLINE V16B Slli128(V16B v)
+{
+	V16B z = v ^ v;
+	return __builtin_shufflevector(z, v, 0, 0, 0, 0, 0, 0, 0, 0, 16, 17, 18, 19, 20, 21, 22, 23);
+}
+
+/// @brief Byte-granular right shift of the whole register by 8 (psrldq)
+static FORCE_INLINE V16B Srli128(V16B v)
+{
+	V16B z = v ^ v;
+	return __builtin_shufflevector(v, z, 8, 9, 10, 11, 12, 13, 14, 15, 16, 16, 16, 16, 16, 16, 16, 16);
+}
+
+/// @brief Multiply adjacent signed 16-bit lane pairs, summing into 32-bit lanes
+static FORCE_INLINE V4S PmaddWD(V8S a, V8S b)
+{
+	return __builtin_ia32_pmaddwd128(a, b);
+}
+
+/// @brief Arithmetic (sign-propagating) right shift of 32-bit lanes
+static FORCE_INLINE V4S Psrad(V4S v, INT32 bits)
+{
+	return __builtin_ia32_psradi128(v, bits);
+}
+
+/// @brief Logical right shift of 32-bit lanes
+static FORCE_INLINE V4S Psrld(V4S v, INT32 bits)
+{
+	return __builtin_ia32_psrldi128(v, bits);
+}
+
+/// @brief Logical right shift of 16-bit lanes
+static FORCE_INLINE V8S Psrlw(V8S v, INT32 bits)
+{
+	return __builtin_ia32_psrlwi128(v, bits);
+}
+
+/// @brief Pack 32-bit lanes to 16-bit lanes with signed saturation
+static FORCE_INLINE V8S Packssdw(V4S a, V4S b)
+{
+	return __builtin_ia32_packssdw128(a, b);
+}
+
+/// @brief Convert 32-bit integer lanes to float lanes
+static FORCE_INLINE V4F Cvtdq2ps(V4S v)
+{
+	return __builtin_convertvector(v, V4F);
+}
+
+/// @brief Convert float lanes to 32-bit integers (round to nearest even)
+static FORCE_INLINE V4S Cvtps2dq(V4F v)
+{
+	return __builtin_ia32_cvtps2dq(v);
+}
+
+/// @brief Splat a 32-bit pattern to all lanes without a constant-pool load
+/// @details The GPR register barrier hides the value from the optimizer, so
+/// the splat is always materialized as movd + pshufd from a GPR immediate —
+/// never a rip-relative .rodata.cst16 vector load
+static FORCE_INLINE V4S VSplat(UINT32 bits)
+{
+	__asm__ volatile("" : "+r"(bits));
+	V4S v = {(INT32)bits, (INT32)bits, (INT32)bits, (INT32)bits};
+	return __builtin_shufflevector(v, v, 0, 0, 0, 0);
+}
+
+// ============================================================
+//  SSE2 constants, materialized once per encode
+// ============================================================
+
+/// @brief Hot-path SSE2 vector constants, built once per encode
+/// @details The (R,G)/(B,G) weight-pair split keeps every pmaddwd
+/// coefficient inside int16: 0.587 = 0.337 + 0.250 (libjpeg-turbo's trick)
+struct Sse2Const
+{
+	V8S yRG;		 ///< [19595, 22086] per (R,G) pair: 0.299R + (0.587-0.25)G
+	V8S yBG;		 ///< [7471, 16384] per (B,G) pair: 0.114B + 0.250G
+	V8S cbRG;		 ///< [-11059, -21712] per (r,g) pair
+	V8S crGB;		 ///< [-27441, -5328] per (g,b) pair
+	V4F dctDcBias;	 ///< 8192 << 16, the unfolded -128 level shift at DC
+	V8S chromaHalf; ///< +2 rounding for the 2x2 box average
+	V4S chromaBias; ///< +32768 rounding before the >> 16
+	V4F dctC4;		 ///< cos(4*pi/16) * sqrt(2)
+	V4F dctC6;		 ///< cos(6*pi/16) * sqrt(2)
+	V4F dctC2C6;	 ///< cos(2*pi/16) - cos(6*pi/16)
+	V4F dctC2P6;	 ///< cos(2*pi/16) + cos(6*pi/16)
+};
+
+/// @brief Initialize the per-encode SSE2 constant set
+static VOID InitSse2Const(Sse2Const *k)
+{
+	k->yRG = VecCast<V8S>(VSplat(19595u | (22086u << 16)));
+	k->yBG = VecCast<V8S>(VSplat(7471u | (16384u << 16)));
+	k->cbRG = VecCast<V8S>(VSplat((UINT32)(-11059 & 0xFFFF) | ((UINT32)(-21712 & 0xFFFF) << 16)));
+	k->crGB = VecCast<V8S>(VSplat((UINT32)(-27441 & 0xFFFF) | ((UINT32)(-5328 & 0xFFFF) << 16)));
+	k->dctDcBias = VecCast<V4F>(VSplat(0x4E000000u)); // 8192 << 16
+	k->chromaHalf = VecCast<V8S>(VSplat(0x00020002u));
+	k->chromaBias = VSplat(32768u);
+	k->dctC4 = VecCast<V4F>(VSplat(0x3F3504F3u));
+	k->dctC6 = VecCast<V4F>(VSplat(0x3EC3EF15u));
+	k->dctC2C6 = VecCast<V4F>(VSplat(0x3F0A8BD4u));
+	k->dctC2P6 = VecCast<V4F>(VSplat(0x3FA73D75u));
+}
+
+// ============================================================
+//  RGB deinterleave: 16 pixels -> even/odd channel planes (u16 x8)
+// ============================================================
+
+/// @brief The six per-row channel planes the SIMD pipeline works on
+struct RowPlanes
+{
+	V8S re, ro; ///< red of even/odd pixels
+	V8S ge, go; ///< green of even/odd pixels
+	V8S be, bo; ///< blue of even/odd pixels
+};
+
+/// @brief Deinterleave 16 RGB (3 bytes/px) pixels into channel planes
+/// @details Punpck/shift network per libjpeg-turbo jccolext-sse2: three
+///          16-byte loads cover the 48 source bytes, so no read ever
+///          crosses past the row (the caller guarantees mcuX + 16 <= width)
+static VOID DeinterleaveRgb3(const UINT8 *p, RowPlanes *r)
+{
+	V16B a = LoadU(p);
+	V16B f = LoadU(p + 16);
+	V16B b = LoadU(p + 32);
+
+	V16B g = a;
+	a = Slli128(a);
+	g = Srli128(g);
+	a = PunpckHBW(a, f);
+	f = Slli128(f);
+	g = PunpckLBW(g, b);
+	f = PunpckHBW(f, b);
+
+	V16B d = a;
+	a = Slli128(a);
+	d = Srli128(d);
+	a = PunpckHBW(a, g);
+	g = Slli128(g);
+	d = PunpckLBW(d, f);
+	g = PunpckHBW(g, f);
+
+	V16B e = a;
+	a = Slli128(a);
+	e = Srli128(e);
+	a = PunpckHBW(a, d);
+	d = Slli128(d);
+	e = PunpckLBW(e, g);
+	d = PunpckHBW(d, g);
+
+	V16B z = a ^ a;
+	r->re = VecCast<V8S>(PunpckLBW(a, z));
+	r->ge = VecCast<V8S>(PunpckHBW(a, z));
+	r->be = VecCast<V8S>(PunpckLBW(e, z));
+	r->ro = VecCast<V8S>(PunpckHBW(e, z));
+	r->go = VecCast<V8S>(PunpckLBW(d, z));
+	r->bo = VecCast<V8S>(PunpckHBW(d, z));
+}
+
+/// @brief Deinterleave 16 RGBA (4 bytes/px) pixels into channel planes
+/// @details Each 32-bit lane holds one full pixel; even/odd pixels are the
+///          even/odd lanes and channel bytes come off with uniform shifts.
+///          Values are 0..255, so the packssdw compaction is exact
+static VOID DeinterleaveRgba4(const UINT8 *p, RowPlanes *r)
+{
+	V4S v0 = VecCast<V4S>(LoadU(p));
+	V4S v1 = VecCast<V4S>(LoadU(p + 16));
+	V4S v2 = VecCast<V4S>(LoadU(p + 32));
+	V4S v3 = VecCast<V4S>(LoadU(p + 48));
+
+	V4S g0 = Psrld(v0, 8), g1 = Psrld(v1, 8);
+	V4S g2 = Psrld(v2, 8), g3 = Psrld(v3, 8);
+	V4S b0 = Psrld(v0, 16), b1 = Psrld(v1, 16);
+	V4S b2 = Psrld(v2, 16), b3 = Psrld(v3, 16);
+
+	V4S byte = VSplat(0x000000FFu);
+
+	r->re = Packssdw(__builtin_shufflevector(v0, v1, 0, 2, 4, 6) & byte,
+					 __builtin_shufflevector(v2, v3, 0, 2, 4, 6) & byte);
+	r->ro = Packssdw(__builtin_shufflevector(v0, v1, 1, 3, 5, 7) & byte,
+					 __builtin_shufflevector(v2, v3, 1, 3, 5, 7) & byte);
+	r->ge = Packssdw(__builtin_shufflevector(g0, g1, 0, 2, 4, 6) & byte,
+					 __builtin_shufflevector(g2, g3, 0, 2, 4, 6) & byte);
+	r->go = Packssdw(__builtin_shufflevector(g0, g1, 1, 3, 5, 7) & byte,
+					 __builtin_shufflevector(g2, g3, 1, 3, 5, 7) & byte);
+	r->be = Packssdw(__builtin_shufflevector(b0, b1, 0, 2, 4, 6) & byte,
+					 __builtin_shufflevector(b2, b3, 0, 2, 4, 6) & byte);
+	r->bo = Packssdw(__builtin_shufflevector(b0, b1, 1, 3, 5, 7) & byte,
+					 __builtin_shufflevector(b2, b3, 1, 3, 5, 7) & byte);
+}
+
+// ============================================================
+//  4-wide float DCT (lane = block), AAN butterflies
+// ============================================================
+
+/// @brief Forward 8x8 DCT over four blocks held lane-interleaved
+/// @details data[i] lane q = sample i of block q. The butterfly structure
+///          is identical to the scalar AAN DCT with every operation
+///          lane-vertical, so all four blocks advance together. The second
+///          pass multiplies each output by its (broadcast) quantize factor
+///          and converts to integer lanes in place, saving the separate
+///          64-element quantize sweep. dcBias carries the unfolded -128
+///          level shift of the luma path (8192.0f) or zero for chroma
+static VOID ForwardDCTQuantize4(V4F *data, const V4F *pqt4, V4S *out, V4F dcBias, const Sse2Const *k)
+{
+	V4F c4 = k->dctC4;
+	V4F c6 = k->dctC6;
+	V4F c2c6 = k->dctC2C6;
+	V4F c2p6 = k->dctC2P6;
+
+	// Pass 1: process rows
+	for (INT32 ctr = 7; ctr >= 0; ctr--)
+	{
+		V4F *d = data + ctr * 8;
+		V4F t0 = d[0] + d[7], t7 = d[0] - d[7];
+		V4F t1 = d[1] + d[6], t6 = d[1] - d[6];
+		V4F t2 = d[2] + d[5], t5 = d[2] - d[5];
+		V4F t3 = d[3] + d[4], t4 = d[3] - d[4];
+
+		V4F t10 = t0 + t3, t13 = t0 - t3;
+		V4F t11 = t1 + t2, t12 = t1 - t2;
+
+		d[0] = t10 + t11;
+		d[4] = t10 - t11;
+
+		V4F z1 = (t12 + t13) * c4;
+		d[2] = t13 + z1;
+		d[6] = t13 - z1;
+
+		t10 = t4 + t5;
+		t11 = t5 + t6;
+		t12 = t6 + t7;
+
+		V4F z5 = (t10 - t12) * c6;
+		V4F z2 = c2c6 * t10 + z5;
+		V4F z4 = c2p6 * t12 + z5;
+		V4F z3 = t11 * c4;
+
+		V4F z11 = t7 + z3;
+		V4F z13 = t7 - z3;
+
+		d[5] = z13 + z2;
+		d[3] = z13 - z2;
+		d[1] = z11 + z4;
+		d[7] = z11 - z4;
+	}
+
+	// Pass 2: process columns, fusing the quantize multiply and the
+	// integer conversion into the eight output stores
+	for (INT32 ctr = 7; ctr >= 0; ctr--)
+	{
+		V4F *d = data + ctr;
+		V4S *o = out + ctr;
+		V4F t0 = d[8 * 0] + d[8 * 7], t7 = d[8 * 0] - d[8 * 7];
+		V4F t1 = d[8 * 1] + d[8 * 6], t6 = d[8 * 1] - d[8 * 6];
+		V4F t2 = d[8 * 2] + d[8 * 5], t5 = d[8 * 2] - d[8 * 5];
+		V4F t3 = d[8 * 3] + d[8 * 4], t4 = d[8 * 3] - d[8 * 4];
+
+		V4F t10 = t0 + t3, t13 = t0 - t3;
+		V4F t11 = t1 + t2, t12 = t1 - t2;
+
+		// Only DC carries the unfolded level shift; other coefficients of a
+		// constant image are zero, so one correction on the (0,0) output
+		V4F dc0 = t10 + t11;
+		if (ctr == 0)
+			dc0 = dc0 - dcBias;
+		o[8 * 0] = Cvtps2dq(dc0 * pqt4[8 * 0 + ctr]);
+		o[8 * 4] = Cvtps2dq((t10 - t11) * pqt4[8 * 4 + ctr]);
+
+		V4F z1 = (t12 + t13) * c4;
+		o[8 * 2] = Cvtps2dq((t13 + z1) * pqt4[8 * 2 + ctr]);
+		o[8 * 6] = Cvtps2dq((t13 - z1) * pqt4[8 * 6 + ctr]);
+
+		t10 = t4 + t5;
+		t11 = t5 + t6;
+		t12 = t6 + t7;
+
+		V4F z5 = (t10 - t12) * c6;
+		V4F z2 = c2c6 * t10 + z5;
+		V4F z4 = c2p6 * t12 + z5;
+		V4F z3 = t11 * c4;
+
+		V4F z11 = t7 + z3;
+		V4F z13 = t7 - z3;
+
+		o[8 * 5] = Cvtps2dq((z13 + z2) * pqt4[8 * 5 + ctr]);
+		o[8 * 3] = Cvtps2dq((z13 - z2) * pqt4[8 * 3 + ctr]);
+		o[8 * 1] = Cvtps2dq((z11 + z4) * pqt4[8 * 1 + ctr]);
+		o[8 * 7] = Cvtps2dq((z11 - z4) * pqt4[8 * 7 + ctr]);
+	}
+}
+
+/// @brief Transpose 64 lane-interleaved vectors into zig-zag-ordered du
+/// @details src[i] lane q = coefficient i of block q. The 4x4 transposes
+///          land natural coefficient order in registers; each lane store
+///          routes through zigZag directly into the entropy stage's du,
+///          replacing the separate per-block reordering scatter. blocks
+///          selects how many lanes carry real blocks (4 luma, 2 chroma)
+static VOID Transpose4Zig(const V4S *src, INT32 *du0, INT32 *du1, INT32 *du2, INT32 *du3,
+						  INT32 blocks, const UINT8 *zigZag)
+{
+	for (INT32 t = 0; t < 16; ++t)
+	{
+		V4S v0 = src[t * 4 + 0];
+		V4S v1 = src[t * 4 + 1];
+		V4S v2 = src[t * 4 + 2];
+		V4S v3 = src[t * 4 + 3];
+
+		V4S l01 = PunpckLDQ(v0, v1);
+		V4S h01 = PunpckHDQ(v0, v1);
+		V4S l23 = PunpckLDQ(v2, v3);
+		V4S h23 = PunpckHDQ(v2, v3);
+
+		V4S c0 = PunpckLQDQ(l01, l23);
+		V4S c1 = PunpckHQDQ(l01, l23);
+		V4S c2 = PunpckLQDQ(h01, h23);
+		V4S c3 = PunpckHQDQ(h01, h23);
+
+		INT32 zz0 = zigZag[t * 4 + 0];
+		INT32 zz1 = zigZag[t * 4 + 1];
+		INT32 zz2 = zigZag[t * 4 + 2];
+		INT32 zz3 = zigZag[t * 4 + 3];
+		du0[zz0] = c0[0];
+		du1[zz0] = c1[0];
+		du0[zz1] = c0[1];
+		du1[zz1] = c1[1];
+		du0[zz2] = c0[2];
+		du1[zz2] = c1[2];
+		du0[zz3] = c0[3];
+		du1[zz3] = c1[3];
+		if (blocks > 2)
+		{
+			du2[zz0] = c2[0];
+			du2[zz1] = c2[1];
+			du2[zz2] = c2[2];
+			du2[zz3] = c2[3];
+			du3[zz0] = c3[0];
+			du3[zz1] = c3[1];
+			du3[zz2] = c3[2];
+			du3[zz3] = c3[3];
+		}
+	}
+}
+
+#endif // ARCHITECTURE_X86_64
 
 // ============================================================
 //  Internal types
@@ -396,10 +836,33 @@ static VOID CalculateVLI(INT32 value, UINT16 out[2])
 		absVal = -absVal;
 		--value;
 	}
-	out[1] = 1;
-	while (absVal >>= 1)
-		++out[1];
-	out[0] = (UINT16)(value & ((1 << out[1]) - 1));
+	// Bit length of absVal via a shift ladder — same result as the old
+	// per-bit loop (out[1] >= 1, callers only pass nonzero values)
+	UINT16 n = 1;
+	if (absVal > 0xFFFF)
+	{
+		absVal >>= 16;
+		n = (UINT16)(n + 16);
+	}
+	if (absVal > 0xFF)
+	{
+		absVal >>= 8;
+		n = (UINT16)(n + 8);
+	}
+	if (absVal > 0xF)
+	{
+		absVal >>= 4;
+		n = (UINT16)(n + 4);
+	}
+	if (absVal > 0x3)
+	{
+		absVal >>= 2;
+		n = (UINT16)(n + 2);
+	}
+	if (absVal > 0x1)
+		n = (UINT16)(n + 1);
+	out[1] = n;
+	out[0] = (UINT16)(value & ((1 << n) - 1));
 }
 
 /**
@@ -412,13 +875,14 @@ static VOID CalculateVLI(INT32 value, UINT16 out[2])
  * @param state Encoder state
  * @param bitbuffer Current bit accumulator
  * @param location Current bit position in the accumulator (< 32 on return)
- * @param numBits Number of bits to write (1–16)
+ * @param numBits Number of bits to write (1–27: a Huffman code plus an
+ *        11-bit VLI suffix fits one call)
  * @param bits Bit values to write (right-aligned)
  *
  * @see ITU-T T.81 B.1.1.5 — Byte stuffing
  */
 static VOID WriteBits(EncoderState *state, UINT64 *bitbuffer, UINT32 *location,
-					  UINT16 numBits, UINT16 bits)
+					  UINT16 numBits, UINT32 bits)
 {
 	*bitbuffer |= (UINT64)bits << (64 - (*location + numBits));
 	*location += numBits;
@@ -611,6 +1075,11 @@ static VOID ForwardDCT(float *data, const EncodeConstants *c)
  *
  * @see ITU-T T.81 F.1.2 — Huffman encoding procedures for DC/AC coefficients
  */
+static VOID EncodeEntropy(EncoderState *state, const INT32 *du,
+						  UINT8 *huffDcLen, UINT16 *huffDcCode,
+						  UINT8 *huffAcLen, UINT16 *huffAcCode,
+						  INT32 *pred, UINT64 *bitbuffer, UINT32 *location);
+
 static VOID EncodeMCU(EncoderState *state, float *mcu, float *qt,
 					  UINT8 *huffDcLen, UINT16 *huffDcCode,
 					  UINT8 *huffAcLen, UINT16 *huffAcCode,
@@ -633,6 +1102,33 @@ static VOID EncodeMCU(EncoderState *state, float *mcu, float *qt,
 		du[zigZag[i]] = ival - 1024;
 	}
 
+	EncodeEntropy(state, du, huffDcLen, huffDcCode, huffAcLen, huffAcCode,
+				  pred, bitbuffer, location);
+}
+
+/**
+ * @brief Entropy-code one quantized 8x8 block (DC differential + AC RLE)
+ *
+ * @details The coefficient stage of the encoder shared by the scalar path
+ * (EncodeMCU) and the SIMD path (EncodeBlockDu). du is in zig-zag order.
+ *
+ * @param state Encoder state
+ * @param du 64 quantized coefficients in zig-zag order
+ * @param huffDcLen DC Huffman code sizes
+ * @param huffDcCode DC Huffman code values
+ * @param huffAcLen AC Huffman code sizes
+ * @param huffAcCode AC Huffman code values
+ * @param pred Previous DC coefficient (updated on return)
+ * @param bitbuffer Bit accumulator (updated on return)
+ * @param location Bit position in accumulator (updated on return)
+ *
+ * @see ITU-T T.81 F.1.2 — Huffman encoding procedures for DC/AC coefficients
+ */
+static VOID EncodeEntropy(EncoderState *state, const INT32 *du,
+						  UINT8 *huffDcLen, UINT16 *huffDcCode,
+						  UINT8 *huffAcLen, UINT16 *huffAcCode,
+						  INT32 *pred, UINT64 *bitbuffer, UINT32 *location)
+{
 	UINT16 vli[2];
 
 	// DC coefficient (differential encoding)
@@ -641,8 +1137,12 @@ static VOID EncodeMCU(EncoderState *state, float *mcu, float *qt,
 	if (diff != 0)
 	{
 		CalculateVLI(diff, vli);
-		WriteBits(state, bitbuffer, location, huffDcLen[vli[1]], huffDcCode[vli[1]]);
-		WriteBits(state, bitbuffer, location, vli[1], vli[0]);
+		// One merged emit: the code bits and the VLI bits are consecutive
+		// in the stream, so (code << cat) | vli under a single call
+		// produces exactly the same bits as the two-call form
+		UINT32 cat = vli[1];
+		WriteBits(state, bitbuffer, location, (UINT16)(huffDcLen[cat] + cat),
+				  (UINT32)huffDcCode[cat] << cat | vli[0]);
 	}
 	else
 	{
@@ -677,8 +1177,9 @@ static VOID EncodeMCU(EncoderState *state, float *mcu, float *qt,
 		CalculateVLI(du[i], vli);
 
 		UINT16 sym = (UINT16)((UINT16)zeroCount << 4) | vli[1];
-		WriteBits(state, bitbuffer, location, huffAcLen[sym], huffAcCode[sym]);
-		WriteBits(state, bitbuffer, location, vli[1], vli[0]);
+		UINT32 cat = vli[1];
+		WriteBits(state, bitbuffer, location, (UINT16)(huffAcLen[sym] + cat),
+				  (UINT32)huffAcCode[sym] << cat | vli[0]);
 	}
 
 	if (lastNonZero != 63)
@@ -837,6 +1338,236 @@ static VOID LoadMcu(const UINT8 *srcData, INT32 width, INT32 height, INT32 strid
 	}
 }
 
+#if defined(ARCHITECTURE_X86_64)
+
+/**
+ * @brief Entropy-code one already-quantized block (the SIMD path's entry)
+ * @param du 64 quantized coefficients in zig-zag order
+ * @param luma True for luma (HT 0/1), false for chroma (HT 2/3)
+ */
+static VOID EncodeBlockDu(EncoderState *state, const INT32 *du, BOOL luma,
+						  INT32 *pred, UINT64 *bitbuffer, UINT32 *location)
+{
+	UINT32 dc = luma ? LumaDC : ChromaDC;
+	UINT32 ac = luma ? LumaAC : ChromaAC;
+	EncodeEntropy(state, du,
+				  state->ehuffsize[dc], state->ehuffcode[dc],
+				  state->ehuffsize[ac], state->ehuffcode[ac],
+				  pred, bitbuffer, location);
+}
+
+/**
+ * @brief Load one 16x16 MCU through the SSE2 path
+ *
+ * @details Requires the caller to guarantee mcuX + 16 <= width (every
+ * column real, so the three 16-byte row loads stay inside the row and the
+ * buffer). Row clamping below the MCU re-reads the last source row, which
+ * matches the scalar edge replication exactly.
+ *
+ * Output layout is built for the 4-wide DCT: luma4[i] lane q = sample i of
+ * quadrant block q (Y1 top-left, Y2 top-right, Y3 bottom-left, Y4
+ * bottom-right), and chroma4[i] = [Cb_i, Cr_i, 0, 0].
+ *
+ * The math matches the scalar LoadMcu exactly: the luma fixed-point
+ * accumulator is the same 19595R + 38470G + 7471B integer (the 0.587G term
+ * split across the two pmaddwd weight pairs), and the chroma pair goes
+ * through the same averaged fixed-point conversion. The -128 level shift
+ * and the 2^-16 scale ride the DCT's DC correction and the quantize
+ * factors respectively, keeping the per-row loop free of both.
+ *
+ * @param srcData Raw pixel data
+ * @param height Image height for row clamping
+ * @param stride Row pitch in pixels
+ * @param srcNumComponents Bytes per pixel (3 = RGB, 4 = RGBA)
+ * @param mcuX Left column of the MCU (mcuX + 16 <= width)
+ * @param mcuY Top row of the MCU
+ * @param luma4 Output: 64 quadrant-interleaved luma sample vectors
+ * @param chroma4 Output: 64 [Cb, Cr, 0, 0] chroma sample vectors
+ * @param k Per-encode SSE2 constants
+ */
+static VOID LoadMcuSse(const UINT8 *srcData, INT32 height, INT32 stride,
+					   INT32 srcNumComponents, INT32 mcuX, INT32 mcuY,
+					   V4F *luma4, V4F *chroma4, const Sse2Const *k)
+{
+	V8S accR[8], accG[8], accB[8];
+	{
+		V8S z = VecCast<V8S>(VSplat(0));
+		for (INT32 i = 0; i < 8; ++i)
+		{
+			accR[i] = z;
+			accG[i] = z;
+			accB[i] = z;
+		}
+	}
+
+	// Row pairs (r, r+8) put all four quadrant samples of luma4 index
+	// (r, c) in flight together for the 4x4 transposes below
+	for (INT32 r = 0; r < 8; ++r)
+	{
+		V4S eTop[2], oTop[2], eBot[2], oBot[2];
+		for (INT32 half = 0; half < 2; ++half)
+		{
+			INT32 offY = r + half * 8;
+			INT32 row = mcuY + offY;
+			if (row >= height)
+				row = height - 1;
+			const UINT8 *p = srcData + (USIZE)(row * stride + mcuX) * (USIZE)srcNumComponents;
+
+			RowPlanes pl;
+			if (srcNumComponents == 3)
+				DeinterleaveRgb3(p, &pl);
+			else
+				DeinterleaveRgba4(p, &pl);
+
+			// Chroma 2x2 box accumulation: even + odd is the horizontal pair
+			accR[offY >> 1] += pl.re + pl.ro;
+			accG[offY >> 1] += pl.ge + pl.go;
+			accB[offY >> 1] += pl.be + pl.bo;
+
+			// Luma fixed point via the (R,G)/(B,G) weight-pair split; no
+			// -128 fold (a constant image only shifts DC, corrected in the DCT)
+			V4S *ev = half ? eBot : eTop;
+			V4S *od = half ? oBot : oTop;
+			ev[0] = PmaddWD(PunpckLWD(pl.re, pl.ge), k->yRG) +
+					PmaddWD(PunpckLWD(pl.be, pl.ge), k->yBG);
+			ev[1] = PmaddWD(PunpckHWD(pl.re, pl.ge), k->yRG) +
+					PmaddWD(PunpckHWD(pl.be, pl.ge), k->yBG);
+			od[0] = PmaddWD(PunpckLWD(pl.ro, pl.go), k->yRG) +
+					PmaddWD(PunpckLWD(pl.bo, pl.go), k->yBG);
+			od[1] = PmaddWD(PunpckHWD(pl.ro, pl.go), k->yRG) +
+					PmaddWD(PunpckHWD(pl.bo, pl.go), k->yBG);
+		}
+
+		// To float unscaled: the DCT is linear, so the 2^-16 fixed-point
+		// scale rides the quantize factors instead (pqtLuma4 is pre-scaled)
+		// and the -128 shift lands in the DC correction
+		V4F eF[4], oF[4];
+		{
+			V4S eS[4] = {eTop[0], eTop[1], eBot[0], eBot[1]};
+			V4S oS[4] = {oTop[0], oTop[1], oBot[0], oBot[1]};
+			for (INT32 i = 0; i < 4; ++i)
+			{
+				eF[i] = Cvtdq2ps(eS[i]);
+				oF[i] = Cvtdq2ps(oS[i]);
+			}
+		}
+
+		// Quadrant interleave: 4x4 transposes over (top-left, top-right,
+		// bottom-left, bottom-right); columns land on luma4 row indices,
+		// even-index columns from the even-pixel transpose, odd from odd
+		V4S e0 = VecCast<V4S>(eF[0]), e1 = VecCast<V4S>(eF[1]);
+		V4S e2 = VecCast<V4S>(eF[2]), e3 = VecCast<V4S>(eF[3]);
+		V4S o0 = VecCast<V4S>(oF[0]), o1 = VecCast<V4S>(oF[1]);
+		V4S o2 = VecCast<V4S>(oF[2]), o3 = VecCast<V4S>(oF[3]);
+		V4S el01 = PunpckLDQ(e0, e1), eh01 = PunpckHDQ(e0, e1);
+		V4S el23 = PunpckLDQ(e2, e3), eh23 = PunpckHDQ(e2, e3);
+		V4S ol01 = PunpckLDQ(o0, o1), oh01 = PunpckHDQ(o0, o1);
+		V4S ol23 = PunpckLDQ(o2, o3), oh23 = PunpckHDQ(o2, o3);
+		luma4[r * 8 + 0] = VecCast<V4F>(PunpckLQDQ(el01, el23));
+		luma4[r * 8 + 2] = VecCast<V4F>(PunpckHQDQ(el01, el23));
+		luma4[r * 8 + 4] = VecCast<V4F>(PunpckLQDQ(eh01, eh23));
+		luma4[r * 8 + 6] = VecCast<V4F>(PunpckHQDQ(eh01, eh23));
+		luma4[r * 8 + 1] = VecCast<V4F>(PunpckLQDQ(ol01, ol23));
+		luma4[r * 8 + 3] = VecCast<V4F>(PunpckHQDQ(ol01, ol23));
+		luma4[r * 8 + 5] = VecCast<V4F>(PunpckLQDQ(oh01, oh23));
+		luma4[r * 8 + 7] = VecCast<V4F>(PunpckHQDQ(oh01, oh23));
+	}
+
+	// Chroma finish: 2x2 average, fixed-point conversion, [Cb,Cr,0,0] lanes
+	for (INT32 row = 0; row < 8; ++row)
+	{
+		V8S r = Psrlw(accR[row] + k->chromaHalf, 2);
+		V8S g = Psrlw(accG[row] + k->chromaHalf, 2);
+		V8S b = Psrlw(accB[row] + k->chromaHalf, 2);
+		V8S zero = r ^ r;
+
+		// (0, x) unpacked puts x in the high half of a 32-bit lane, so a
+		// single >> 1 yields x << 15 = 0.5 * 65536 * x
+		V4S cbL = PmaddWD(PunpckLWD(r, g), k->cbRG) +
+				  Psrld(PunpckLWD(zero, b), 1) + k->chromaBias;
+		V4S cbH = PmaddWD(PunpckHWD(r, g), k->cbRG) +
+				  Psrld(PunpckHWD(zero, b), 1) + k->chromaBias;
+		V4S crL = PmaddWD(PunpckLWD(g, b), k->crGB) +
+				  Psrld(PunpckLWD(zero, r), 1) + k->chromaBias;
+		V4S crH = PmaddWD(PunpckHWD(g, b), k->crGB) +
+				  Psrld(PunpckHWD(zero, r), 1) + k->chromaBias;
+
+		V4S cbLv = Psrad(cbL, 16), cbHv = Psrad(cbH, 16);
+		V4S crLv = Psrad(crL, 16), crHv = Psrad(crH, 16);
+
+		V4S p01 = PunpckLDQ(cbLv, crLv);
+		V4S p23 = PunpckHDQ(cbLv, crLv);
+		V4S p45 = PunpckLDQ(cbHv, crHv);
+		V4S p67 = PunpckHDQ(cbHv, crHv);
+		V4S z = p01 ^ p01;
+		chroma4[row * 8 + 0] = Cvtdq2ps(PunpckLQDQ(p01, z));
+		chroma4[row * 8 + 1] = Cvtdq2ps(PunpckHQDQ(p01, z));
+		chroma4[row * 8 + 2] = Cvtdq2ps(PunpckLQDQ(p23, z));
+		chroma4[row * 8 + 3] = Cvtdq2ps(PunpckHQDQ(p23, z));
+		chroma4[row * 8 + 4] = Cvtdq2ps(PunpckLQDQ(p45, z));
+		chroma4[row * 8 + 5] = Cvtdq2ps(PunpckHQDQ(p45, z));
+		chroma4[row * 8 + 6] = Cvtdq2ps(PunpckLQDQ(p67, z));
+		chroma4[row * 8 + 7] = Cvtdq2ps(PunpckHQDQ(p67, z));
+	}
+}
+
+/**
+ * @brief Load, transform, quantize, and entropy-code one full 4:2:0 MCU (SSE2)
+ *
+ * @details The four luma blocks run through one 4-wide DCT/quantize pass
+ * and the Cb/Cr pair through one half-utilized pass (lanes 2-3 are zeros),
+ * then each block is zig-zag scattered and entropy-coded in the same Y1 Y2
+ * Y3 Y4 Cb Cr order as the scalar path.
+ *
+ * @param state Encoder state
+ * @param srcData Raw pixel data
+ * @param height Image height for row clamping
+ * @param stride Row pitch in pixels
+ * @param srcNumComponents Bytes per pixel (3 = RGB, 4 = RGBA)
+ * @param mcuX Left column of the MCU (mcuX + 16 <= width)
+ * @param mcuY Top row of the MCU
+ * @param sseConst Per-encode SSE2 constants
+ * @param pqtLuma4 Luma quantize vectors, broadcast per coefficient
+ * @param pqtChroma4 Chroma quantize vectors, broadcast per coefficient
+ * @param zigZag Zig-zag reordering table
+ * @param predY Luma DC predictor (updated on return)
+ * @param predCb Cb DC predictor (updated on return)
+ * @param predCr Cr DC predictor (updated on return)
+ * @param bitbuffer Bit accumulator (updated on return)
+ * @param location Bit position in accumulator (updated on return)
+ */
+static VOID EncodeMcuSse(EncoderState *state, const UINT8 *srcData, INT32 height, INT32 stride,
+						 INT32 srcNumComponents, INT32 mcuX, INT32 mcuY,
+						 const Sse2Const *sseConst, const V4F *pqtLuma4, const V4F *pqtChroma4,
+						 const UINT8 *zigZag,
+						 INT32 *predY, INT32 *predCb, INT32 *predCr,
+						 UINT64 *bitbuffer, UINT32 *location)
+{
+	V4F luma4[64];
+	V4F chroma4[64];
+	V4S du4[64];
+	INT32 duY[4][64];
+	INT32 duC[2][64];
+
+	LoadMcuSse(srcData, height, stride, srcNumComponents, mcuX, mcuY, luma4, chroma4, sseConst);
+
+	// Y1 Y2 Y3 Y4: one 4-wide DCT+quantize + transpose covers the quadrants
+	ForwardDCTQuantize4(luma4, pqtLuma4, du4, sseConst->dctDcBias, sseConst);
+	Transpose4Zig(du4, duY[0], duY[1], duY[2], duY[3], 4, zigZag);
+	for (UINT32 q = 0; q < 4; ++q)
+		EncodeBlockDu(state, duY[q], true, predY, bitbuffer, location);
+
+	// Cb Cr: lanes 0-1 carry the pair, lanes 2-3 are zeros; already centered
+	ForwardDCTQuantize4(chroma4, pqtChroma4, du4, VecCast<V4F>(VSplat(0)), sseConst);
+	Transpose4Zig(du4, duC[0], duC[1], duC[1], duC[1], 2, zigZag);
+	EncodeBlockDu(state, duC[0], false, predCb, bitbuffer, location);
+	EncodeBlockDu(state, duC[1], false, predCr, bitbuffer, location);
+}
+
+#endif // ARCHITECTURE_X86_64
+
+
+
 // ============================================================
 //  Main encoding loop
 // ============================================================
@@ -992,6 +1723,20 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 	UINT64 bitbuffer = 0;
 	UINT32 bitLocation = 0;
 
+#if defined(ARCHITECTURE_X86_64)
+	// SIMD constants and per-coefficient quantize vectors, once per encode
+	Sse2Const sseConst;
+	InitSse2Const(&sseConst);
+	V4F pqtLuma4[64];
+	V4F pqtChroma4[64];
+	float lumaScale = F32(0x37800000); // 2^-16, riding the quantize factors
+	for (INT32 i = 0; i < 64; ++i)
+	{
+		pqtLuma4[i] = VecCast<V4F>(VSplat(__builtin_bit_cast(UINT32, pqt.luma[i] * lumaScale)));
+		pqtChroma4[i] = VecCast<V4F>(VSplat(__builtin_bit_cast(UINT32, pqt.chroma[i])));
+	}
+#endif
+
 	if (subsampleChroma)
 	{
 		// 4:2:0: 16x16 MCUs — one pass loads four luma blocks plus the
@@ -1000,6 +1745,17 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 		{
 			for (INT32 x = 0; x < width; x += 16)
 			{
+#if defined(ARCHITECTURE_X86_64)
+				// Full MCUs only: the SIMD loader reads 16 real columns per
+				// row, so the rightmost partial-MCU column stays scalar
+				if (x + 16 <= width)
+				{
+					EncodeMcuSse(state, srcData, height, stride, srcNumComponents, x, y,
+								 &sseConst, pqtLuma4, pqtChroma4, zigZag,
+								 &predY, &predCb, &predCr, &bitbuffer, &bitLocation);
+					continue;
+				}
+#endif
 				LoadMcu(srcData, width, height, stride, srcNumComponents, x, y, luma, duCb, duCr, &c);
 
 				for (UINT32 q = 0; q < 4; ++q)
