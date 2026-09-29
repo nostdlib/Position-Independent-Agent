@@ -356,9 +356,6 @@ struct ScreenCaptureContext
 {
     ScreenDeviceList DeviceList;
     GraphicsList GraphicsList;
-    UINT32 CurrentIndex;
-    UINT32 Quality;    // JPEG quality, default 75
-    UINT32 Count;
 };
 ```
 
@@ -377,10 +374,13 @@ screen capture (X11, Wayland, GDI, etc.). On Windows the handler passes
 persistent GDI resources (memory DC, compatible bitmap, BGRA conversion buffer)
 created once per display via `Screen::CreateCaptureState` and held in
 `Graphics::captureState`; GDI object creation otherwise dominates a per-call
-capture. The platform layer rebuilds the state in place on a dimension
-mismatch (display-mode change) and on a capture failure retries once after a
-rebuild before reporting failure. Other platforms ignore the state (nullptr)
-and capture statelessly through the same entry point.
+capture. On Linux the X11 backend keeps one server connection
+(`posix/screen.cc:1901`-`1930`); DRM/fbdev stay stateless. The platform layer
+rebuilds the state in place on a dimension mismatch (display-mode change) and
+on a capture failure retries once after a rebuild before reporting failure. All
+other platforms return `Ok(nullptr)` from `Screen::CreateCaptureState` and
+capture statelessly through the same entry point; the handler calls
+`CreateCaptureState` unconditionally (`commandsHandler.cc:801`-`806`).
 
 **Stage 3 -- Fused difference + dirty detection.** The handler calls the fused
 `ImageProcessor::FindDirtyRects(current, previous, w, h, 64, 24)` overload: one

@@ -201,11 +201,8 @@ struct ScreenCaptureContext
 {
     ScreenDeviceList DeviceList;
     GraphicsList GraphicsList;
-    UINT32 CurrentIndex;
-    UINT32 Quality;
-    UINT32 Count;
 
-    ScreenCaptureContext() : CurrentIndex(0), Quality(75), Count(0)
+    ScreenCaptureContext()
     {
         DeviceList.Devices = nullptr;
         DeviceList.Count = 0;

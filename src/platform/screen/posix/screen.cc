@@ -2645,13 +2645,21 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 			}
 
 			if (!allBlack)
+			{
+				if (status != nullptr)
+					status->BitsPerPixel = 32;
 				return result;
+			}
 		}
 
 		// DRM capture failed or returned all-black — try framebuffer
 		auto fbResult = FbCaptureFallback(device, buffer);
 		if (fbResult)
+		{
+			if (status != nullptr)
+				status->BitsPerPixel = 32;
 			return fbResult;
+		}
 
 #if defined(PLATFORM_ANDROID)
 		// DRM and framebuffer both failed — last resort: screencap

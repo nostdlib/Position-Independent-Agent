@@ -304,7 +304,7 @@ INT32 start()
             LOG_DEBUG("Sending response (%u bytes) to server", (UINT32)responseLength);
             auto writeResult = wsClient.WriteResponse(*(PUINT32)response, correlationId,
                                                       Span<const CHAR>(response + sizeof(UINT32),
-                                                                       responseLength - sizeof(UINT32)),
+                                                                       responseLength < sizeof(UINT32) ? 0 : responseLength - sizeof(UINT32)),
                                                       WebSocketOpcode::Binary);
             delete[] response;
 

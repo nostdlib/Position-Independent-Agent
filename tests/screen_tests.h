@@ -12,6 +12,9 @@ public:
 
 		LOG_INFO("Running Screen Tests...");
 
+		// Without a display every test here early-returns true, asserting nothing;
+		// 16bpp/DepthChanged/FrameUnchanged exercise only on Windows (posix ignores
+		// CaptureOptions) — Lifecycle/DefaultAfterExplicit assert on X11
 		RunTest(allPassed, &TestGetDevices, "GetDevices returns active displays");
 		RunTest(allPassed, &TestGetDevices_HasPrimary, "GetDevices includes a primary display");
 		RunTest(allPassed, &TestCapture, "Capture produces non-zero pixel data");
@@ -374,6 +377,11 @@ private:
 			{
 				LOG_WARNING("Depth-switch captures unavailable (headless?)");
 			}
+			else if (first.DepthChanged)
+			{
+				LOG_ERROR("32bpp capture reported DepthChanged without a depth switch");
+				ok = false;
+			}
 			else if (second.BitsPerPixel == 16)
 			{
 				if (!second.DepthChanged)
@@ -443,11 +451,6 @@ private:
 			}
 			else
 			{
-				// Paint the sentinel so a skip is provable by what survives
-				UINT8 *raw = (UINT8 *)pixels;
-				for (USIZE i = 0; i < (USIZE)pixelCount * sizeof(RGB); i++)
-					raw[i] = (UINT8)(i * 31 + 7);
-
 				// Two gated captures: the first re-baselines (gateValid was
 				// cleared by the non-gated priming capture), so only the second
 				// can skip — that is the branch the sentinel verifies
@@ -463,6 +466,11 @@ private:
 				}
 				else
 				{
+					// Paint the sentinel so a skip is provable by what survives
+					UINT8 *raw = (UINT8 *)pixels;
+					for (USIZE i = 0; i < (USIZE)pixelCount * sizeof(RGB); i++)
+						raw[i] = (UINT8)(i * 31 + 7);
+
 					auto second = Screen::Capture(dev, Span<RGB>(pixels, pixelCount), state.Value(), &gated, &gatedStatus);
 					if (!second)
 						LOG_WARNING("Second gated capture unavailable (headless?)");

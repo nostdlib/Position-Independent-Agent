@@ -303,6 +303,36 @@ static BOOL EnsureGateObjects(WinCaptureState *state)
 	return true;
 }
 
+// DIB rows are DWORD-aligned: 16bpp odd widths carry padding
+static UINT32 DibStrideBytes(INT32 width, UINT16 bpp)
+{
+	return (UINT32)(((USIZE)width * bpp + 31) / 32 * 4);
+}
+
+// Fill the shared top-down capture header; 16bpp pins the 5-6-5 layout with
+// explicit BI_BITFIELDS masks (BI_RGB 16bpp is documented ambiguously across
+// eras), 32bpp uses BI_RGB with zeroed masks
+static VOID InitCaptureHeader(BITMAPINFOHEADER *header, UINT32 *masks, INT32 width, INT32 height, UINT16 bpp)
+{
+	header->biSize = sizeof(BITMAPINFOHEADER);
+	header->biWidth = width;
+	header->biHeight = -height; // negative = top-down scanlines
+	header->biPlanes = 1;
+	header->biBitCount = bpp;
+	if (bpp == 16)
+	{
+		header->biCompression = BI_BITFIELDS;
+		masks[0] = 0xF800; // red
+		masks[1] = 0x07E0; // green
+		masks[2] = 0x001F; // blue
+	}
+	else
+	{
+		header->biCompression = BI_RGB;
+		masks[0] = masks[1] = masks[2] = 0;
+	}
+}
+
 // (Re)create the memory DC + capture bitmap for the current mode. DIB mode:
 // the section's bits pointer becomes state->bgra, so blts into the DC write
 // the capture straight into our buffer. DDB mode: plain compatible bitmap,
@@ -323,28 +353,10 @@ static BOOL RebuildGdiObjects(WinCaptureState *state, INT32 width, INT32 height,
 		LOG_ERROR("gdi rebuild %dx%d: CreateCompatibleDC failed", width, height);
 	if (state->memDC != nullptr)
 	{
-		// Top-down format shared by both modes (DIB target / GetDIBits). At
-		// 16bpp the layout is pinned with explicit 5-6-5 masks (BI_RGB 16bpp
-		// is documented ambiguously across eras); the masks must sit directly
-		// behind the header in memory
+		// Top-down format shared by both modes (DIB target / GetDIBits); the
+		// masks must sit directly behind the header in memory
 		Memory::Zero(&state->bmi, sizeof(state->bmi));
-		state->bmi.biSize = sizeof(BITMAPINFOHEADER);
-		state->bmi.biWidth = width;
-		state->bmi.biHeight = -height; // negative = top-down scanlines
-		state->bmi.biPlanes = 1;
-		state->bmi.biBitCount = bpp;
-		if (bpp == 16)
-		{
-			state->bmi.biCompression = BI_BITFIELDS;
-			state->bmiMasks[0] = 0xF800; // red
-			state->bmiMasks[1] = 0x07E0; // green
-			state->bmiMasks[2] = 0x001F; // blue
-		}
-		else
-		{
-			state->bmi.biCompression = BI_RGB;
-			state->bmiMasks[0] = state->bmiMasks[1] = state->bmiMasks[2] = 0;
-		}
+		InitCaptureHeader(&state->bmi, state->bmiMasks, width, height, bpp);
 
 		if (state->useDib)
 		{
@@ -357,8 +369,7 @@ static BOOL RebuildGdiObjects(WinCaptureState *state, INT32 width, INT32 height,
 			else
 			{
 				state->bgra = (UINT8 *)bits;
-				// DIB rows are DWORD-aligned: 16bpp odd widths carry padding
-				state->bgraSize = (UINT32)((((USIZE)width * bpp + 31) / 32) * 4) * (UINT32)height;
+				state->bgraSize = DibStrideBytes(width, bpp) * (UINT32)height;
 				state->bgraIsDibSection = true;
 				state->oldBitmap = Gdi32::SelectObject(state->memDC, state->bitmap);
 				if (state->oldBitmap == nullptr)
@@ -403,7 +414,7 @@ static BOOL RebuildCaptureObjects(WinCaptureState *state, INT32 width, INT32 hei
 	if (state->useDib)
 	{
 		state->useDib = false;
-		LOG_WARNING("dib-section capture rejected, falling back to getdibits");
+		LOG_WARNING("gdi rebuild failed, degrading to getdibits");
 		return RebuildGdiObjects(state, width, height, bpp);
 	}
 	return false;
@@ -474,31 +485,15 @@ static BOOL CreateScratchDib(ScratchDib *out, PVOID screenDC, INT32 width, INT32
 	if (out->dc == nullptr)
 		return false;
 
-	// Header + channel masks in one block: 16bpp pins 5-6-5 explicitly (the
-	// masks must directly follow the header for BI_BITFIELDS); 32bpp BI_RGB
-	// needs no masks
+	// Header + channel masks in one block: the masks must directly follow
+	// the header for BI_BITFIELDS; 32bpp BI_RGB needs no masks
 	struct
 	{
 		BITMAPINFOHEADER header;
 		UINT32 bmiMasks[3];
 	} info;
 	Memory::Zero(&info, sizeof(info));
-	info.header.biSize = sizeof(BITMAPINFOHEADER);
-	info.header.biWidth = width;
-	info.header.biHeight = -height; // top-down
-	info.header.biPlanes = 1;
-	info.header.biBitCount = bpp;
-	if (bpp == 16)
-	{
-		info.header.biCompression = BI_BITFIELDS;
-		info.bmiMasks[0] = 0xF800; // red
-		info.bmiMasks[1] = 0x07E0; // green
-		info.bmiMasks[2] = 0x001F; // blue
-	}
-	else
-	{
-		info.header.biCompression = BI_RGB;
-	}
+	InitCaptureHeader(&info.header, info.bmiMasks, width, height, bpp);
 
 	PVOID bits = nullptr;
 	out->bitmap = Gdi32::CreateDIBSection(screenDC, (BITMAPINFO *)&info, DIB_RGB_COLORS, &bits, nullptr, 0);
@@ -847,8 +842,7 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 
 	// Persistent objects may go stale (lost DC, driver hiccup, desktop switch
 	// invalidating the cached screen DC): drop the cached DC, rebuild once,
-	// and retry before reporting failure. blt measures the BitBlt itself;
-	// dibits stays 0 in DIB mode (captures land in bgra directly)
+	// and retry before reporting failure.
 	for (UINT32 attempt = 0; ; attempt++)
 	{
 		PVOID screenDC = AcquireScreenDC(state);
@@ -872,7 +866,7 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 			if (state->useDib)
 			{
 				state->useDib = false;
-				LOG_WARNING("dib-section blt rejected, falling back to getdibits");
+				LOG_WARNING("capture blt failed, degrading to getdibits");
 			}
 			if (!RebuildGdiObjects(state, width, height, state->bpp))
 				return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
@@ -885,7 +879,7 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 		// DDB destination: read the pixels back. GetDIBits requires the bitmap
 		// not be selected into a DC (documented precondition — some drivers
 		// enforce it)
-		UINT32 bgraNeeded = (UINT32)((((USIZE)width * state->bpp + 31) / 32) * 4) * (UINT32)height;
+		UINT32 bgraNeeded = DibStrideBytes(width, state->bpp) * (UINT32)height;
 		if (state->bgraSize < bgraNeeded)
 		{
 			UINT8 *grown = new UINT8[bgraNeeded];
@@ -913,7 +907,7 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 
 	// BGRA/RGB565 -> RGB straight out of the capture memory into the frame buffer
 	UINT32 pixelCount = device.Width * device.Height;
-	USIZE captureStride = ((USIZE)width * state->bpp + 31) / 32 * 4;
+	USIZE captureStride = DibStrideBytes(width, state->bpp);
 	if (state->bpp == 16)
 		ConvertBgr565ToRgb(state->bgra, buffer.Data(), device.Width, device.Height, captureStride);
 	else

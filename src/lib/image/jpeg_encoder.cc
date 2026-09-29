@@ -218,6 +218,13 @@ struct Sse2Const
 	V4F dctC2P6;	 ///< cos(2*pi/16) + cos(6*pi/16)
 };
 
+// AAN DCT constants shared by the SIMD vector init and the scalar path —
+// single-sourced so a retune cannot diverge the two
+static constexpr UINT32 kDctC4Bits = 0x3F3504F3u;   ///< cos(4*pi/16) * sqrt(2)
+static constexpr UINT32 kDctC6Bits = 0x3EC3EF15u;   ///< cos(6*pi/16) * sqrt(2)
+static constexpr UINT32 kDctC2C6Bits = 0x3F0A8BD4u; ///< cos(2*pi/16) - cos(6*pi/16)
+static constexpr UINT32 kDctC2P6Bits = 0x3FA73D75u; ///< cos(2*pi/16) + cos(6*pi/16)
+
 /// @brief Initialize the per-encode SSE2 constant set
 static VOID InitSse2Const(Sse2Const *k)
 {
@@ -228,10 +235,10 @@ static VOID InitSse2Const(Sse2Const *k)
 	k->dctDcBias = VecCast<V4F>(VSplat(0x4E000000u)); // 8192 << 16
 	k->chromaHalf = VecCast<V8S>(VSplat(0x00020002u));
 	k->chromaBias = VSplat(32768u);
-	k->dctC4 = VecCast<V4F>(VSplat(0x3F3504F3u));
-	k->dctC6 = VecCast<V4F>(VSplat(0x3EC3EF15u));
-	k->dctC2C6 = VecCast<V4F>(VSplat(0x3F0A8BD4u));
-	k->dctC2P6 = VecCast<V4F>(VSplat(0x3FA73D75u));
+	k->dctC4 = VecCast<V4F>(VSplat(kDctC4Bits));
+	k->dctC6 = VecCast<V4F>(VSplat(kDctC6Bits));
+	k->dctC2C6 = VecCast<V4F>(VSplat(kDctC2C6Bits));
+	k->dctC2P6 = VecCast<V4F>(VSplat(kDctC2P6Bits));
 }
 
 // ============================================================
@@ -1263,7 +1270,7 @@ static VOID LoadFullBlock(const UINT8 *srcData, INT32 width, INT32 height, INT32
 			INT32 col = blockX + offX;
 			if (col >= width)
 				col = width - 1;
-			const UINT8 *px = srcData + (USIZE)(row * stride + col) * (USIZE)srcNumComponents;
+			const UINT8 *px = srcData + ((USIZE)row * (USIZE)stride + (USIZE)col) * (USIZE)srcNumComponents;
 			UINT8 b = px[2];
 			UINT8 g = px[1];
 			UINT8 r = px[0];
@@ -1311,7 +1318,7 @@ static VOID LoadMcu(const UINT8 *srcData, INT32 width, INT32 height, INT32 strid
 			INT32 col = mcuX + offX;
 			if (col >= width)
 				col = width - 1;
-			const UINT8 *px = srcData + (USIZE)(row * stride + col) * (USIZE)srcNumComponents;
+			const UINT8 *px = srcData + ((USIZE)row * (USIZE)stride + (USIZE)col) * (USIZE)srcNumComponents;
 
 			UINT32 accIdx = (USIZE)(offY >> 1) * 8 + (UINT32)(offX >> 1);
 			rAcc[accIdx] += px[0];
@@ -1410,7 +1417,7 @@ static VOID LoadMcuSse(const UINT8 *srcData, INT32 height, INT32 stride,
 			INT32 row = mcuY + offY;
 			if (row >= height)
 				row = height - 1;
-			const UINT8 *p = srcData + (USIZE)(row * stride + mcuX) * (USIZE)srcNumComponents;
+			const UINT8 *p = srcData + ((USIZE)row * (USIZE)stride + (USIZE)mcuX) * (USIZE)srcNumComponents;
 
 			RowPlanes pl;
 			if (srcNumComponents == 3)
@@ -1597,19 +1604,19 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 	float aanScales[8];
 	aanScales[0] = F32(0x3F800000); // 1.0f
 	aanScales[1] = F32(0x3FB18A86); // 1.387039845f
-	aanScales[2] = F32(0x3FA73D75); // 1.306562965f
+	aanScales[2] = F32(kDctC2P6Bits); // 1.306562965f
 	aanScales[3] = F32(0x3F968317); // 1.175875602f
 	aanScales[4] = F32(0x3F800000); // 1.0f
 	aanScales[5] = F32(0x3F49234E); // 0.785694958f
-	aanScales[6] = F32(0x3F0A8BD4); // 0.541196100f
+	aanScales[6] = F32(kDctC2C6Bits); // 0.541196100f
 	aanScales[7] = F32(0x3E8D42AF); // 0.275899379f
 
 	// Hot-path constants, materialized once (see EncodeConstants)
 	EncodeConstants c;
-	c.dctC4 = F32(0x3F3504F3);	  // cos(4*pi/16) * sqrt(2)
-	c.dctC6 = F32(0x3EC3EF15);	  // cos(6*pi/16) * sqrt(2)
-	c.dctC2C6 = F32(0x3F0A8BD4);  // cos(2*pi/16) - cos(6*pi/16)
-	c.dctC2P6 = F32(0x3FA73D75);  // cos(2*pi/16) + cos(6*pi/16)
+	c.dctC4 = F32(kDctC4Bits);	  // cos(4*pi/16) * sqrt(2)
+	c.dctC6 = F32(kDctC6Bits);	  // cos(6*pi/16) * sqrt(2)
+	c.dctC2C6 = F32(kDctC2C6Bits);  // cos(2*pi/16) - cos(6*pi/16)
+	c.dctC2P6 = F32(kDctC2P6Bits);  // cos(2*pi/16) + cos(6*pi/16)
 	c.quantBias = F32(0x44800000); // 1024.0f
 	c.quantHalf = F32(0x3F000000); // 0.5f
 	c.lumaScale = F32(0x37800000); // 2^-16
@@ -1695,9 +1702,9 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 		header.len = ByteOrder::Swap16((UINT16)(6 + sizeof(ScanComponentSpec) * 3));
 		header.numComponents = 3;
 		UINT8 htSelectors[3];
-		htSelectors[0] = 0x00; // Luma DC uses HT 0
-		htSelectors[1] = 0x11; // Luma AC uses HT 1
-		htSelectors[2] = 0x11; // Chroma AC uses HT 1
+		htSelectors[0] = 0x00; // Luma: DC 0 / AC 0
+		htSelectors[1] = 0x11; // Cb: DC 1 / AC 1
+		htSelectors[2] = 0x11; // Cr: DC 1 / AC 1
 		for (INT32 i = 0; i < 3; ++i)
 		{
 			header.componentSpec[i].componentId = (UINT8)(i + 1);
@@ -1728,10 +1735,9 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 	InitSse2Const(&sseConst);
 	V4F pqtLuma4[64];
 	V4F pqtChroma4[64];
-	float lumaScale = F32(0x37800000); // 2^-16, riding the quantize factors
 	for (INT32 i = 0; i < 64; ++i)
 	{
-		pqtLuma4[i] = VecCast<V4F>(VSplat(__builtin_bit_cast(UINT32, pqt.luma[i] * lumaScale)));
+		pqtLuma4[i] = VecCast<V4F>(VSplat(__builtin_bit_cast(UINT32, pqt.luma[i] * c.lumaScale)));
 		pqtChroma4[i] = VecCast<V4F>(VSplat(__builtin_bit_cast(UINT32, pqt.chroma[i])));
 	}
 #endif
@@ -1826,7 +1832,8 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 	INT32 stride)
 {
 	if ((numComponents != 3 && numComponents != 4) || width <= 0 || height <= 0 ||
-		width > 0xFFFF || height > 0xFFFF || stride < width)
+		width > 0xFFFF || height > 0xFFFF || stride < width ||
+		((USIZE)stride * (USIZE)(height - 1) + (USIZE)width) * (USIZE)numComponents > srcData.Size())
 	{
 		return Result<VOID, Error>::Err(Error::Jpeg_InvalidParams);
 	}

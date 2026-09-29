@@ -766,6 +766,13 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     if (context->screenCaptureContext == nullptr)
         context->screenCaptureContext = new ScreenCaptureContext();
 
+    if (context->screenCaptureContext == nullptr)
+    {
+        LOG_ERROR("Failed to allocate the screen capture context");
+        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        return;
+    }
+
     if (context->screenCaptureContext->DeviceList.Count == 0)
     {
         auto displays = Screen::GetDevices();
@@ -795,6 +802,13 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
 
     if (!graphics.IsInitialized())
         graphics.Init(device);
+
+    if (!graphics.IsInitialized())
+    {
+        LOG_ERROR("Failed to allocate screenshot buffers for display index: %u", displayIndex);
+        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        return;
+    }
 
     // Persistent capture resources (Windows GDI reuse): created on first use;
     // the platform layer rebuilds them in place on mode changes and failures
@@ -854,9 +868,8 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             return;
         }
 
-        // The encoded JPEG is already copied out; make this frame the
-        // comparison base by pointer swap (no full-frame copy)
-        graphics.SwapFrames();
+        // SwapFrames below commits the diff base only once the response is
+        // allocated; the flag drop must also hold on the alloc-failure path
         graphics.lastFrameClean = false;
 
         Rectangle rect(0, 0, graphics.jpegBuffer.offset, graphics.jpegBuffer.outputBuffer);
@@ -872,6 +885,7 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             *responseLength = 0;
             return;
         }
+        graphics.SwapFrames();
         BinaryWriter writer{Span<UINT8>((UINT8 *)*response, *responseLength)};
         writer.Write<UINT32>(StatusCode::StatusSuccess);
         writer.Write<UINT32>(countOfSegments);
@@ -918,11 +932,10 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     // reflect, so the gate must re-baseline before it may skip again
     graphics.lastFrameClean = false;
 
-    UINT32 countOfRects = 0;
-
-    // Persistent packet buffer, reused across frames: Reset() keeps the
-    // capacity and the per-reply Release() below empties it, so Init() runs
-    // on the first frame, after every reply, and after an aborted encode.
+    // Persistent packet buffer, reused across frames: Init() runs on the
+    // first frame and after every reply (Release empties the buffer); after
+    // an aborted encode the buffer is kept and only Reset() runs, so
+    // capacity is retained.
     // Sized to the actual rects (screen-content JPEG fits ~1/8 of raw RGB
     // plus header slack, the ReserveForImage heuristic) instead of a flat
     // w*h/2; underestimates still grow by doubling. The first UINT32 is the
@@ -953,8 +966,6 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         const DirtyRect &dr = dirtyRects.Rects[i];
         INT32 rectWidth = (INT32)dr.Width;
         INT32 rectHeight = (INT32)dr.Height;
-
-        countOfRects++;
 
         // Placeholder [x, y, jpegLen] header — the jpeg length is known only
         // after the encode, so it is patched in place below
@@ -992,9 +1003,9 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         Memory::Copy(graphics.packet.Data + headerOffset + sizeof(UINT32) * 2, &jpegLength, sizeof(jpegLength));
     }
 
-    // Encoded rects came straight from the current frame and deferred ones were
-    // reverted to the previous above, so it matches the receiver's canvas and
-    // becomes the comparison base by pointer swap (no full-frame copy)
+    // Clean tiles with sub-threshold drift were reverted to the previous frame
+    // inside FindDirtyRects, so it matches the receiver's canvas and becomes
+    // the comparison base by pointer swap (no full-frame copy)
     graphics.SwapFrames();
 
     // Fill in the response header over the finished packet, then hand the exact
@@ -1002,7 +1013,7 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     // detaches the buffer, so the next reply re-initializes it
     BinaryWriter writer{Span<UINT8>((UINT8 *)graphics.packet.Data, graphics.packet.Size)};
     writer.Write<UINT32>(StatusCode::StatusSuccess);
-    writer.Write<UINT32>(countOfRects);
+    writer.Write<UINT32>(dirtyRects.Count);
 
     *responseLength = graphics.packet.Size;
     *response = graphics.packet.Release();

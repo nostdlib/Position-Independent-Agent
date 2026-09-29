@@ -5,7 +5,7 @@
  * @details The codebase includes only its own headers — no compiler or
  * library headers anywhere — so the vector type and the handful of SSE2
  * operations the hot paths use are declared here directly. The type is the
- * compiler's 16-byte integer vector (16 byte lanes); operators (^ | ==)
+ * compiler's 16-byte integer vector (16 byte lanes); operators (^ |)
  * map to SSE2 instructions directly and the all-zero test uses
  * __builtin_reduce_or, which needs no declaration and no include. SSE2 is
  * baseline on x86_64, so no runtime detection.

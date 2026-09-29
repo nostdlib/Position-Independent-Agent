@@ -42,6 +42,8 @@ public:
 		RunTest(allPassed, &TestEncodeStrideMatchesPacked, "JPEG stride encode of a sub-rect matches packed rows");
 		RunTest(allPassed, &TestEncodeStride1x1Rect, "JPEG stride encode of a 1x1 corner rect");
 		RunTest(allPassed, &TestEncodeRepeatedDeterministic, "JPEG repeated encodes stay byte-identical");
+		RunTest(allPassed, &TestEncodeRgbaMatchesRgb, "JPEG RGBA SIMD path matches the RGB path byte-for-byte");
+		RunTest(allPassed, &TestEncodePureRedDC, "JPEG pure-red DC differentials pin pixel content");
 
 		if (allPassed)
 			LOG_INFO("All JPEG tests passed!");
@@ -361,6 +363,22 @@ private:
 		return false;
 	}
 
+	// Find the SOF0 marker and return the frame dimensions it declares
+	// ([FF][C0][len u16][precision][height u16][width u16][ncomp])
+	static BOOL ReadSOF0Dimensions(const CaptureBuffer &buf, INT32 &width, INT32 &height)
+	{
+		for (USIZE i = 0; i + 9 <= buf.size; i++)
+		{
+			if (buf.data[i] == 0xFF && buf.data[i + 1] == 0xC0)
+			{
+				height = (INT32)((UINT32)buf.data[i + 5] << 8 | buf.data[i + 6]);
+				width = (INT32)((UINT32)buf.data[i + 7] << 8 | buf.data[i + 8]);
+				return true;
+			}
+		}
+		return false;
+	}
+
 	// Encode a deterministic gradient at the given quality/size and read back
 	// the SOF0 sampling factors
 	static BOOL EncodeAndReadSampling(INT32 quality, INT32 width, INT32 height, UINT8 sampling[3])
@@ -433,6 +451,13 @@ private:
 			}
 			if (!VerifyJpegMarkers(buf))
 				return false;
+			INT32 sofWidth = 0;
+			INT32 sofHeight = 0;
+			if (!ReadSOF0Dimensions(buf, sofWidth, sofHeight) || sofWidth != sizes[c][0] || sofHeight != sizes[c][1])
+			{
+				LOG_ERROR("SOF0 of %dx%d declares %dx%d", sizes[c][0], sizes[c][1], sofWidth, sofHeight);
+				return false;
+			}
 		}
 		return true;
 	}
@@ -672,5 +697,249 @@ private:
 
 		return CompareBytes(Span<const UINT8>(first.data, first.size),
 		                    Span<const UINT8>(second.data, second.size));
+	}
+
+	// RGBA frames must encode to the exact bytes of the RGB frames they derive
+	// from: DeinterleaveRgba4 reads only the R/G/B lanes, and at 32 wide every
+	// MCU takes the SIMD loader (it requires mcuX + 16 <= width)
+	static BOOL TestEncodeRgbaMatchesRgb()
+	{
+		constexpr INT32 w = 32;
+		constexpr INT32 h = 32;
+		UINT8 rgb[w * h * 3];
+		for (INT32 i = 0; i < w * h * 3; ++i)
+			rgb[i] = (UINT8)((i * 7 + (i >> 4) * 13) & 0xFF);
+
+		UINT8 rgba[w * h * 4];
+		for (INT32 p = 0; p < w * h; ++p)
+		{
+			rgba[p * 4 + 0] = rgb[p * 3 + 0];
+			rgba[p * 4 + 1] = rgb[p * 3 + 1];
+			rgba[p * 4 + 2] = rgb[p * 3 + 2];
+			rgba[p * 4 + 3] = 0x80; // constant alpha, ignored by the deinterleave
+		}
+
+		CaptureBuffer rgbBuf;
+		rgbBuf.size = 0;
+		CaptureBuffer rgbaBuf;
+		rgbaBuf.size = 0;
+
+		auto r3 = JpegEncoder::Encode(&CaptureCallback, &rgbBuf, 75, w, h, 3, Span<const UINT8>(rgb, sizeof(rgb)));
+		auto r4 = JpegEncoder::Encode(&CaptureCallback, &rgbaBuf, 75, w, h, 4, Span<const UINT8>(rgba, sizeof(rgba)));
+		if (!r3)
+		{
+			LOG_ERROR("RGB encode %dx%d failed: %e", w, h, r3.Error());
+			return false;
+		}
+		if (!r4)
+		{
+			LOG_ERROR("RGBA encode %dx%d failed: %e", w, h, r4.Error());
+			return false;
+		}
+		if (rgbBuf.size != rgbaBuf.size)
+		{
+			LOG_ERROR("RGBA stream is %u bytes, RGB is %u", (UINT32)rgbaBuf.size, (UINT32)rgbBuf.size);
+			return false;
+		}
+		return CompareBytes(Span<const UINT8>(rgbBuf.data, rgbBuf.size),
+		                    Span<const UINT8>(rgbaBuf.data, rgbaBuf.size));
+	}
+
+	// --- Minimal scan decoder for the content-level pin (DC differentials) ---
+
+	// One canonical Huffman table entry: `code` of `len` bits decodes to `sym`
+	struct HuffEntry
+	{
+		UINT32 code;
+		UINT8 len;
+		UINT8 sym;
+	};
+
+	struct MiniHuffTable
+	{
+		HuffEntry entries[256];
+		UINT32 count;
+	};
+
+	// Canonical code assignment per T.81 F.2.2.3, from a DHT BITS/HUFFVAL pair
+	static VOID BuildMiniHuff(const UINT8 *bits, const UINT8 *vals, MiniHuffTable &table)
+	{
+		table.count = 0;
+		UINT32 code = 0;
+		UINT32 k = 0;
+		for (UINT32 len = 1; len <= 16; len++)
+		{
+			for (UINT32 b = 0; b < bits[len - 1]; b++)
+			{
+				table.entries[table.count].code = code;
+				table.entries[table.count].len = (UINT8)len;
+				table.entries[table.count].sym = vals[k];
+				table.count++;
+				code++;
+				k++;
+			}
+			code <<= 1;
+		}
+	}
+
+	// MSB-first bit cursor over the entropy-coded scan (0xFF00 destuffing)
+	struct ScanReader
+	{
+		const UINT8 *data;
+		USIZE size;
+		USIZE byte;
+		UINT32 bit;
+	};
+
+	static UINT32 NextScanBit(ScanReader &r)
+	{
+		if (r.bit == 0 && r.data[r.byte] == 0xFF)
+			r.byte++; // skip the stuffed 0x00
+		UINT32 v = (UINT32)(r.data[r.byte] >> (7 - r.bit)) & 1;
+		if (++r.bit == 8)
+		{
+			r.bit = 0;
+			r.byte++;
+		}
+		return v;
+	}
+
+	static UINT8 DecodeHuffSymbol(ScanReader &r, const MiniHuffTable &table)
+	{
+		UINT32 cur = 0;
+		for (UINT32 len = 1; len <= 16; len++)
+		{
+			cur = (cur << 1) | NextScanBit(r);
+			for (UINT32 i = 0; i < table.count; i++)
+				if (table.entries[i].len == len && table.entries[i].code == cur)
+					return table.entries[i].sym;
+		}
+		return 0xFF; // not a valid symbol
+	}
+
+	static INT32 ReadScanVli(ScanReader &r, UINT32 bits)
+	{
+		if (bits == 0 || bits > 15)
+			return 0;
+		UINT32 v = 0;
+		for (UINT32 i = 0; i < bits; i++)
+			v = (v << 1) | NextScanBit(r);
+		if (v < (1u << (bits - 1)))
+			return (INT32)v - (INT32)((1u << bits) - 1u);
+		return (INT32)v;
+	}
+
+	// Decode one block's DC differential, skipping its AC run-length tail
+	static INT32 DecodeBlockDC(ScanReader &r, const MiniHuffTable &dc, const MiniHuffTable &ac)
+	{
+		INT32 diff = ReadScanVli(r, DecodeHuffSymbol(r, dc));
+		for (;;)
+		{
+			UINT8 sym = DecodeHuffSymbol(r, ac);
+			if (sym == 0x00 || sym == 0xFF) // EOB (or invalid)
+				break;
+			if (sym != 0xF0) // ZRL carries no extra bits
+				ReadScanVli(r, sym & 0x0F);
+		}
+		return diff;
+	}
+
+	// First content-level pin: pure red must land in the stream as exact DC
+	// differentials — a swapped R/B lane or permuted MCU quadrant would shift
+	// them. Nothing else in this suite asserts pixel content.
+	static BOOL TestEncodePureRedDC()
+	{
+		// 16x16 pure red; the encoder reads px[0] as R
+		UINT8 pixels[16 * 16 * 3];
+		for (INT32 i = 0; i < 16 * 16; ++i)
+		{
+			pixels[i * 3 + 0] = 255; // R
+			pixels[i * 3 + 1] = 0;	  // G
+			pixels[i * 3 + 2] = 0;	  // B
+		}
+
+		CaptureBuffer buf;
+		buf.size = 0;
+		auto r = JpegEncoder::Encode(&CaptureCallback, &buf, 75, 16, 16, 3,
+		                             Span<const UINT8>(pixels, sizeof(pixels)));
+		if (!r)
+		{
+			LOG_ERROR("Pure-red encode failed: %e", r.Error());
+			return false;
+		}
+
+		// Walk the markers: collect the four DHT tables, then let the SOS
+		// segment's length prefix locate the start of the scan data
+		MiniHuffTable dcLuma = {};
+		MiniHuffTable acLuma = {};
+		MiniHuffTable dcChroma = {};
+		MiniHuffTable acChroma = {};
+		USIZE scanStart = 0;
+		USIZE i = 2; // skip SOI
+		while (i + 4 <= buf.size)
+		{
+			if (buf.data[i] != 0xFF)
+				break;
+			UINT8 marker = buf.data[i + 1];
+			if (marker == 0xD9)
+				break;
+			UINT32 len = (UINT32)buf.data[i + 2] << 8 | buf.data[i + 3];
+			if (marker == 0xDA)
+			{
+				scanStart = i + 2 + len;
+				break;
+			}
+			if (marker == 0xC4)
+			{
+				USIZE p = i + 4;
+				USIZE end = i + 2 + len;
+				while (p + 17 <= end)
+				{
+					UINT8 tcTh = buf.data[p++];
+					MiniHuffTable *table = (tcTh & 0x10) ? ((tcTh & 1) ? &acChroma : &acLuma)
+					                                     : ((tcTh & 1) ? &dcChroma : &dcLuma);
+					UINT8 bits[16];
+					UINT32 numVals = 0;
+					for (INT32 b = 0; b < 16; b++)
+					{
+						bits[b] = buf.data[p + b];
+						numVals += bits[b];
+					}
+					p += 16;
+					BuildMiniHuff(bits, buf.data + p, *table);
+					p += numVals;
+				}
+			}
+			i += 2 + len;
+		}
+		if (scanStart == 0 || scanStart + 1 >= buf.size)
+		{
+			LOG_ERROR("SOS marker not found in %u bytes", (UINT32)buf.size);
+			return false;
+		}
+
+		// One 16x16 MCU in T.81 A.2.3 order Y1 Y2 Y3 Y4 Cb Cr — the pins ride
+		// on blocks 0, 4, and 5
+		ScanReader reader;
+		reader.data = buf.data;
+		reader.size = buf.size;
+		reader.byte = scanStart;
+		reader.bit = 0;
+		INT32 dc[6];
+		for (INT32 b = 0; b < 6; b++)
+			dc[b] = (b < 4) ? DecodeBlockDC(reader, dcLuma, acLuma)
+			                : DecodeBlockDC(reader, dcChroma, acChroma);
+
+		const INT32 expected[3] = {-52, -43, 128}; // Y1, Cb, Cr
+		const INT32 got[3] = {dc[0], dc[4], dc[5]};
+		for (INT32 b = 0; b < 3; b++)
+		{
+			if (got[b] != expected[b])
+			{
+				LOG_ERROR("Pure-red DC pin %d: expected %d, got %d (Y1/Cb/Cr)", b, expected[b], got[b]);
+				return false;
+			}
+		}
+		return true;
 	}
 };

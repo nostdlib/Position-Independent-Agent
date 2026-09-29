@@ -48,13 +48,15 @@ static BOOL ScanPixelsScalar(
 	UINT32 threshold,
 	BOOL &anyDrift)
 {
-	// 4-byte pre-compare via one unaligned word read per side: the high
-	// byte belongs to the next pixel on both sides, so an equal word
-	// implies an identical pixel and the SAD is skipped
 	for (UINT32 i = 0; i + 1 < n; ++i, cur8 += 3, prev8 += 3)
 	{
+#if defined(ARCHITECTURE_X86_64) || defined(ARCHITECTURE_I386)
+		// 4-byte pre-compare via one unaligned word read per side: the high
+		// byte belongs to the next pixel on both sides, so an equal word
+		// implies an identical pixel and the SAD is skipped
 		if (*(const UINT32 *)cur8 == *(const UINT32 *)prev8)
 			continue;
+#endif
 
 		UINT32 sad = PixelSad(*(const RGB *)cur8, *(const RGB *)prev8);
 		if (sad > threshold)
@@ -325,9 +327,9 @@ static BOOL IsTileDirty(
 
 				UINT32 x = 0;
 #if defined(ARCHITECTURE_X86_64)
-				// 16-px chunks: 48 bytes per side, exactly three 16-byte
-				// loads — every load stays inside the row because the chunk
-				// ends at least one pixel before the row end
+				// 16-px chunks are exactly 48 bytes per side, three 16-byte
+				// loads; the loop condition x + 16 <= rowPixels keeps every
+				// load inside the row
 				for (; x + 16 <= rowPixels; x += 16, cur8 += 48, prev8 += 48)
 				{
 					SseVec16b d0 = SseLoadU(cur8) ^ SseLoadU(prev8);

@@ -28,7 +28,7 @@ Multi-monitor support: `EnumDisplayDevicesW` iterates adapters, `EnumDisplaySett
 
 ### Persistent capture state
 
-`Screen::CreateCaptureState(device)` allocates the GDI objects and conversion buffer once per display; `Screen::Capture(device, buffer, state, options, status)` reuses them per frame (only the `BitBlt` runs per call). A width/height change rebuilds the objects in place, and a capture failure through persistent objects rebuilds them once and retries before reporting failure. Callers pass `nullptr` to run the same sequence through a temporary state (tests, one-shot captures). `Screen::DestroyCaptureState` releases everything. Non-Windows platforms accept the state parameter but report no state to own (`CreateCaptureState` returns `Ok(nullptr)`).
+`Screen::CreateCaptureState(device)` allocates the GDI objects and conversion buffer once per display; `Screen::Capture(device, buffer, state, options, status)` reuses them per frame (only the `BitBlt` runs per call). A width/height change rebuilds the objects in place, and a capture failure through persistent objects rebuilds them once and retries before reporting failure. Callers pass `nullptr` to run the same sequence through a temporary state (tests, one-shot captures). `Screen::DestroyCaptureState` releases everything. Windows allocates GDI resources, Linux X11 keeps one server connection (`posix/screen.cc:1901`-`1930`; DRM/fbdev stay stateless), all other platforms return `Ok(nullptr)` and capture statelessly; the handler calls `CreateCaptureState` unconditionally (`commandsHandler.cc:801`-`806`).
 
 ### One-time probe, depth gating, and the change gate
 

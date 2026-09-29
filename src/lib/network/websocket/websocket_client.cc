@@ -166,8 +166,9 @@ Result<UINT32, Error> WebSocketClient::Write(Span<const CHAR> buffer, WebSocketO
  * @return Ok(payload bytes sent) on success, Err on failure
  *
  * @details Produces the same wire bytes as Write() over `[status][corrId][body]`
- * but assembles them inside the transport's masked scratch buffer, so the
- * caller's separate splice allocation and full-payload copy are skipped.
+ * but assembles them inside the transport's frame staging (stack chunk for
+ * small replies, scratch buffer for large ones), so the caller's separate
+ * splice allocation and full-payload copy are skipped.
  */
 Result<UINT32, Error> WebSocketClient::WriteResponse(UINT32 status, UINT32 correlationId, Span<const CHAR> body, WebSocketOpcode opcode)
 {
