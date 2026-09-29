@@ -310,7 +310,7 @@ VOID Screen::DestroyCaptureState([[maybe_unused]] PVOID captureState)
 // Screen::Capture
 // =============================================================================
 
-Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState, [[maybe_unused]] const CaptureOptions *options, CaptureStatus *status)
 {
 	if (!ProbeDisplayAvailable())
 		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
@@ -453,5 +453,7 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	cg.Release(cfData);
 	cg.Release(image);
 
+	if (status != nullptr)
+		status->BitsPerPixel = 32;
 	return Result<VOID, Error>::Ok();
 }

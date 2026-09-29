@@ -105,7 +105,7 @@ VOID Screen::DestroyCaptureState([[maybe_unused]] PVOID captureState)
 // Screen::Capture
 // =============================================================================
 
-Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState, [[maybe_unused]] const CaptureOptions *options, CaptureStatus *status)
 {
 	EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = LocateGop();
 	if (gop == nullptr)
@@ -149,5 +149,7 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	}
 
 	delete[] bltBuf;
+	if (status != nullptr)
+		status->BitsPerPixel = 32;
 	return Result<VOID, Error>::Ok();
 }

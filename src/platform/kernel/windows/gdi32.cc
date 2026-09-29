@@ -52,6 +52,22 @@ BOOL Gdi32::BitBlt(PVOID hdc, INT32 x, INT32 y, INT32 cx, INT32 cy, PVOID hdcSrc
 	return fn(hdc, x, y, cx, cy, hdcSrc, x1, y1, rop);
 }
 
+INT32 Gdi32::SetStretchBltMode(PVOID hdc, INT32 mode)
+{
+	auto fn = (INT32(STDCALL *)(PVOID, INT32))ResolveGdi32ExportAddress("SetStretchBltMode");
+	if (fn == nullptr)
+		return 0;
+	return fn(hdc, mode);
+}
+
+BOOL Gdi32::StretchBlt(PVOID hdc, INT32 x, INT32 y, INT32 w, INT32 h, PVOID hdcSrc, INT32 x1, INT32 y1, INT32 w1, INT32 h1, UINT32 rop)
+{
+	auto fn = (BOOL(STDCALL *)(PVOID, INT32, INT32, INT32, INT32, PVOID, INT32, INT32, INT32, INT32, UINT32))ResolveGdi32ExportAddress("StretchBlt");
+	if (fn == nullptr)
+		return false;
+	return fn(hdc, x, y, w, h, hdcSrc, x1, y1, w1, h1, rop);
+}
+
 INT32 Gdi32::GetDIBits(PVOID hdc, PVOID hbm, UINT32 start, UINT32 cLines, PVOID lpvBits, PBITMAPINFOHEADER lpbmi, UINT32 usage)
 {
 	auto fn = (INT32(STDCALL *)(PVOID, PVOID, UINT32, UINT32, PVOID, PBITMAPINFOHEADER, UINT32))ResolveGdi32ExportAddress("GetDIBits");

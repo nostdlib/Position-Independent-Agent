@@ -27,7 +27,10 @@
 
 #define SRCCOPY        0x00CC0020
 #define BI_RGB         0
+#define BI_BITFIELDS   3
 #define DIB_RGB_COLORS 0
+#define COLORONCOLOR   3
+#define HALFTONE       4
 
 /**
  * @brief Bitmap information header defining the dimensions and color format.
@@ -208,6 +211,49 @@ public:
 	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-bitblt
 	 */
 	[[nodiscard]] static BOOL BitBlt(PVOID hdc, INT32 x, INT32 y, INT32 cx, INT32 cy, PVOID hdcSrc, INT32 x1, INT32 y1, UINT32 rop);
+
+	/**
+	 * @brief Sets the bitmap stretching mode used by StretchBlt on a DC.
+	 *
+	 * @param hdc Handle to the device context.
+	 * @param mode Stretch mode (COLORONCOLOR or HALFTONE).
+	 * @return Previous stretch mode, or 0 on failure.
+	 *
+	 * @par Requirements
+	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
+	 *
+	 * @see SetStretchBltMode
+	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setstretchbltmode
+	 */
+	[[nodiscard]] static INT32 SetStretchBltMode(PVOID hdc, INT32 mode);
+
+	/**
+	 * @brief Copies a rectangle between DCs, scaling it to the destination size.
+	 *
+	 * @details Downscaling from the screen lets the driver sample the source
+	 * at reduced density before the readback, so the copy cost can track the
+	 * destination size rather than the source size.
+	 *
+	 * @param hdc Destination device context.
+	 * @param x Destination upper-left corner X coordinate.
+	 * @param y Destination upper-left corner Y coordinate.
+	 * @param w Destination width in pixels.
+	 * @param h Destination height in pixels.
+	 * @param hdcSrc Source device context.
+	 * @param x1 Source upper-left corner X coordinate.
+	 * @param y1 Source upper-left corner Y coordinate.
+	 * @param w1 Source width in pixels.
+	 * @param h1 Source height in pixels.
+	 * @param rop Raster operation code (e.g., SRCCOPY).
+	 * @return true on success, false on failure.
+	 *
+	 * @par Requirements
+	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
+	 *
+	 * @see StretchBlt
+	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-stretchblt
+	 */
+	[[nodiscard]] static BOOL StretchBlt(PVOID hdc, INT32 x, INT32 y, INT32 w, INT32 h, PVOID hdcSrc, INT32 x1, INT32 y1, INT32 w1, INT32 h1, UINT32 rop);
 
 	/**
 	 * @brief Retrieves the bits of a bitmap and copies them into a buffer.

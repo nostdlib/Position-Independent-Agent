@@ -45,7 +45,7 @@ VOID Screen::DestroyCaptureState([[maybe_unused]] PVOID captureState)
 // Screen::Capture (iOS — not supported)
 // =============================================================================
 
-Result<VOID, Error> Screen::Capture([[maybe_unused]] const ScreenDevice &device, [[maybe_unused]] Span<RGB> buffer, [[maybe_unused]] PVOID captureState)
+Result<VOID, Error> Screen::Capture([[maybe_unused]] const ScreenDevice &device, [[maybe_unused]] Span<RGB> buffer, [[maybe_unused]] PVOID captureState, [[maybe_unused]] const CaptureOptions *options, [[maybe_unused]] CaptureStatus *status)
 {
 	return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 }

@@ -710,6 +710,23 @@ VOID JpegCallback(PVOID context, PVOID data, INT32 size)
     jpegBuffer->offset += (UINT32)size;
 }
 
+// Builds the zero-section idle reply [status:u32][count:u32 = 0]; shared by
+// the gate-proven and the diff-detected unchanged-frame paths
+static BOOL WriteIdleScreenshotResponse(PPCHAR response, PUSIZE responseLength)
+{
+    *responseLength = sizeof(UINT32) + sizeof(UINT32);
+    *response = new CHAR[*responseLength];
+    if (*response == nullptr)
+    {
+        *responseLength = 0;
+        return false;
+    }
+    BinaryWriter writer{Span<UINT8>((UINT8 *)*response, *responseLength)};
+    writer.Write<UINT32>(StatusCode::StatusSuccess);
+    writer.Write<UINT32>(0);
+    return true;
+}
+
 /// @brief Append target for encoding a dirty rect straight into the reply packet
 struct PacketJpegContext
 {
@@ -788,8 +805,18 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             graphics.captureState = state.Value();
     }
 
+    // Capture policy: low-quality streams may use 16bpp capture (the platform
+    // layer decides per machine via its one-time probe); after a clean frame
+    // the change gate may prove the screen unchanged and skip the readback
+    CaptureOptions captureOptions;
+    captureOptions.BitsPerPixel = (quality < CaptureDepthQualityThreshold) ? 16 : 32;
+    captureOptions.AllowSkip = !isFullScreen && graphics.lastFrameClean;
+    CaptureStatus captureStatus;
+    Memory::Zero(&captureStatus, sizeof(captureStatus));
+
     UINT64 frameStartNs = DateTime::GetMonotonicNanoseconds();
-    if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height), graphics.captureState))
+    if (!Screen::Capture(device, Span<RGB>(graphics.currentScreenshot, device.Width * device.Height),
+                         graphics.captureState, &captureOptions, &captureStatus))
     {
         LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
@@ -797,8 +824,30 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     }
     UINT64 captureNs = DateTime::GetMonotonicNanoseconds() - frameStartNs;
 
-    // In case of full screen request, encode the whole screenshot as JPEG and send it back
-    if (isFullScreen)
+    // Gate-proven unchanged frame: the frame buffer was not written, so the
+    // diff base still matches the receiver — reply the empty section list
+    // without diffing or encoding anything
+    if (captureStatus.FrameUnchanged)
+    {
+        if (!WriteIdleScreenshotResponse(response, responseLength))
+        {
+            LOG_ERROR("Failed to allocate the empty screenshot response for display index: %u", displayIndex);
+            return;
+        }
+        graphics.lastFrameClean = true;
+        [[maybe_unused]] USIZE idleFramePixels = (USIZE)device.Width * device.Height;
+        [[maybe_unused]] UINT64 gateTotNs = DateTime::GetMonotonicNanoseconds() - frameStartNs;
+        LOG_INFO("[shot] cap=%u diff=0 enc=0 tot=%u ms; rects=0/0 area=0/%u budget=%u ema=%uus len=8 pkt=0 ovh=0 skip=1",
+            (UINT32)(captureNs / 1000000), (UINT32)(gateTotNs / 1000000),
+            (UINT32)idleFramePixels, (UINT32)graphics.AreaBudget(idleFramePixels),
+            (UINT32)graphics.encodeEmaUs);
+        return;
+    }
+
+    // In case of full screen request, encode the whole screenshot as JPEG and send it back.
+    // A depth switch (16<->32bpp capture) invalidates the diff base, so it
+    // takes the same full-frame path to rebuild the receiver canvas
+    if (isFullScreen || captureStatus.DepthChanged)
     {
         graphics.jpegBuffer.Reset();
         graphics.jpegBuffer.ReserveForImage(device.Width, device.Height);
@@ -813,6 +862,7 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         // The encoded JPEG is already copied out; make this frame the
         // comparison base by pointer swap (no full-frame copy)
         graphics.SwapFrames();
+        graphics.lastFrameClean = false;
 
         Rectangle rect(0, 0, graphics.jpegBuffer.offset, graphics.jpegBuffer.outputBuffer);
 
@@ -860,17 +910,12 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     {
         dirtyRects.Free();
         UINT64 idlePacketStartNs = DateTime::GetMonotonicNanoseconds();
-        *responseLength = sizeof(UINT32) + sizeof(UINT32);
-        *response = new CHAR[*responseLength];
-        if (*response == nullptr)
+        if (!WriteIdleScreenshotResponse(response, responseLength))
         {
             LOG_ERROR("Failed to allocate the empty screenshot response for display index: %u", displayIndex);
-            *responseLength = 0;
             return;
         }
-        BinaryWriter writer{Span<UINT8>((UINT8 *)*response, *responseLength)};
-        writer.Write<UINT32>(StatusCode::StatusSuccess);
-        writer.Write<UINT32>(0);
+        graphics.lastFrameClean = true;
         UINT64 idleTotNs = DateTime::GetMonotonicNanoseconds() - frameStartNs;
         UINT64 idlePacketNs = idleTotNs - (idlePacketStartNs - frameStartNs);
         [[maybe_unused]] USIZE idleFramePixels = (USIZE)device.Width * device.Height;
@@ -878,13 +923,18 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         [[maybe_unused]] UINT64 idleOverheadNs = (idleGlueNs > idlePacketNs) ? (idleGlueNs - idlePacketNs) : 0;
         // Same breakdown as the dirty path so idle frames stay visible (zero
         // encode work, empty section list)
-        LOG_INFO("[shot] cap=%u diff=%u enc=%u tot=%u ms; rects=%u/%u area=%u/%u budget=%u ema=%uus len=%u pkt=%u ovh=%u",
+        LOG_INFO("[shot] cap=%u diff=%u enc=%u tot=%u ms; rects=%u/%u area=%u/%u budget=%u ema=%uus len=%u pkt=%u ovh=%u skip=0",
             (UINT32)(captureNs / 1000000), (UINT32)(diffNs / 1000000), (UINT32)0, (UINT32)(idleTotNs / 1000000),
             (UINT32)0, (UINT32)0, (UINT32)0, (UINT32)idleFramePixels,
             (UINT32)graphics.AreaBudget(idleFramePixels), (UINT32)graphics.encodeEmaUs,
             (UINT32)*responseLength, (UINT32)(idlePacketNs / 1000000), (UINT32)(idleOverheadNs / 1000000));
         return;
     }
+
+    // Dirty frame on every path from here (success or a mid-encode error):
+    // the receiver may end up with content the gate's baseline does not
+    // reflect, so the gate must re-baseline before it may skip again
+    graphics.lastFrameClean = false;
 
     UINT32 countOfRects = 0;
 
@@ -1036,7 +1086,7 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     UINT64 packetNs = DateTime::GetMonotonicNanoseconds() - packetStartNs;
     UINT64 glueNs = handlerNs - captureNs - diffNs - encodeNs;
     [[maybe_unused]] UINT64 overheadNs = (glueNs > packetNs) ? (glueNs - packetNs) : 0;
-    LOG_INFO("[shot] cap=%u diff=%u enc=%u tot=%u ms; rects=%u/%u area=%u/%u budget=%u ema=%uus len=%u pkt=%u ovh=%u",
+    LOG_INFO("[shot] cap=%u diff=%u enc=%u tot=%u ms; rects=%u/%u area=%u/%u budget=%u ema=%uus len=%u pkt=%u ovh=%u skip=0",
         (UINT32)(captureNs / 1000000), (UINT32)(diffNs / 1000000),
         (UINT32)(encodeNs / 1000000), (UINT32)(handlerNs / 1000000),
         countOfRects, rectTotal, (UINT32)accumulatedArea, (UINT32)framePixels,

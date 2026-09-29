@@ -100,6 +100,11 @@ static constexpr UINT64 MotionBudgetStartDen = 5;
 static constexpr UINT64 MotionBudgetMinNum = 1;        // budget floor = framePixels / 10
 static constexpr UINT64 MotionBudgetMinDen = 10;
 
+// Capture-depth policy: streams below this quality use 16bpp RGB565 capture
+// (the platform layer decides per machine via its one-time probe); at or
+// above it capture stays full 32bpp
+static constexpr UINT32 CaptureDepthQualityThreshold = 60;
+
 struct Graphics
 {
     PRGB currentScreenshot;
@@ -112,8 +117,9 @@ struct Graphics
     PVOID captureState;  // Opaque per-display resources from Screen::CreateCaptureState
     INT64 encodeEmaUs;   // EMA of recent per-reply encode times in µs; 0 = no sample yet
     USIZE areaBudgetPixels; // Encoded-area budget in pixels; 0 = seed on first use
+    BOOL lastFrameClean; // Previous frame had no dirty rects; enables the change gate
 
-    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), captureState(nullptr), encodeEmaUs(0), areaBudgetPixels(0) {}
+    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), captureState(nullptr), encodeEmaUs(0), areaBudgetPixels(0), lastFrameClean(false) {}
 
     /// @brief Effective encoded-area budget for this frame, seeded and clamped
     /// @param framePixels Total pixels in the frame

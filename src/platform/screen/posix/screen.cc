@@ -236,7 +236,7 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 // Screen::Capture (Solaris)
 // =============================================================================
 
-Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState, [[maybe_unused]] const CaptureOptions *options, CaptureStatus *status)
 {
 	SSIZE fd = OpenFramebuffer();
 	if (fd < 0)
@@ -320,6 +320,8 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 
 	System::Call(SYS_MUNMAP, (USIZE)mapped, mapSize);
 
+	if (status != nullptr)
+		status->BitsPerPixel = 32;
 	return Result<VOID, Error>::Ok();
 }
 
@@ -2590,7 +2592,7 @@ static Result<VOID, Error> FbCaptureFallback(const ScreenDevice &device, Span<RG
 // Screen::Capture (X11, DRM, or framebuffer dispatch)
 // =============================================================================
 
-Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState, [[maybe_unused]] const CaptureOptions *options, [[maybe_unused]] CaptureStatus *status)
 {
 #if defined(PLATFORM_LINUX)
 	// X11 device: Left <= -1000 encodes -(1000 + displayNum)
@@ -2598,7 +2600,11 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	{
 		auto result = X11Capture(device, buffer, (X11CaptureState *)captureState);
 		if (result)
+		{
+			if (status != nullptr)
+				status->BitsPerPixel = 32;
 			return result;
+		}
 
 		// X11 capture failed — fall through to DRM/framebuffer
 	}
@@ -2656,7 +2662,10 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	}
 
 	// Framebuffer device: Left encodes /dev/fb index
-	return FbCapture((UINT32)device.Left, device, buffer);
+	auto fbResult = FbCapture((UINT32)device.Left, device, buffer);
+	if (fbResult && status != nullptr)
+		status->BitsPerPixel = 32;
+	return fbResult;
 }
 
 #endif // platform selection
