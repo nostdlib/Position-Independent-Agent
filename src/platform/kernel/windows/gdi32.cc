@@ -12,6 +12,14 @@ PVOID Gdi32::CreateCompatibleDC(PVOID hdc)
 	return fn(hdc);
 }
 
+PVOID Gdi32::CreateDCW(PCWCHAR lpszDriver, PCWCHAR lpszDevice, PCWCHAR lpszOutput, PCVOID lpInitData)
+{
+	auto fn = (PVOID(STDCALL *)(PCWCHAR, PCWCHAR, PCWCHAR, PCVOID))ResolveGdi32ExportAddress("CreateDCW");
+	if (fn == nullptr)
+		return nullptr;
+	return fn(lpszDriver, lpszDevice, lpszOutput, lpInitData);
+}
+
 PVOID Gdi32::CreateCompatibleBitmap(PVOID hdc, INT32 cx, INT32 cy)
 {
 	auto fn = (PVOID(STDCALL *)(PVOID, INT32, INT32))ResolveGdi32ExportAddress("CreateCompatibleBitmap");

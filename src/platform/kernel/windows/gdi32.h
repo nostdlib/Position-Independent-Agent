@@ -111,6 +111,29 @@ public:
 	[[nodiscard]] static PVOID CreateCompatibleDC(PVOID hdc);
 
 	/**
+	 * @brief Creates a device context for a named display device.
+	 *
+	 * @details A per-monitor DC created with the device name from
+	 * EnumDisplayDevicesW sources exactly that monitor (origin at its
+	 * top-left), reaching displays the shared GetDC(nullptr) DC cannot
+	 * (hybrid graphics, DPI-virtualized sessions). Private DCs are meant
+	 * to be held long-term and released with DeleteDC.
+	 *
+	 * @param lpszDriver Driver name (L"DISPLAY" for display devices).
+	 * @param lpszDevice Device name (e.g. L"\\\\.\\DISPLAY2"), or NULL for the primary.
+	 * @param lpszOutput Port name (unused; pass NULL).
+	 * @param lpInitData Optional DEVMODEW (pass NULL for current settings).
+	 * @return Handle to the DC, or NULL on failure.
+	 *
+	 * @par Requirements
+	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
+	 *
+	 * @see CreateDCW
+	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-createdcw
+	 */
+	[[nodiscard]] static PVOID CreateDCW(PCWCHAR lpszDriver, PCWCHAR lpszDevice, PCWCHAR lpszOutput, PCVOID lpInitData);
+
+	/**
 	 * @brief Creates a bitmap compatible with the specified device context.
 	 *
 	 * @param hdc Handle to a device context.

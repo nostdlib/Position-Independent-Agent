@@ -92,7 +92,7 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 struct WinCaptureState
 {
 	PVOID memDC;
-	PVOID screenDC;          ///< Cached GetDC(nullptr) handle; re-borrowed on staleness
+	PVOID screenDC;          ///< Cached source DC; re-acquired on staleness
 	PVOID bitmap;            ///< DIB section (DIB mode) or compatible bitmap (DDB mode)
 	PVOID oldBitmap;
 	BITMAPINFOHEADER bmi;
@@ -102,6 +102,13 @@ struct WinCaptureState
 	INT32 height;
 	BOOL useDib;             ///< DIB-section blt target; flipped off on driver rejection
 	BOOL bgraIsDibSection;   ///< bgra freed via DeleteObject (true) or delete[] (false)
+	WCHAR deviceName[32];    ///< This display's \\.\DISPLAYN name for a private source DC
+	BOOL deviceNameValid;    ///< deviceName was matched to this display's geometry
+	BOOL screenDcPrivate;    ///< screenDC from CreateDCW (DeleteDC) vs GetDC (ReleaseDC)
+	INT32 srcX;              ///< Blt source origin: (0,0) for a per-monitor DC, else virtual position
+	INT32 srcY;
+	INT32 virtualX;          ///< Display position in the virtual screen (shared-DC blt origin)
+	INT32 virtualY;
 };
 
 // Deselect, delete, and null the owned GDI objects and pixel buffer. A DIB
@@ -130,22 +137,47 @@ static VOID ReleaseGdiObjects(WinCaptureState *state)
 	}
 }
 
-// Drop the cached screen DC; the next acquire borrows a fresh one
+// Drop the cached source DC; the next acquire creates a fresh one
 static VOID DropScreenDC(WinCaptureState *state)
 {
 	if (state->screenDC != nullptr)
 	{
-		User32::ReleaseDC(nullptr, state->screenDC);
+		if (state->screenDcPrivate)
+			Gdi32::DeleteDC(state->screenDC);
+		else
+			User32::ReleaseDC(nullptr, state->screenDC);
 		state->screenDC = nullptr;
 	}
 }
 
-// Cached virtual-screen DC (GetDC(nullptr)) — caching removes the per-frame
-// GetDC/ReleaseDC kernel round trips; a failed blt drops it for a fresh one
+// Acquire the state's source DC. Preferred: a per-monitor private DC
+// (CreateDCW on the matched device name — its surface is exactly that
+// monitor, blt origin (0,0), contract-legal to cache, and reachable on
+// drivers where the shared GetDC(nullptr) DC cannot source a non-primary
+// display or accept a DIB target). Fallback: the shared virtual-screen DC
 static PVOID AcquireScreenDC(WinCaptureState *state)
 {
-	if (state->screenDC == nullptr)
-		state->screenDC = User32::GetDC(nullptr);
+	if (state->screenDC != nullptr)
+		return state->screenDC;
+
+	if (state->deviceNameValid)
+	{
+		auto displayDriver = L"DISPLAY";
+		state->screenDC = Gdi32::CreateDCW((PCWCHAR)displayDriver, state->deviceName, nullptr, nullptr);
+		if (state->screenDC != nullptr)
+		{
+			state->screenDcPrivate = true;
+			state->srcX = 0;
+			state->srcY = 0;
+			return state->screenDC;
+		}
+		LOG_WARNING("per-monitor dc creation failed, using the shared screen dc");
+	}
+
+	state->screenDC = User32::GetDC(nullptr);
+	state->screenDcPrivate = false;
+	state->srcX = state->virtualX;
+	state->srcY = state->virtualY;
 	return state->screenDC;
 }
 
@@ -224,6 +256,41 @@ static BOOL RebuildCaptureObjects(WinCaptureState *state, INT32 width, INT32 hei
 	return false;
 }
 
+// Match this display's \\.\DISPLAYN device name by re-enumerating and
+// comparing geometry — the name enables a per-monitor private source DC.
+// ScreenDevice carries no name (it is wire format), so the match is positional
+static BOOL MatchDeviceName(const ScreenDevice &device, WCHAR *deviceName)
+{
+	constexpr UINT32 maxDevices = 16;
+	for (UINT32 i = 0; i < maxDevices; i++)
+	{
+		DISPLAY_DEVICEW dd;
+		Memory::Zero(&dd, sizeof(dd));
+		dd.cb = sizeof(DISPLAY_DEVICEW);
+
+		if (!User32::EnumDisplayDevicesW(nullptr, i, &dd, 0))
+			break;
+
+		if (!(dd.StateFlags & DISPLAY_DEVICE_ACTIVE))
+			continue;
+
+		DEVMODEW dm;
+		Memory::Zero(&dm, sizeof(dm));
+		dm.dmSize = sizeof(DEVMODEW);
+
+		if (!User32::EnumDisplaySettingsW(dd.DeviceName, ENUM_CURRENT_SETTINGS, &dm))
+			continue;
+
+		if (dm.dmPositionX == device.Left && dm.dmPositionY == device.Top &&
+			dm.dmPelsWidth == device.Width && dm.dmPelsHeight == device.Height)
+		{
+			Memory::Copy(deviceName, dd.DeviceName, sizeof(dd.DeviceName));
+			return true;
+		}
+	}
+	return false;
+}
+
 Result<PVOID, Error> Screen::CreateCaptureState(const ScreenDevice &device)
 {
 	WinCaptureState *state = new WinCaptureState();
@@ -231,6 +298,11 @@ Result<PVOID, Error> Screen::CreateCaptureState(const ScreenDevice &device)
 		return Result<PVOID, Error>::Err(Error(Error::Screen_AllocFailed));
 	Memory::Zero(state, sizeof(WinCaptureState));
 	state->useDib = true;
+	state->virtualX = device.Left;
+	state->virtualY = device.Top;
+	state->srcX = device.Left;
+	state->srcY = device.Top;
+	state->deviceNameValid = MatchDeviceName(device, state->deviceName);
 
 	if (!RebuildCaptureObjects(state, (INT32)device.Width, (INT32)device.Height))
 	{
@@ -329,7 +401,7 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 
 		UINT64 stage = DateTime::GetMonotonicNanoseconds();
 		BOOL blit = Gdi32::BitBlt(state->memDC, 0, 0, width, height,
-			screenDC, device.Left, device.Top, SRCCOPY);
+			screenDC, state->srcX, state->srcY, SRCCOPY);
 		bltNs = DateTime::GetMonotonicNanoseconds() - stage;
 
 		if (!blit)
