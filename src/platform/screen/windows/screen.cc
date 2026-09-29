@@ -810,7 +810,6 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	// blt's cost; a proven-unchanged frame skips the blt and the conversion
 	// entirely, leaving the caller's frame buffer untouched
 	BOOL gateSkipped = false;
-	[[maybe_unused]] UINT64 gateNs = 0;
 	BOOL gateEligible = (options != nullptr && options->AllowSkip && state->probeRan &&
 	                     state->gateAllowed && (status == nullptr || !status->DepthChanged));
 	if (gateEligible && EnsureGateObjects(state))
@@ -822,12 +821,10 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 		}
 
-		UINT64 gateStart = DateTime::GetMonotonicNanoseconds();
 		BOOL gateOk = Gdi32::SetStretchBltMode(state->gateMemDC, state->gateMode) != 0;
 		if (gateOk)
 			gateOk = Gdi32::StretchBlt(state->gateMemDC, 0, 0, (INT32)state->gateWidth, (INT32)state->gateHeight,
 				screenDC, state->srcX, state->srcY, width, height, SRCCOPY);
-		gateNs = DateTime::GetMonotonicNanoseconds() - gateStart;
 
 		if (gateOk)
 		{
@@ -867,18 +864,12 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 		status->BitsPerPixel = state->bpp;
 
 	if (gateSkipped)
-	{
-		LOG_INFO("[capture] blt %u ms, dibits %u ms, convert %u ms, bpp %u, gate %u ms, skip %u",
-		         0, 0, 0, state->bpp, (UINT32)(gateNs / 1000000), 1);
 		return Result<VOID, Error>::Ok();
-	}
 
 	// Persistent objects may go stale (lost DC, driver hiccup, desktop switch
 	// invalidating the cached screen DC): drop the cached DC, rebuild once,
 	// and retry before reporting failure. blt measures the BitBlt itself;
 	// dibits stays 0 in DIB mode (captures land in bgra directly)
-	[[maybe_unused]] UINT64 bltNs = 0;
-	[[maybe_unused]] UINT64 dibitsNs = 0;
 	for (UINT32 attempt = 0; ; attempt++)
 	{
 		PVOID screenDC = AcquireScreenDC(state);
@@ -888,10 +879,8 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 		}
 
-		UINT64 stage = DateTime::GetMonotonicNanoseconds();
 		BOOL blit = Gdi32::BitBlt(state->memDC, 0, 0, width, height,
 			screenDC, state->srcX, state->srcY, SRCCOPY);
-		bltNs = DateTime::GetMonotonicNanoseconds() - stage;
 
 		if (!blit)
 		{
@@ -928,12 +917,10 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 			state->bgraSize = bgraNeeded;
 		}
 
-		stage = DateTime::GetMonotonicNanoseconds();
 		Gdi32::SelectObject(state->memDC, state->oldBitmap);
 		INT32 scanLines = Gdi32::GetDIBits(state->memDC, state->bitmap, 0, (UINT32)height,
 			state->bgra, &state->bmi, DIB_RGB_COLORS);
 		Gdi32::SelectObject(state->memDC, state->bitmap);
-		dibitsNs = DateTime::GetMonotonicNanoseconds() - stage;
 		if (scanLines != 0)
 			break;
 
@@ -948,16 +935,10 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	// BGRA/RGB565 -> RGB straight out of the capture memory into the frame buffer
 	UINT32 pixelCount = device.Width * device.Height;
 	USIZE captureStride = ((USIZE)width * state->bpp + 31) / 32 * 4;
-	UINT64 stage = DateTime::GetMonotonicNanoseconds();
 	if (state->bpp == 16)
 		ConvertBgr565ToRgb(state->bgra, buffer.Data(), device.Width, device.Height, captureStride);
 	else
 		ConvertBgraToRgb(state->bgra, buffer.Data(), pixelCount);
-	[[maybe_unused]] UINT64 convertNs = DateTime::GetMonotonicNanoseconds() - stage;
-
-	LOG_INFO("[capture] blt %u ms, dibits %u ms, convert %u ms, bpp %u, gate %u ms, skip %u",
-	         (UINT32)(bltNs / 1000000), (UINT32)(dibitsNs / 1000000),
-	         (UINT32)(convertNs / 1000000), state->bpp, (UINT32)(gateNs / 1000000), 0);
 
 	return Result<VOID, Error>::Ok();
 }

@@ -24,8 +24,6 @@ private:
 	TlsBuffer recvBuffer;    // Receive buffer
 	TlsBuffer channelBuffer; // Channel buffer for received data
 	INT32 channelBytesRead;  // Number of bytes read from channel buffer
-	UINT64 lastEncryptNs;    // Last Write's TLS-layer time excl. syscalls (record staging + encryption)
-	UINT64 lastSocketWriteNs;// Last Write's socket send syscall time
 	[[nodiscard]] Result<INT32, Error> ReadChannel(Span<CHAR> output);
 	[[nodiscard]] Result<VOID, Error> ProcessReceive();
 	[[nodiscard]] Result<VOID, Error> OnPacket(INT32 packetType, INT32 version, TlsBuffer &TlsReader);
@@ -41,7 +39,7 @@ private:
 
 	// Private trivial constructor — only used by Create()
 	TlsClient(PCCHAR host, const IPAddress &ipAddress, Socket &&socket, BOOL secure)
-		: host(host), ip(ipAddress), context(static_cast<Socket &&>(socket)), secure(secure), stateIndex(0), channelBytesRead(0), lastEncryptNs(0), lastSocketWriteNs(0) {}
+		: host(host), ip(ipAddress), context(static_cast<Socket &&>(socket)), secure(secure), stateIndex(0), channelBytesRead(0) {}
 
 public:
 	VOID *operator new(USIZE) = delete;
@@ -49,7 +47,7 @@ public:
 	// Placement new required by Result<TlsClient, Error>
 	VOID *operator new(USIZE, PVOID ptr) noexcept { return ptr; }
 	VOID operator delete(VOID *, PVOID) noexcept {}
-	TlsClient() : host(nullptr), ip(), secure(true), stateIndex(0), channelBytesRead(0), lastEncryptNs(0), lastSocketWriteNs(0) {}
+	TlsClient() : host(nullptr), ip(), secure(true), stateIndex(0), channelBytesRead(0) {}
 
 	// Factory — caller MUST check the result (enforced by [[nodiscard]])
 	[[nodiscard]] static Result<TlsClient, Error> Create(PCCHAR host, const IPAddress &ipAddress, UINT16 port, BOOL secure = true);
@@ -67,14 +65,12 @@ public:
 
 	// Move semantics
 	TlsClient(TlsClient &&other) noexcept
-		: host(other.host), ip(other.ip), context(static_cast<Socket &&>(other.context)), crypto(static_cast<TlsCipher &&>(other.crypto)), secure(other.secure), stateIndex(other.stateIndex), sendBuffer(static_cast<TlsBuffer &&>(other.sendBuffer)), recvBuffer(static_cast<TlsBuffer &&>(other.recvBuffer)), channelBuffer(static_cast<TlsBuffer &&>(other.channelBuffer)), channelBytesRead(other.channelBytesRead), lastEncryptNs(other.lastEncryptNs), lastSocketWriteNs(other.lastSocketWriteNs)
+		: host(other.host), ip(other.ip), context(static_cast<Socket &&>(other.context)), crypto(static_cast<TlsCipher &&>(other.crypto)), secure(other.secure), stateIndex(other.stateIndex), sendBuffer(static_cast<TlsBuffer &&>(other.sendBuffer)), recvBuffer(static_cast<TlsBuffer &&>(other.recvBuffer)), channelBuffer(static_cast<TlsBuffer &&>(other.channelBuffer)), channelBytesRead(other.channelBytesRead)
 	{
 		other.host = nullptr;
 		other.secure = true;
 		other.stateIndex = 0;
 		other.channelBytesRead = 0;
-		other.lastEncryptNs = 0;
-		other.lastSocketWriteNs = 0;
 	}
 
 	TlsClient &operator=(TlsClient &&other) noexcept
@@ -93,14 +89,10 @@ public:
 			recvBuffer = static_cast<TlsBuffer &&>(other.recvBuffer);
 			channelBuffer = static_cast<TlsBuffer &&>(other.channelBuffer);
 			channelBytesRead = other.channelBytesRead;
-			lastEncryptNs = other.lastEncryptNs;
-			lastSocketWriteNs = other.lastSocketWriteNs;
 			other.host = nullptr;
 			other.secure = true;
 			other.stateIndex = 0;
 			other.channelBytesRead = 0;
-			other.lastEncryptNs = 0;
-			other.lastSocketWriteNs = 0;
 		}
 		return *this;
 	}
@@ -108,10 +100,6 @@ public:
 	// Accessors and operations
 	BOOL IsValid() const { return context.IsValid(); }
 	BOOL IsSecure() const { return secure; }
-	/** @brief Nanoseconds the last Write spent in the TLS layer excl. syscalls (record staging + encryption; 0 on plaintext) */
-	UINT64 GetLastEncryptNs() const { return lastEncryptNs; }
-	/** @brief Nanoseconds the last Write spent in socket send syscalls */
-	UINT64 GetLastSocketWriteNs() const { return lastSocketWriteNs; }
 	[[nodiscard]] Result<VOID, Error> Open();
 	[[nodiscard]] Result<VOID, Error> Close();
 	[[nodiscard]] Result<SSIZE, Error> Read(Span<CHAR> buffer);

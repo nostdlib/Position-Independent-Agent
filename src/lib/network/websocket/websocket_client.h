@@ -148,20 +148,6 @@ struct WebSocketMessage
 };
 
 /**
- * @brief Per-stage timings of one send call (instrumentation)
- * @details Filled by WebSocketClient::WritePayload when a pointer is provided:
- * WS frame construction (header + masking), TLS record encryption, and the
- * socket send syscalls, each in nanoseconds. Lets the operator see where the
- * send-path time goes without touching wire behavior.
- */
-struct SendStageTiming
-{
-	UINT64 WsNs;    ///< WS framing + masking time (frame build into chunk/scratch)
-	UINT64 TlsNs;   ///< TLS layer time excl. syscalls (record staging + encryption); 0 on plaintext
-	UINT64 WriteNs; ///< Socket send syscall time
-};
-
-/**
  * @brief WebSocket client implementing the WebSocket Protocol (RFC 6455)
  * @details Provides a full WebSocket client over TLS (wss://) or plaintext (ws://) transport.
  * Implements the opening handshake (Section 4), base framing protocol (Section 5.2),
@@ -261,8 +247,6 @@ private:
 	 * @param prefix Payload bytes sent before body (may be empty)
 	 * @param body Payload bytes after prefix (may be empty)
 	 * @param opcode Frame opcode
-	 * @param timing Optional out-param receiving the per-stage send timings (WS
-	 *        framing, TLS encryption, socket write) — nullptr skips the bookkeeping
 	 * @return Ok(payload bytes sent) on success, Err(Ws_WriteFailed | Ws_NotConnected) on failure
 	 *
 	 * @details Builds the frame header for prefix.Size() + body.Size() payload bytes,
@@ -271,7 +255,7 @@ private:
 	 * chunk, large payloads from a heap scratch buffer. One write per frame lets the
 	 * TLS layer emit full 16 KiB records instead of one record per small chunk.
 	 */
-	[[nodiscard]] Result<UINT32, Error> WritePayload(Span<const CHAR> prefix, Span<const CHAR> body, WebSocketOpcode opcode, SendStageTiming *timing = nullptr);
+	[[nodiscard]] Result<UINT32, Error> WritePayload(Span<const CHAR> prefix, Span<const CHAR> body, WebSocketOpcode opcode);
 
 	// Private constructor — only used by Create()
 	WebSocketClient(const CHAR (&host)[254], const IPAddress &ip, UINT16 portNum, TlsClient &&tls)
@@ -424,7 +408,6 @@ public:
 	 * @details Produces the same wire bytes as Write() over `[status][corrId][body]`
 	 * but assembles them inside the transport's masked scratch buffer, skipping the
 	 * caller's separate splice allocation and full-payload copy per response.
-	 * Emits one `[send] ws/tls/write/bytes` timing line per successful response.
 	 */
 	[[nodiscard]] Result<UINT32, Error> WriteResponse(UINT32 status, UINT32 correlationId, Span<const CHAR> body, WebSocketOpcode opcode = WebSocketOpcode::Binary);
 };

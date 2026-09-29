@@ -71,9 +71,6 @@ Result<VOID, Error> TlsClient::SendPacket(INT32 packetType, INT32 ver, TlsBuffer
 	}
 	LOG_DEBUG("Sending packet with type: %d, version: %d, size: %d bytes", packetType, ver, buf.GetSize());
 
-	// Record stage: build + encrypt the TLS record (no syscalls below until the write)
-	UINT64 recordStartNs = DateTime::GetMonotonicNanoseconds();
-
 	// Initialize a temporary buffer to construct the TLS record
 	TlsBuffer tempBuffer;
 	tempBuffer.Append<CHAR>(packetType);
@@ -92,12 +89,9 @@ Result<VOID, Error> TlsClient::SendPacket(INT32 packetType, INT32 ver, TlsBuffer
 	// Swap the body size to big-endian and write it to the temporary buffer
 	UINT16 bodySize = ByteOrder::Swap16(tempBuffer.GetSize() - bodySizeIndex - 2);
 	Memory::Copy(tempBuffer.GetBuffer() + bodySizeIndex, &bodySize, sizeof(UINT16));
-	lastEncryptNs += DateTime::GetMonotonicNanoseconds() - recordStartNs;
 
 	// Write it in context and validate it
-	UINT64 socketStartNs = DateTime::GetMonotonicNanoseconds();
 	auto writeResult = context.Write(Span<const CHAR>(tempBuffer.GetBuffer(), tempBuffer.GetSize()));
-	lastSocketWriteNs += DateTime::GetMonotonicNanoseconds() - socketStartNs;
 	if (!writeResult)
 	{
 		LOG_DEBUG("Failed to write packet to socket");
@@ -777,15 +771,9 @@ Result<UINT32, Error> TlsClient::Write(Span<const CHAR> buffer)
 	UINT32 bufferLength = (UINT32)buffer.Size();
 	LOG_DEBUG("Sending data for client: %p, size: %d bytes", this, bufferLength);
 
-	// Stage timings of THIS call (read via GetLastEncryptNs/GetLastSocketWriteNs)
-	lastEncryptNs = 0;
-	lastSocketWriteNs = 0;
-
 	if (!secure)
 	{
-		UINT64 socketStartNs = DateTime::GetMonotonicNanoseconds();
 		auto writeResult = context.Write(buffer);
-		lastSocketWriteNs = DateTime::GetMonotonicNanoseconds() - socketStartNs;
 		if (!writeResult)
 		{
 			return Result<UINT32, Error>::Err(writeResult, Error::Tls_WriteFailed_Send);
@@ -804,13 +792,11 @@ Result<UINT32, Error> TlsClient::Write(Span<const CHAR> buffer)
 	(VOID)sendBuffer.SetSize(0);
 	for (UINT32 i = 0; i < bufferLength;)
 	{
-		UINT64 stageNs = DateTime::GetMonotonicNanoseconds();
 		INT32 sendSize = Math::Min(bufferLength - i, 1024 * 16);
 		auto setSizeResult = sendBuffer.SetSize(sendSize);
 		if (!setSizeResult)
 			return Result<UINT32, Error>::Err(setSizeResult, Error::Tls_WriteFailed_Send);
 		Memory::Copy(sendBuffer.GetBuffer(), buffer.Data() + i, sendSize);
-		lastEncryptNs += DateTime::GetMonotonicNanoseconds() - stageNs;
 		auto sendResult = SendPacket(CONTENT_APPLICATION_DATA, 0x303, sendBuffer);
 		if (!sendResult)
 		{

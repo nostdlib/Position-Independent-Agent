@@ -87,19 +87,6 @@ struct JpegBuffer
     }
 };
 
-// Motion-budget pacing: under heavy motion the whole screen goes dirty and a
-// full-area reply costs near-full-frame encode time, collapsing frame pacing.
-// The budget bounds the encoded area per reply; overflow rects are deferred.
-// Integer arithmetic throughout — floating constants pool into .rdata on
-// PE/COFF i386 and break position-independence.
-static constexpr UINT64 MotionBudgetTargetUs = 25000;  // target per-reply handler time in µs
-static constexpr UINT64 MotionBudgetGrowUs = 15000;    // grow below 60% of the target
-static constexpr UINT64 MotionBudgetEncodeShareUs = 20000; // post-capture (diff+encode) allowance in µs
-static constexpr UINT64 MotionBudgetStartNum = 2;      // seed budget = framePixels * 2/5
-static constexpr UINT64 MotionBudgetStartDen = 5;
-static constexpr UINT64 MotionBudgetMinNum = 1;        // budget floor = framePixels / 10
-static constexpr UINT64 MotionBudgetMinDen = 10;
-
 // Capture-depth policy: streams below this quality use 16bpp RGB565 capture
 // (the platform layer decides per machine via its one-time probe); at or
 // above it capture stays full 32bpp
@@ -115,56 +102,9 @@ struct Graphics
     // handler re-Init()s on the next request
     Buffer<CHAR> packet;
     PVOID captureState;  // Opaque per-display resources from Screen::CreateCaptureState
-    INT64 encodeEmaUs;   // EMA of recent per-reply encode times in µs; 0 = no sample yet
-    USIZE areaBudgetPixels; // Encoded-area budget in pixels; 0 = seed on first use
     BOOL lastFrameClean; // Previous frame had no dirty rects; enables the change gate
 
-    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), captureState(nullptr), encodeEmaUs(0), areaBudgetPixels(0), lastFrameClean(false) {}
-
-    /// @brief Effective encoded-area budget for this frame, seeded and clamped
-    /// @param framePixels Total pixels in the frame
-    /// @return Budget in pixels, between the floor and the full frame
-    USIZE AreaBudget(USIZE framePixels)
-    {
-        if (areaBudgetPixels == 0)
-            areaBudgetPixels = framePixels * MotionBudgetStartNum / MotionBudgetStartDen;
-        USIZE floorPixels = framePixels / MotionBudgetMinDen;
-        if (areaBudgetPixels > framePixels)
-            areaBudgetPixels = framePixels;
-        if (areaBudgetPixels < floorPixels)
-            areaBudgetPixels = floorPixels;
-        return areaBudgetPixels;
-    }
-
-    /// @brief Fold one reply's handler time into the EMA and adapt the budget
-    /// @param handlerNs Wall time of the whole capture+diff+encode handler
-    /// @param captureNs The capture stage's share (irreducible: GDI cost)
-    /// @param framePixels Total pixels in the frame (growth clamp)
-    VOID AdaptMotionBudget(UINT64 handlerNs, [[maybe_unused]] UINT64 captureNs, USIZE framePixels)
-    {
-        INT64 totalUs = (INT64)(handlerNs / 1000);
-        // EMA with weight 1/4 (shift-free integer form; truncation is fine here)
-        encodeEmaUs = (encodeEmaUs <= 0) ? totalUs : encodeEmaUs + (totalUs - encodeEmaUs) / 4;
-
-        // Deferral is DISABLED: encoding a frame's rects from staggered points
-        // in time tears video content (regions of the screen visibly out of
-        // order), which is worse than the pacing it saved. The SIMD encoder
-        // removed the overload the budget was built to absorb. The budget
-        // stays pinned at the full frame; the EMA and the [shot] log line
-        // remain for diagnostics.
-        USIZE next = framePixels;
-
-        USIZE floorPixels = framePixels;
-        if (next > framePixels)
-            next = framePixels;
-        if (next < floorPixels)
-            next = floorPixels;
-        if (next != areaBudgetPixels)
-        {
-            LOG_DEBUG("Motion budget %u -> %u px (total EMA %d us)", (UINT32)areaBudgetPixels, (UINT32)next, (INT32)encodeEmaUs);
-            areaBudgetPixels = next;
-        }
-    }
+    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), captureState(nullptr), lastFrameClean(false) {}
 
     // Drop the persistent capture state; the next capture re-creates it
     VOID ReleaseCaptureState()

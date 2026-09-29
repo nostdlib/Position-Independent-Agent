@@ -174,13 +174,7 @@ Result<UINT32, Error> WebSocketClient::WriteResponse(UINT32 status, UINT32 corre
 	UINT8 prefix[8];
 	Memory::Copy(prefix, &status, sizeof(status));
 	Memory::Copy(prefix + sizeof(status), &correlationId, sizeof(correlationId));
-	SendStageTiming timing = {0, 0, 0};
-	auto result = WritePayload(Span<const CHAR>((PCHAR)prefix, sizeof(prefix)), body, opcode, &timing);
-	if (result)
-		LOG_INFO("[send] ws=%uus tls=%uus write=%uus bytes=%u",
-			(UINT32)(timing.WsNs / 1000), (UINT32)(timing.TlsNs / 1000),
-			(UINT32)(timing.WriteNs / 1000), result.Value());
-	return result;
+	return WritePayload(Span<const CHAR>((PCHAR)prefix, sizeof(prefix)), body, opcode);
 }
 
 // XOR-mask size bytes continuing the mask phase at payload offset `phase`
@@ -208,15 +202,12 @@ static VOID MaskSpan(UINT8 *dst, const UINT8 *src, USIZE size, USIZE phase, cons
  * masked into a heap scratch buffer (header included) and written once. The
  * mask phase runs over the concatenated payload per RFC 6455 Section 5.3.
  */
-Result<UINT32, Error> WebSocketClient::WritePayload(Span<const CHAR> prefix, Span<const CHAR> body, WebSocketOpcode opcode, SendStageTiming *timing)
+Result<UINT32, Error> WebSocketClient::WritePayload(Span<const CHAR> prefix, Span<const CHAR> body, WebSocketOpcode opcode)
 {
 	if (!isConnected && opcode != WebSocketOpcode::Close)
 	{
 		return Result<UINT32, Error>::Err(Error::Ws_NotConnected);
 	}
-
-	// WS-framing stage: everything below up to the transport write
-	UINT64 frameStartNs = DateTime::GetMonotonicNanoseconds();
 
 	USIZE payloadSize = prefix.Size() + body.Size();
 
@@ -268,14 +259,7 @@ Result<UINT32, Error> WebSocketClient::WritePayload(Span<const CHAR> prefix, Spa
 		MaskSpan(dst + prefix.Size(), (const UINT8 *)body.Data(), body.Size(), prefix.Size(), maskKey);
 
 		UINT32 frameLength = headerLength + (UINT32)payloadSize;
-		if (timing)
-			timing->WsNs = DateTime::GetMonotonicNanoseconds() - frameStartNs;
 		auto smallWrite = tlsContext.Write(Span<const CHAR>((PCHAR)chunk, frameLength));
-		if (timing)
-		{
-			timing->TlsNs = tlsContext.GetLastEncryptNs();
-			timing->WriteNs = tlsContext.GetLastSocketWriteNs();
-		}
 		if (!smallWrite)
 			return Result<UINT32, Error>::Err(smallWrite, Error::Ws_WriteFailed);
 		if (smallWrite.Value() != frameLength)
@@ -297,14 +281,7 @@ Result<UINT32, Error> WebSocketClient::WritePayload(Span<const CHAR> prefix, Spa
 	MaskSpan(dst + prefix.Size(), (const UINT8 *)body.Data(), body.Size(), prefix.Size(), maskKey);
 
 	UINT32 frameLength = headerLength + (UINT32)payloadSize;
-	if (timing)
-		timing->WsNs = DateTime::GetMonotonicNanoseconds() - frameStartNs;
 	auto frameWrite = tlsContext.Write(Span<const CHAR>(sendScratch.Data, frameLength));
-	if (timing)
-	{
-		timing->TlsNs = tlsContext.GetLastEncryptNs();
-		timing->WriteNs = tlsContext.GetLastSocketWriteNs();
-	}
 	if (!frameWrite)
 		return Result<UINT32, Error>::Err(frameWrite, Error::Ws_WriteFailed);
 	if (frameWrite.Value() != frameLength)
