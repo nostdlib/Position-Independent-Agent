@@ -54,6 +54,35 @@ typedef struct _BITMAPINFOHEADER
 } BITMAPINFOHEADER, *PBITMAPINFOHEADER;
 
 /**
+ * @brief RGB color quad (color-table element of a BITMAPINFO).
+ *
+ * @see RGBQUAD structure
+ *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-rgbquad
+ */
+typedef struct _RGBQUAD
+{
+	UINT8 rgbBlue;     ///< Blue intensity
+	UINT8 rgbGreen;    ///< Green intensity
+	UINT8 rgbRed;      ///< Red intensity
+	UINT8 rgbReserved; ///< Reserved (must be zero)
+} RGBQUAD;
+
+/**
+ * @brief Bitmap information: header plus the first color-table entry.
+ *
+ * @details 32bpp BI_RGB bitmaps carry no color table, so a bare
+ * BITMAPINFOHEADER is a valid BITMAPINFO for them.
+ *
+ * @see BITMAPINFO structure
+ *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapinfo
+ */
+typedef struct _BITMAPINFO
+{
+	BITMAPINFOHEADER bmiHeader; ///< Bitmap dimensions and color format
+	RGBQUAD bmiColors[1];       ///< First color-table entry
+} BITMAPINFO, *PBITMAPINFO;
+
+/**
  * @brief Wrappers for Win32 GDI functions exported by gdi32.dll.
  *
  * @details Provides position-independent access to gdi32.dll exports for
@@ -96,6 +125,29 @@ public:
 	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-createcompatiblebitmap
 	 */
 	[[nodiscard]] static PVOID CreateCompatibleBitmap(PVOID hdc, INT32 cx, INT32 cy);
+
+	/**
+	 * @brief Creates a DIB section whose pixel memory is directly accessible.
+	 *
+	 * @details Selecting the returned bitmap into a DC makes drawing land
+	 * directly in *ppvBits — the readback copy a GetDIBits path performs
+	 * never happens.
+	 *
+	 * @param hdc Handle to a device context (color format reference).
+	 * @param pbmi Bitmap dimensions and format.
+	 * @param usage Color table type (DIB_RGB_COLORS).
+	 * @param ppvBits Receives the pointer to the bitmap bits.
+	 * @param hSection File-mapping handle for a shared-memory DIB (nullptr for plain memory).
+	 * @param offset Offset into hSection (ignored when hSection is nullptr).
+	 * @return Handle to the DIB section bitmap, or NULL on failure.
+	 *
+	 * @par Requirements
+	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
+	 *
+	 * @see CreateDIBSection
+	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-createdibsection
+	 */
+	[[nodiscard]] static PVOID CreateDIBSection(PVOID hdc, const BITMAPINFO *pbmi, UINT32 usage, PPVOID ppvBits, PVOID hSection, UINT32 offset);
 
 	/**
 	 * @brief Selects a GDI object into the specified device context.

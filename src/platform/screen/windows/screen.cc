@@ -4,19 +4,20 @@
  *
  * @details Implements screen device enumeration via User32
  * EnumDisplayDevicesW/EnumDisplaySettingsW and screen capture via
- * GDI CreateCompatibleDC/BitBlt/GetDIBits. User32 and Gdi32 wrappers
- * auto-load their DLLs via ResolveExportAddress when not already loaded.
- * Each stateful capture logs a per-stage timing line so live runs show
- * where the frame time goes (blt / dibits / convert).
+ * GDI CreateCompatibleDC/BitBlt into a DIB section. User32 and Gdi32
+ * wrappers auto-load their DLLs via ResolveExportAddress when not already
+ * loaded. Each stateful capture logs a per-stage timing line so live runs
+ * show where the frame time goes (blt / convert; dibits stays in the line
+ * as a constant 0 for log-parser compatibility).
  *
  * @see EnumDisplayDevicesW
- *      https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumdisplaydevicesw
+ *      https://learn.microsoft.com/en-us/windows/winuser/nf-winuser-enumdisplaydevicesw
  * @see EnumDisplaySettingsW
- *      https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumdisplaysettingsw
+ *      https://learn.microsoft.com/en-us/windows/winuser/nf-winuser-enumdisplaysettingsw
  * @see BitBlt
  *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-bitblt
- * @see GetDIBits
- *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-getdibits
+ * @see CreateDIBSection
+ *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-createdibsection
  */
 
 #include "platform/screen/screen.h"
@@ -82,22 +83,25 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 // Screen::Capture
 // =============================================================================
 
-// Persistent per-display capture resources: GDI object creation dominates a
-// per-call capture, so repeated captures reuse one memory DC, bitmap, and
-// BGRA conversion buffer (rebuilt when the display mode changes)
+// Persistent per-display capture resources: repeated captures reuse one memory
+// DC, a DIB-section bitmap whose pixel memory IS the BGRA buffer (BitBlt lands
+// pixels directly in it — no GetDIBits round trip), and a cached screen DC.
+// Everything is rebuilt when the display mode changes or a blt goes stale
 struct WinCaptureState
 {
 	PVOID memDC;
-	PVOID bitmap;
+	PVOID screenDC;  ///< Cached GetDC(nullptr) handle; re-borrowed on staleness
+	PVOID bitmap;    ///< DIB section, stays selected in memDC across frames
 	PVOID oldBitmap;
 	BITMAPINFOHEADER bmi;
-	UINT8 *bgra;
+	UINT8 *bgra;     ///< DIB-section bits; owned by `bitmap`, freed by DeleteObject
 	UINT32 bgraSize;
 	INT32 width;
 	INT32 height;
 };
 
-// Deselect, delete, and null the owned GDI objects (bgra is left to the caller)
+// Deselect, delete, and null the owned GDI objects. Deleting the DIB section
+// frees its pixel memory, so bgra dies with the handle and is nulled here
 static VOID ReleaseGdiObjects(WinCaptureState *state)
 {
 	if (state->memDC != nullptr && state->oldBitmap != nullptr)
@@ -109,6 +113,8 @@ static VOID ReleaseGdiObjects(WinCaptureState *state)
 	{
 		Gdi32::DeleteObject(state->bitmap);
 		state->bitmap = nullptr;
+		state->bgra = nullptr;
+		state->bgraSize = 0;
 	}
 	if (state->memDC != nullptr)
 	{
@@ -117,38 +123,65 @@ static VOID ReleaseGdiObjects(WinCaptureState *state)
 	}
 }
 
-// (Re)create the compatible memory DC + bitmap bound to the given dimensions
+// Drop the cached screen DC; the next acquire borrows a fresh one
+static VOID DropScreenDC(WinCaptureState *state)
+{
+	if (state->screenDC != nullptr)
+	{
+		User32::ReleaseDC(nullptr, state->screenDC);
+		state->screenDC = nullptr;
+	}
+}
+
+// Cached virtual-screen DC (GetDC(nullptr)) — caching removes the per-frame
+// GetDC/ReleaseDC kernel round trips; a failed blt drops it for a fresh one
+static PVOID AcquireScreenDC(WinCaptureState *state)
+{
+	if (state->screenDC == nullptr)
+		state->screenDC = User32::GetDC(nullptr);
+	return state->screenDC;
+}
+
+// (Re)create the memory DC + a width*height DIB section selected into it.
+// The DIB's bits pointer becomes state->bgra, so blts into the DC write the
+// capture straight into our buffer
 static BOOL RebuildGdiObjects(WinCaptureState *state, INT32 width, INT32 height)
 {
 	ReleaseGdiObjects(state);
 
-	PVOID screenDC = User32::GetDC(nullptr);
+	PVOID screenDC = AcquireScreenDC(state);
 	if (screenDC == nullptr)
 		return false;
 
 	state->memDC = Gdi32::CreateCompatibleDC(screenDC);
 	if (state->memDC != nullptr)
 	{
-		state->bitmap = Gdi32::CreateCompatibleBitmap(screenDC, width, height);
-		if (state->bitmap != nullptr)
-			state->oldBitmap = Gdi32::SelectObject(state->memDC, state->bitmap);
-	}
-	User32::ReleaseDC(nullptr, screenDC);
+		// 32bpp top-down format: BitBlt converts straight into DIB memory
+		Memory::Zero(&state->bmi, sizeof(state->bmi));
+		state->bmi.biSize = sizeof(BITMAPINFOHEADER);
+		state->bmi.biWidth = width;
+		state->bmi.biHeight = -height; // negative = top-down scanlines
+		state->bmi.biPlanes = 1;
+		state->bmi.biBitCount = 32;
+		state->bmi.biCompression = BI_RGB;
 
-	if (state->memDC == nullptr || state->bitmap == nullptr || state->oldBitmap == nullptr)
+		// No color table at 32bpp BI_RGB, so the header alone is the BITMAPINFO
+		PVOID bits = nullptr;
+		BITMAPINFO *info = (BITMAPINFO *)&state->bmi;
+		state->bitmap = Gdi32::CreateDIBSection(screenDC, info, DIB_RGB_COLORS, &bits, nullptr, 0);
+		if (state->bitmap != nullptr && bits != nullptr)
+		{
+			state->bgra = (UINT8 *)bits;
+			state->bgraSize = (UINT32)width * (UINT32)height * 4;
+			state->oldBitmap = Gdi32::SelectObject(state->memDC, state->bitmap);
+		}
+	}
+
+	if (state->memDC == nullptr || state->bitmap == nullptr || state->oldBitmap == nullptr || state->bgra == nullptr)
 	{
 		ReleaseGdiObjects(state);
 		return false;
 	}
-
-	// 32bpp top-down BITMAPINFOHEADER for GetDIBits
-	Memory::Zero(&state->bmi, sizeof(state->bmi));
-	state->bmi.biSize = sizeof(BITMAPINFOHEADER);
-	state->bmi.biWidth = width;
-	state->bmi.biHeight = -height; // negative = top-down scanlines
-	state->bmi.biPlanes = 1;
-	state->bmi.biBitCount = 32;
-	state->bmi.biCompression = BI_RGB;
 
 	state->width = width;
 	state->height = height;
@@ -164,17 +197,9 @@ Result<PVOID, Error> Screen::CreateCaptureState(const ScreenDevice &device)
 
 	if (!RebuildGdiObjects(state, (INT32)device.Width, (INT32)device.Height))
 	{
+		DropScreenDC(state);
 		delete state;
 		return Result<PVOID, Error>::Err(Error(Error::Screen_CaptureFailed));
-	}
-
-	state->bgraSize = device.Width * device.Height * 4;
-	state->bgra = new UINT8[state->bgraSize];
-	if (state->bgra == nullptr)
-	{
-		ReleaseGdiObjects(state);
-		delete state;
-		return Result<PVOID, Error>::Err(Error(Error::Screen_AllocFailed));
 	}
 
 	return Result<PVOID, Error>::Ok((PVOID)state);
@@ -187,7 +212,7 @@ VOID Screen::DestroyCaptureState(PVOID captureState)
 
 	WinCaptureState *state = (WinCaptureState *)captureState;
 	ReleaseGdiObjects(state);
-	delete[] state->bgra;
+	DropScreenDC(state);
 	delete state;
 }
 
@@ -196,7 +221,7 @@ VOID Screen::DestroyCaptureState(PVOID captureState)
 ///          of twelve byte stores. An SSE2 shuffle network was measured
 ///          slower here (0.81 vs 0.67 ms per 1080p frame): the stage is
 ///          memory-bandwidth-bound, so fewer stores beat wider loads.
-/// @param bgra GetDIBits output (4 bytes per pixel)
+/// @param bgra DIB-section pixel memory (4 bytes per pixel)
 /// @param rgb Destination frame buffer (3 bytes per pixel)
 /// @param pixelCount Total pixels to convert
 static VOID ConvertBgraToRgb(const UINT8 *bgra, PRGB rgb, UINT32 pixelCount)
@@ -242,64 +267,45 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	WinCaptureState *state = (WinCaptureState *)captureState;
 	INT32 width = (INT32)device.Width;
 	INT32 height = (INT32)device.Height;
-	UINT32 bgraNeeded = device.Width * device.Height * 4;
 
-	// Display-mode change since the state was built: rebuild GDI objects and
-	// grow the conversion buffer if the new mode is larger
-	if (width != state->width || height != state->height || state->bgraSize < bgraNeeded)
+	// Display-mode change since the state was built: rebuild everything (the
+	// DIB section is sized by the rebuild, so no separate buffer growth)
+	if (width != state->width || height != state->height)
 	{
 		if (!RebuildGdiObjects(state, width, height))
 			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
-
-		if (state->bgraSize < bgraNeeded)
-		{
-			UINT8 *grown = new UINT8[bgraNeeded];
-			if (grown == nullptr)
-				return Result<VOID, Error>::Err(Error(Error::Screen_AllocFailed));
-			delete[] state->bgra;
-			state->bgra = grown;
-			state->bgraSize = bgraNeeded;
-		}
 	}
 
-	// Persistent objects may go stale (lost DC, driver hiccup): rebuild once
-	// and retry before reporting failure. blt covers GetDC..ReleaseDC around
-	// the BitBlt, dibits the deselect/GetDIBits/reselect pair
+	// Persistent objects may go stale (lost DC, driver hiccup, desktop switch
+	// invalidating the cached screen DC): drop the cached DC, rebuild once,
+	// and retry before reporting failure. blt measures the BitBlt itself; the
+	// dibits stage is gone (DIB captures land in bgra directly) and stays in
+	// the log line as a constant 0 for parser compatibility
 	[[maybe_unused]] UINT64 bltNs = 0;
 	[[maybe_unused]] UINT64 dibitsNs = 0;
-	INT32 scanLines = 0;
 	for (UINT32 attempt = 0; ; attempt++)
 	{
-		UINT64 stage = DateTime::GetMonotonicNanoseconds();
-		PVOID screenDC = User32::GetDC(nullptr);
+		PVOID screenDC = AcquireScreenDC(state);
 		if (screenDC == nullptr)
+		{
+			DropScreenDC(state);
 			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
+		}
 
+		UINT64 stage = DateTime::GetMonotonicNanoseconds();
 		BOOL blit = Gdi32::BitBlt(state->memDC, 0, 0, width, height,
 			screenDC, device.Left, device.Top, SRCCOPY);
-		User32::ReleaseDC(nullptr, screenDC);
 		bltNs = DateTime::GetMonotonicNanoseconds() - stage;
 
 		if (blit)
-		{
-			// GetDIBits requires the bitmap not be selected into a DC
-			// (documented precondition — some drivers enforce it)
-			stage = DateTime::GetMonotonicNanoseconds();
-			Gdi32::SelectObject(state->memDC, state->oldBitmap);
-			scanLines = Gdi32::GetDIBits(state->memDC, state->bitmap, 0, (UINT32)height,
-				state->bgra, &state->bmi, DIB_RGB_COLORS);
-			Gdi32::SelectObject(state->memDC, state->bitmap);
-			dibitsNs = DateTime::GetMonotonicNanoseconds() - stage;
-		}
-
-		if (scanLines != 0)
 			break;
 
+		DropScreenDC(state);
 		if (attempt >= 1 || !RebuildGdiObjects(state, width, height))
 			return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
 	}
 
-	// BGRA -> RGB straight out of the GetDIBits buffer into the frame buffer
+	// BGRA -> RGB straight out of the DIB-section memory into the frame buffer
 	UINT32 pixelCount = device.Width * device.Height;
 	UINT64 stage = DateTime::GetMonotonicNanoseconds();
 	ConvertBgraToRgb(state->bgra, buffer.Data(), pixelCount);

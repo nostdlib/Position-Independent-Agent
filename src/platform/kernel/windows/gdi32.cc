@@ -20,6 +20,14 @@ PVOID Gdi32::CreateCompatibleBitmap(PVOID hdc, INT32 cx, INT32 cy)
 	return fn(hdc, cx, cy);
 }
 
+PVOID Gdi32::CreateDIBSection(PVOID hdc, const BITMAPINFO *pbmi, UINT32 usage, PPVOID ppvBits, PVOID hSection, UINT32 offset)
+{
+	auto fn = (PVOID(STDCALL *)(PVOID, const BITMAPINFO *, UINT32, PPVOID, PVOID, UINT32))ResolveGdi32ExportAddress("CreateDIBSection");
+	if (fn == nullptr)
+		return nullptr;
+	return fn(hdc, pbmi, usage, ppvBits, hSection, offset);
+}
+
 PVOID Gdi32::SelectObject(PVOID hdc, PVOID h)
 {
 	auto fn = (PVOID(STDCALL *)(PVOID, PVOID))ResolveGdi32ExportAddress("SelectObject");
