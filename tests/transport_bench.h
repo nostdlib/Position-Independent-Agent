@@ -16,7 +16,7 @@ private:
 	static constexpr USIZE BenchBytes = 1024 * 1024;
 	static constexpr UINT32 RecordMax = 1024 * 16; // TLS max plaintext per record
 
-	// Current Write() pattern: mask each 256-byte chunk into a stack buffer,
+	// Pre-batching Write() pattern (kept as the bench baseline): mask each 256-byte chunk into a stack buffer,
 	// then hand it to the TLS layer (which copies it into its staging buffer).
 	static VOID MaskChunked(const UINT8 *src, UINT8 *dst, USIZE size, const UINT8 *maskKey)
 	{

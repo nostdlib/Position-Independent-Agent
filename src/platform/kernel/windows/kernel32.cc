@@ -79,34 +79,3 @@ Result<VOID, Error> Kernel32::IsWow64Process(PVOID hProcess, PUINT32 lpWow64Proc
 		return Result<VOID, Error>::Err(Error(Error::Kernel32_IsWow64ProcessFailed));
 	return Result<VOID, Error>::Ok();
 }
-/// @brief GetSystemInfo output (display-mode subset used for the processor count)
-/// @details Naturally aligned on purpose — packing would corrupt the pointer
-///          field offsets and dwNumberOfProcessors with them. Offsets:
-///          x86_64/aarch64: dwNumberOfProcessors at 32, sizeof 48;
-///          i386: dwNumberOfProcessors at 20, sizeof 36
-typedef struct _SYSTEM_INFO
-{
-	UINT16 wProcessorArchitecture;      ///< 0
-	UINT16 wReserved;                   ///< 2
-	UINT32 dwPageSize;                  ///< 4
-	PVOID lpMinimumApplicationAddress;  ///< 8 / 8
-	PVOID lpMaximumApplicationAddress;  ///< 16 / 12
-	PVOID dwActiveProcessorMask;        ///< 24 / 16
-	UINT32 dwNumberOfProcessors;        ///< 32 / 20
-	UINT32 dwProcessorType;             ///< 36 / 24
-	UINT32 dwAllocationGranularity;     ///< 40 / 28
-	UINT16 wProcessorLevel;             ///< 44 / 32
-	UINT16 wProcessorRevision;          ///< 46 / 34
-} SYSTEM_INFO, *PSYSTEM_INFO;
-
-Result<UINT32, Error> Kernel32::GetProcessorCount()
-{
-	auto fn = (VOID(STDCALL *)(PSYSTEM_INFO))ResolveKernel32ExportAddress("GetSystemInfo");
-	if (fn == nullptr)
-		return Result<UINT32, Error>::Err(Error(Error::Kernel32_ExportUnavailable));
-
-	SYSTEM_INFO info;
-	Memory::Zero(&info, sizeof(info));
-	fn(&info);
-	return Result<UINT32, Error>::Ok(info.dwNumberOfProcessors);
-}

@@ -35,11 +35,3 @@ INT32 User32::ReleaseDC(PVOID hWnd, PVOID hDC)
 		return 0;
 	return fn(hWnd, hDC);
 }
-
-INT32 User32::GetSystemMetrics(INT32 nIndex)
-{
-	auto fn = (INT32(STDCALL *)(INT32))ResolveUser32ExportAddress("GetSystemMetrics");
-	if (fn == nullptr)
-		return 0;
-	return fn(nIndex);
-}

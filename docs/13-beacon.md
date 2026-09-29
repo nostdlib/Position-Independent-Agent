@@ -320,9 +320,10 @@ struct Graphics
 {
     PRGB currentScreenshot; // current frame (raw pixels)
     PRGB screenshot;        // previous frame (for comparison)
-    PRGB rectBuffer;        // reusable buffer for rectangle extraction
     JpegBuffer jpegBuffer;  // reusable JPEG encoding buffer
+    Buffer<CHAR> packet;    // persistent incremental-reply packet
     PVOID captureState;     // opaque per-display capture resources
+    BOOL lastFrameClean;    // previous frame had no dirty rects
 };
 ```
 
@@ -367,7 +368,7 @@ Each screenshot command executes these stages:
 
 **Stage 1 -- Initialize (first call only).** Enumerate displays via
 `Screen::GetDevices`. Allocate two RGB buffers per display (width * height *
-sizeof(RGB)), plus a diff buffer and a rect extraction buffer. This happens
+sizeof(RGB)). This happens
 once and the buffers persist in the `ScreenCaptureContext`.
 
 **Stage 2 -- Capture.** `Screen::Capture(device, rgbBuffer, captureState)` fills
@@ -408,12 +409,15 @@ want the per-pixel map. When no tile is dirty, the handler replies success with
 an empty section list immediately -- no packet allocation, no encoding.
 
 **Stage 4 -- Find dirty rectangles.** Adjacent dirty tiles are merged into
-rectangles by the same call (greedy row-span merge, width aligned to a
-multiple of 4 for the JPEG MCU, regions smaller than 32x32 dropped).
+rectangles by the same call (greedy row-span merge, tile spans smaller than
+32x32 dropped; edge rects are clamped to the image bounds and emitted as-is --
+the JPEG encoder pads partial MCUs internally).
 
-**Stage 5 -- Encode and serialize.** For each dirty rectangle, extract the
-region from the current frame into `rectBuffer`, JPEG-encode it, and append
-to the response. The encoder is baseline JFIF with a quality-gated chroma
+**Stage 5 -- Encode and serialize.** For each dirty rectangle, encode it
+in place out of the current frame buffer (stride = frame width) via the
+strided `JpegEncoder::Encode` overload, appending the compressed bytes
+directly into the persistent reply packet. The encoder is
+baseline JFIF with a quality-gated chroma
 layout: below quality 90 it encodes 4:2:0 (16x16 MCUs, 2x2 box-filtered
 chroma — roughly 40% less encode time and typically 25-40% smaller output
 for screen content), while quality 90 and above keep 4:4:4 with the same

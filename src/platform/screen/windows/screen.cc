@@ -7,8 +7,9 @@
  * GDI CreateCompatibleDC/BitBlt into a DIB section (with automatic fallback
  * to the CreateCompatibleBitmap + GetDIBits path when a driver rejects the
  * DIB destination). User32 and Gdi32 wrappers auto-load their DLLs via
- * ResolveExportAddress when not already loaded. Each stateful capture logs a
- * per-stage timing line so live runs show where the frame time goes.
+ * ResolveExportAddress when not already loaded. A one-time probe at state
+ * creation logs the machine's blt-cost classification; failures log which GDI
+ * call rejected the request.
  *
  * @see EnumDisplayDevicesW
  *      https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumdisplaydevicesw
@@ -23,7 +24,6 @@
 #include "platform/screen/screen.h"
 #include "platform/kernel/windows/user32.h"
 #include "platform/kernel/windows/gdi32.h"
-#include "platform/kernel/windows/kernel32.h"
 #include "platform/console/logger.h"
 #include "platform/system/date_time.h"
 
@@ -164,20 +164,6 @@ static VOID DestroyGateObjects(WinCaptureState *state)
 	state->gateSkipStreak = 0;
 	state->gateWidth = 0;
 	state->gateHeight = 0;
-}
-
-// Gate frames differ at any dword — StretchBlt is deterministic for identical
-// input, so exact equality is a sound "screen unchanged" predicate
-static BOOL GateFramesDiffer(const UINT8 *a, const UINT8 *b, USIZE dwordCount)
-{
-	const UINT32 *x = (const UINT32 *)a;
-	const UINT32 *y = (const UINT32 *)b;
-	for (USIZE i = 0; i < dwordCount; i++)
-	{
-		if (x[i] != y[i])
-			return true;
-	}
-	return false;
 }
 
 // Deselect, delete, and null the owned GDI objects and pixel buffer. A DIB
@@ -621,12 +607,6 @@ static VOID RunCaptureProbe(WinCaptureState *state)
 		DestroyScratchDib(&dib16);
 	}
 
-	[[maybe_unused]] UINT32 cpuCount = 0;
-	auto cpus = Kernel32::GetProcessorCount();
-	if (cpus)
-		cpuCount = cpus.Value();
-	[[maybe_unused]] INT32 remoteSession = User32::GetSystemMetrics(SM_REMOTESESSION);
-
 	// Classification — integer ratios, spaced well beyond the ~1ms clock tick.
 	// bytesBound: a quarter-linear crop is >= 2x cheaper than the full blt
 	BOOL probeUsable = (fullNs != 0 && crop25Ns != 0);
@@ -638,10 +618,9 @@ static VOID RunCaptureProbe(WinCaptureState *state)
 	state->gateMode = (state->gateHalftoneOk && sthtNs != 0 && stccNs != 0 && sthtNs * 2 <= stccNs * 3) ? HALFTONE : COLORONCOLOR;
 	state->probeRan = true;
 
-	LOG_INFO("[probe] full=%u crop50=%u crop25=%u stcc=%u stht=%u dib16=%u ms; cpu=%u rdp=%u; gate=%u mode=%u bpp16=%u (%ux%u)",
+	LOG_INFO("[probe] full=%u crop50=%u crop25=%u stcc=%u stht=%u dib16=%u ms; gate=%u mode=%u bpp16=%u (%ux%u)",
 		(UINT32)(fullNs / 1000000), (UINT32)(crop50Ns / 1000000), (UINT32)(crop25Ns / 1000000),
 		(UINT32)(stccNs / 1000000), (UINT32)(sthtNs / 1000000), (UINT32)(dib16Ns / 1000000),
-		cpuCount, (UINT32)remoteSession,
 		state->gateAllowed ? 1 : 0, (UINT32)state->gateMode, state->dib16Allowed ? 1 : 0,
 		(UINT32)width, (UINT32)height);
 }
@@ -830,8 +809,8 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 		{
 			BOOL resyncDue = state->gateSkipStreak >= GateResyncInterval;
 			if (state->gateValid && !resyncDue &&
-			    !GateFramesDiffer(state->gateBits, state->gatePrev,
-			                      (USIZE)state->gateWidth * state->gateHeight))
+			    Memory::Compare(state->gateBits, state->gatePrev,
+			                    (USIZE)state->gateWidth * state->gateHeight * 4) == 0)
 			{
 				gateSkipped = true;
 				state->gateSkipStreak++;

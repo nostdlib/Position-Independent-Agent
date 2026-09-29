@@ -84,7 +84,7 @@ static USIZE BuildIdentityHeaders(const SystemInfo &info, const CHAR *sessionKey
 
     // Fixed 37-byte buffer (36 chars + NUL)
     CHAR uuid[37];
-    (VOID) info.MachineUUID.ToString(Span<CHAR>(uuid, sizeof(uuid)));
+    (VOID)info.MachineUUID.ToString(Span<CHAR>(uuid, sizeof(uuid)));
 
     // Hostname/username are the only free-text values in the block.
     CHAR deviceName[256];
@@ -197,7 +197,7 @@ INT32 start()
     Random random;
     CHAR sessionKey[37];
     sessionKey[0] = '\0';
-    (VOID) random.RandomUUID().ToString(Span<CHAR>(sessionKey, sizeof(sessionKey)));
+    (VOID)random.RandomUUID().ToString(Span<CHAR>(sessionKey, sizeof(sessionKey)));
 
     while (!context.shouldExit)
     {
@@ -211,7 +211,7 @@ INT32 start()
         SystemInfo identityInfo;
         GetSystemInfo(&identityInfo);
         CHAR deviceUuid[37];
-        (VOID) identityInfo.MachineUUID.ToString(Span<CHAR>(deviceUuid, sizeof(deviceUuid)));
+        (VOID)identityInfo.MachineUUID.ToString(Span<CHAR>(deviceUuid, sizeof(deviceUuid)));
         LOG_DEBUG("Identity: host=%s user=%s device=%s os=%s", identityInfo.Hostname, identityInfo.Username, deviceUuid, identityInfo.OSVersion);
         CHAR identityHeaders[1024];
         USIZE identityHeadersLen = BuildIdentityHeaders(identityInfo, sessionKey, Span<CHAR>(identityHeaders, sizeof(identityHeaders)));

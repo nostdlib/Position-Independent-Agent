@@ -11,9 +11,9 @@
  *
  * On x86_64 the per-MCU hot loops run through an SSE2 path (baseline on
  * that arch, so no runtime dispatch): the 4:2:0 color conversion and the
- * forward DCT process four blocks per 128-bit lane. The vector surface is
- * declared locally (clang vector types + __builtin_ia32_* / shufflevector,
- * no compiler headers) and every vector constant is an integer splat forced
+ * forward DCT process four blocks per 128-bit lane. Vector types and the
+ * unaligned load come from core/compiler/sse2.h; the punpck/pmadd surface
+ * stays local, and every vector constant is an integer splat forced
  * through a GPR barrier so the backend can never pool it into .rodata.cst*,
  * which would break the PIC build.
  *
@@ -28,6 +28,7 @@
 #include "lib/image/jpeg_encoder.h"
 #include "core/memory/memory.h"
 #include "core/math/byteorder.h"
+#include "core/compiler/sse2.h"
 
 // ============================================================
 //  Constants
@@ -59,15 +60,13 @@ static FORCE_INLINE float F32(UINT32 bits)
 #if defined(ARCHITECTURE_X86_64)
 
 /// @brief 128-bit vector of 8-bit lanes
-typedef INT8 V16B __attribute__((__vector_size__(16)));
+typedef SseVec16b V16B;
 /// @brief 128-bit vector of 16-bit lanes
 typedef INT16 V8S __attribute__((__vector_size__(16)));
 /// @brief 128-bit vector of 32-bit lanes
 typedef INT32 V4S __attribute__((__vector_size__(16)));
 /// @brief 128-bit vector of float lanes
 typedef float V4F __attribute__((__vector_size__(16)));
-/// @brief The byte vector with byte alignment, for unaligned access
-typedef V16B V16Bu __attribute__((__aligned__(1)));
 
 /// @brief Bit-cast reinterpretation between same-width vector types
 template <typename D, typename S>
@@ -79,7 +78,7 @@ static FORCE_INLINE D VecCast(S v)
 /// @brief Load 16 bytes from an arbitrarily aligned address
 static FORCE_INLINE V16B LoadU(const UINT8 *p)
 {
-	return *(const V16Bu *)p;
+	return SseLoadU(p);
 }
 
 /// @brief Unpack low bytes of two vectors into interleaved byte lanes
@@ -1054,6 +1053,11 @@ static VOID ForwardDCT(float *data, const EncodeConstants *c)
 //  MCU encoding
 // ============================================================
 
+static VOID EncodeEntropy(EncoderState *state, const INT32 *du,
+						  UINT8 *huffDcLen, UINT16 *huffDcCode,
+						  UINT8 *huffAcLen, UINT16 *huffAcCode,
+						  INT32 *pred, UINT64 *bitbuffer, UINT32 *location);
+
 /**
  * @brief Encode and write a single 8x8 Minimum Coded Unit
  *
@@ -1075,11 +1079,6 @@ static VOID ForwardDCT(float *data, const EncodeConstants *c)
  *
  * @see ITU-T T.81 F.1.2 — Huffman encoding procedures for DC/AC coefficients
  */
-static VOID EncodeEntropy(EncoderState *state, const INT32 *du,
-						  UINT8 *huffDcLen, UINT16 *huffDcCode,
-						  UINT8 *huffAcLen, UINT16 *huffAcCode,
-						  INT32 *pred, UINT64 *bitbuffer, UINT32 *location);
-
 static VOID EncodeMCU(EncoderState *state, float *mcu, float *qt,
 					  UINT8 *huffDcLen, UINT16 *huffDcCode,
 					  UINT8 *huffAcLen, UINT16 *huffAcCode,

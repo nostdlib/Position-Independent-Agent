@@ -1,6 +1,5 @@
 #pragma once
 #include "runtime.h"
-#include "logger.h"
 
 struct JpegBuffer
 {

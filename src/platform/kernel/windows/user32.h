@@ -28,7 +28,6 @@
 #define DISPLAY_DEVICE_ACTIVE         0x00000001
 #define DISPLAY_DEVICE_PRIMARY_DEVICE 0x00000004
 #define ENUM_CURRENT_SETTINGS         ((UINT32)-1)
-#define SM_REMOTESESSION              0x1000
 
 /**
  * @brief Display device information structure.
@@ -185,18 +184,4 @@ public:
 	 *      https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-releasedc
 	 */
 	static INT32 ReleaseDC(PVOID hWnd, PVOID hDC);
-
-	/**
-	 * @brief Retrieves a system metric or configuration setting.
-	 *
-	 * @param nIndex Metric to query (e.g., SM_REMOTESESSION).
-	 * @return The metric value, or 0 on failure / unsupported index.
-	 *
-	 * @par Requirements
-	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
-	 *
-	 * @see GetSystemMetrics
-	 *      https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getsystemmetrics
-	 */
-	[[nodiscard]] static INT32 GetSystemMetrics(INT32 nIndex);
 };

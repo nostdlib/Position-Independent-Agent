@@ -279,18 +279,4 @@ public:
 	 *      https://learn.microsoft.com/en-us/windows/win32/api/wow64apiset/nf-wow64apiset-iswow64process
 	 */
 	[[nodiscard]] static Result<VOID, Error> IsWow64Process(PVOID hProcess, PUINT32 lpWow64Process);
-
-	/**
-	 * @brief Reports the number of logical processors on the machine.
-	 *
-	 * @return Result<UINT32, Error> Ok(count) on success;
-	 *         Err(Kernel32_ExportUnavailable) if GetSystemInfo cannot be resolved.
-	 *
-	 * @par Requirements
-	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
-	 *
-	 * @see GetSystemInfo
-	 *      https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getsysteminfo
-	 */
-	[[nodiscard]] static Result<UINT32, Error> GetProcessorCount();
 };

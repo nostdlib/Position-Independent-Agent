@@ -818,6 +818,9 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
                          graphics.captureState, &captureOptions, &captureStatus))
     {
         LOG_ERROR("Failed to capture the screen for display index: %u", displayIndex);
+        // The capture may have failed after the change gate advanced its
+        // baseline; force a re-baseline before the gate may skip again
+        graphics.lastFrameClean = false;
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
     }
@@ -889,6 +892,8 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     if (dirtyResult.IsErr())
     {
         LOG_ERROR("Failed to find dirty rectangles for display index: %u", displayIndex);
+        // The gate baselined this frame but the reply never syncs the receiver
+        graphics.lastFrameClean = false;
         WriteErrorResponse(response, responseLength, StatusCode::StatusError);
         return;
     }
