@@ -49,11 +49,6 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 		if (!(dd.StateFlags & DISPLAY_DEVICE_ACTIVE))
 			continue;
 
-		// Mirroring/indirect driver adapters report active with a mode but
-		// cannot be captured via GDI (DC creation and blts fail on them)
-		if (dd.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER)
-			continue;
-
 		DEVMODEW dm;
 		Memory::Zero(&dm, sizeof(dm));
 		dm.dmSize = sizeof(DEVMODEW);
@@ -302,8 +297,6 @@ static BOOL MatchDeviceName(const ScreenDevice &device, WCHAR *deviceName)
 			break;
 
 		if (!(dd.StateFlags & DISPLAY_DEVICE_ACTIVE))
-			continue;
-		if (dd.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER)
 			continue;
 
 		DEVMODEW dm;
