@@ -845,7 +845,7 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         Span<RGB>(graphics.currentScreenshot, device.Width * device.Height),
         Span<const RGB>(graphics.screenshot, device.Width * device.Height),
         device.Width, device.Height, 64, 24);
-    UINT64 diffNs = DateTime::GetMonotonicNanoseconds() - diffStartNs;
+    [[maybe_unused]] UINT64 diffNs = DateTime::GetMonotonicNanoseconds() - diffStartNs;
     if (dirtyResult.IsErr())
     {
         LOG_ERROR("Failed to find dirty rectangles for display index: %u", displayIndex);
@@ -859,6 +859,7 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     if (dirtyRects.Count == 0)
     {
         dirtyRects.Free();
+        UINT64 idlePacketStartNs = DateTime::GetMonotonicNanoseconds();
         *responseLength = sizeof(UINT32) + sizeof(UINT32);
         *response = new CHAR[*responseLength];
         if (*response == nullptr)
@@ -870,10 +871,27 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         BinaryWriter writer{Span<UINT8>((UINT8 *)*response, *responseLength)};
         writer.Write<UINT32>(StatusCode::StatusSuccess);
         writer.Write<UINT32>(0);
+        UINT64 idleTotNs = DateTime::GetMonotonicNanoseconds() - frameStartNs;
+        UINT64 idlePacketNs = idleTotNs - (idlePacketStartNs - frameStartNs);
+        [[maybe_unused]] USIZE idleFramePixels = (USIZE)device.Width * device.Height;
+        UINT64 idleGlueNs = idleTotNs - captureNs - diffNs;
+        [[maybe_unused]] UINT64 idleOverheadNs = (idleGlueNs > idlePacketNs) ? (idleGlueNs - idlePacketNs) : 0;
+        // Same breakdown as the dirty path so idle frames stay visible (zero
+        // encode work, empty section list)
+        LOG_INFO("[shot] cap=%u diff=%u enc=%u tot=%u ms; rects=%u/%u area=%u/%u budget=%u ema=%uus len=%u pkt=%u ovh=%u",
+            (UINT32)(captureNs / 1000000), (UINT32)(diffNs / 1000000), (UINT32)0, (UINT32)(idleTotNs / 1000000),
+            (UINT32)0, (UINT32)0, (UINT32)0, (UINT32)idleFramePixels,
+            (UINT32)graphics.AreaBudget(idleFramePixels), (UINT32)graphics.encodeEmaUs,
+            (UINT32)*responseLength, (UINT32)(idlePacketNs / 1000000), (UINT32)(idleOverheadNs / 1000000));
         return;
     }
 
     UINT32 countOfRects = 0;
+
+    // Actual encode-stage cost, accumulated around each JpegEncoder::Encode
+    // call below (the dispatch/allocation glue between stages is reported as
+    // ovh in the [shot] line)
+    [[maybe_unused]] UINT64 encodeNs = 0;
 
     // Motion budget: bound the encoded area per reply so heavy motion defers
     // overflow rects to the next frame instead of collapsing frame pacing
@@ -961,11 +979,13 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         PacketJpegContext encodeContext;
         encodeContext.packet = &graphics.packet;
         encodeContext.failed = false;
+        UINT64 encodeStartNs = DateTime::GetMonotonicNanoseconds();
         auto encodeResult = JpegEncoder::Encode(
             PacketJpegCallback, &encodeContext, (INT32)quality, rectWidth, rectHeight, 3,
             Span<const UINT8>((UINT8 *)(graphics.currentScreenshot + (USIZE)dr.Y * device.Width + dr.X),
                               ((USIZE)device.Width * device.Height - ((USIZE)dr.Y * device.Width + dr.X)) * sizeof(RGB)),
             (INT32)device.Width);
+        encodeNs += DateTime::GetMonotonicNanoseconds() - encodeStartNs;
         if (encodeResult.IsErr() || encodeContext.failed)
         {
             dirtyRects.Free();
@@ -979,21 +999,15 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         Memory::Copy(graphics.packet.Data + headerOffset + sizeof(UINT32) * 2, &jpegLength, sizeof(jpegLength));
     }
 
+    // Packet-finalize window: from after the encode loop's last rect to just
+    // before the function returns (pacing fold + header write + Release handoff)
+    UINT64 packetStartNs = DateTime::GetMonotonicNanoseconds();
+
     // Fold the WHOLE handler cost (capture+diff+encode) into the pacing
     // budget — adapting on encode alone let the fixed capture cost push the
     // total frame time far past the target
     UINT64 handlerNs = DateTime::GetMonotonicNanoseconds() - frameStartNs;
     graphics.AdaptMotionBudget(handlerNs, captureNs, framePixels);
-
-    // Per-frame breakdown for the operator's logs: where the time went and
-    // what the pacing budget decided (cap/diff/enc/tot in ms; encoded/total
-    // rects; encoded area vs frame; current budget and encode EMA in us)
-    LOG_INFO("[shot] cap=%u diff=%u enc=%u tot=%u ms; rects=%u/%u area=%u/%u budget=%u ema=%uus len=%u",
-        (UINT32)(captureNs / 1000000), (UINT32)(diffNs / 1000000),
-        (UINT32)((handlerNs - captureNs - diffNs) / 1000000), (UINT32)(handlerNs / 1000000),
-        countOfRects, dirtyRects.Count, (UINT32)accumulatedArea, (UINT32)framePixels,
-        (UINT32)graphics.AreaBudget(framePixels), (UINT32)graphics.encodeEmaUs,
-        (UINT32)graphics.packet.Size);
 
     // Encoded rects came straight from the current frame and deferred ones were
     // reverted to the previous above, so it matches the receiver's canvas and
@@ -1008,7 +1022,24 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     writer.Write<UINT32>(countOfRects);
 
     *responseLength = graphics.packet.Size;
+    [[maybe_unused]] UINT32 packetLen = (UINT32)graphics.packet.Size;
+    [[maybe_unused]] UINT32 rectTotal = dirtyRects.Count;
     *response = graphics.packet.Release();
 
     dirtyRects.Free();
+
+    // Per-frame breakdown for the operator's logs: where the time went and
+    // what the pacing budget decided (cap/diff/enc/tot/pkt/ovh in ms; the five
+    // stages sum to tot; encoded/total rects; encoded area vs frame; current
+    // budget and encode EMA in us). pkt = packet finalize above the window
+    // start; ovh = the residual dispatch/allocation glue, clamped at 0
+    UINT64 packetNs = DateTime::GetMonotonicNanoseconds() - packetStartNs;
+    UINT64 glueNs = handlerNs - captureNs - diffNs - encodeNs;
+    [[maybe_unused]] UINT64 overheadNs = (glueNs > packetNs) ? (glueNs - packetNs) : 0;
+    LOG_INFO("[shot] cap=%u diff=%u enc=%u tot=%u ms; rects=%u/%u area=%u/%u budget=%u ema=%uus len=%u pkt=%u ovh=%u",
+        (UINT32)(captureNs / 1000000), (UINT32)(diffNs / 1000000),
+        (UINT32)(encodeNs / 1000000), (UINT32)(handlerNs / 1000000),
+        countOfRects, rectTotal, (UINT32)accumulatedArea, (UINT32)framePixels,
+        (UINT32)graphics.AreaBudget(framePixels), (UINT32)graphics.encodeEmaUs,
+        packetLen, (UINT32)(packetNs / 1000000), (UINT32)(overheadNs / 1000000));
 }

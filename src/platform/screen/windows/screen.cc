@@ -265,8 +265,8 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	// Persistent objects may go stale (lost DC, driver hiccup): rebuild once
 	// and retry before reporting failure. blt covers GetDC..ReleaseDC around
 	// the BitBlt, dibits the deselect/GetDIBits/reselect pair
-	UINT64 bltNs = 0;
-	UINT64 dibitsNs = 0;
+	[[maybe_unused]] UINT64 bltNs = 0;
+	[[maybe_unused]] UINT64 dibitsNs = 0;
 	INT32 scanLines = 0;
 	for (UINT32 attempt = 0; ; attempt++)
 	{
@@ -303,7 +303,7 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	UINT32 pixelCount = device.Width * device.Height;
 	UINT64 stage = DateTime::GetMonotonicNanoseconds();
 	ConvertBgraToRgb(state->bgra, buffer.Data(), pixelCount);
-	UINT64 convertNs = DateTime::GetMonotonicNanoseconds() - stage;
+	[[maybe_unused]] UINT64 convertNs = DateTime::GetMonotonicNanoseconds() - stage;
 
 	LOG_INFO("[capture] blt %u ms, dibits %u ms, convert %u ms",
 	         (UINT32)(bltNs / 1000000), (UINT32)(dibitsNs / 1000000),

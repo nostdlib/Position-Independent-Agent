@@ -247,6 +247,11 @@ INT32 start()
                 break;
             }
 
+            // Dispatch-stage timing (µs): parse = message-received → handler
+            // entry, handle = the handler itself (cross-checks [shot] tot),
+            // reply = handler-done → response handed to the send path ([send])
+            [[maybe_unused]] UINT64 dispatchStartNs = DateTime::GetMonotonicNanoseconds();
+
             messageCount++;
             PCHAR command = (PCHAR)(readResult.Value().Data);
             UINT8 commandType = command[0];
@@ -272,10 +277,13 @@ INT32 start()
             PCHAR response = nullptr;
             USIZE responseLength = sizeof(UINT32);
 
+            UINT64 handleStartNs = DateTime::GetMonotonicNanoseconds();
+            UINT64 handleNs = 0;
             if (commandType < CommandType::CommandTypeCount && commandHandlers[commandType])
             {
                 LOG_DEBUG("Dispatching command %s to handler", CommandTypeName(commandType));
                 commandHandlers[commandType](command, commandLength, &response, &responseLength, &context);
+                handleNs = DateTime::GetMonotonicNanoseconds() - handleStartNs;
                 if (response == nullptr)
                 {
                     LOG_ERROR("Command %s produced no response buffer, reconnecting...", CommandTypeName(commandType));
@@ -296,12 +304,17 @@ INT32 start()
                     break;
                 }
                 *(PUINT32)response = StatusCode::StatusUnknownCommand;
+                handleNs = DateTime::GetMonotonicNanoseconds() - handleStartNs;
             }
 
             // Send [status][correlationId][body]: the transport splices the echoed
             // correlation id between status and body in its masked frame buffer,
             // so no separate wire copy of the response is needed here.
             LOG_DEBUG("Sending response (%u bytes) to server", (UINT32)responseLength);
+            [[maybe_unused]] UINT64 replyNs = DateTime::GetMonotonicNanoseconds() - handleStartNs - handleNs;
+            LOG_INFO("[disp] parse=%uus handle=%uus reply=%uus",
+                     (UINT32)((handleStartNs - dispatchStartNs) / 1000), (UINT32)(handleNs / 1000),
+                     (UINT32)(replyNs / 1000));
             auto writeResult = wsClient.WriteResponse(*(PUINT32)response, correlationId,
                                                       Span<const CHAR>(response + sizeof(UINT32),
                                                                        responseLength - sizeof(UINT32)),
