@@ -332,6 +332,115 @@ private:
 				allPassed = false;
 		}
 
+		// --- WriteResponse stack/scratch boundary: payload 248 vs 249 ---
+		// Small frames mask into a stack chunk; larger ones into the heap
+		// scratch. The boundary sits at 256 - header bytes, so payload 248
+		// (body 240) is the last stack frame and 249 (body 241) the first
+		// scratch frame on the 16-bit length path — both must splice exactly
+		{
+			LOG_INFO("Test: WriteResponse Stack/Scratch Boundary");
+			const UINT32 status = 0x0BADF00D;
+			const UINT32 corrId = 0x0C0FFEE1;
+
+			if (VerifySplicedEcho(ws, status, corrId, 240, "WriteResponse payload 248 (last stack frame)") &&
+			    VerifySplicedEcho(ws, status, corrId, 241, "WriteResponse payload 249 (first scratch frame)"))
+				LOG_INFO("  PASSED: WriteResponse stack/scratch boundary");
+			else
+			{
+				LOG_ERROR("  FAILED: WriteResponse stack/scratch boundary");
+				allPassed = false;
+			}
+		}
+
+		// --- WriteResponse 16/64-bit length boundary ---
+		// Payload 65536 is the first 64-bit-length frame; 65537 additionally
+		// shifts the mask phase tail (% 4 == 1) into the scratch path
+		{
+			LOG_INFO("Test: WriteResponse 64-bit Length Boundary");
+			const UINT32 status = 0x13579BDF;
+			const UINT32 corrId = 0x2468ACE0;
+
+			if (VerifySplicedEcho(ws, status, corrId, 65536 - 8, "WriteResponse payload 65536 (first 64-bit frame)") &&
+			    VerifySplicedEcho(ws, status, corrId, 65537 - 8, "WriteResponse payload 65537 (tail % 4 == 1)"))
+				LOG_INFO("  PASSED: WriteResponse 64-bit length boundary");
+			else
+			{
+				LOG_ERROR("  FAILED: WriteResponse 64-bit length boundary");
+				allPassed = false;
+			}
+		}
+
+		// --- Scratch reuse across responses of growing and shrinking sizes ---
+		// The scratch buffer is grown on demand and kept across frames; a
+		// shrink-after-grow sequence must not corrupt any frame
+		{
+			LOG_INFO("Test: WriteResponse Scratch Reuse");
+			const UINT32 status = 0xFEEDFACE;
+			const UINT32 corrId = 0x12345678;
+
+			if (VerifySplicedEcho(ws, status, corrId, 5000, "WriteResponse scratch grow to 5008") &&
+			    VerifySplicedEcho(ws, status, corrId, 60000, "WriteResponse scratch regrow to 60008") &&
+			    VerifySplicedEcho(ws, status, corrId, 5000, "WriteResponse scratch reuse after shrink") &&
+			    VerifySplicedEcho(ws, status, corrId, 100, "WriteResponse small frame after scratch use"))
+				LOG_INFO("  PASSED: WriteResponse scratch reuse");
+			else
+			{
+				LOG_ERROR("  FAILED: WriteResponse scratch reuse");
+				allPassed = false;
+			}
+		}
+
+		// --- WriteResponse opcode passthrough ---
+		// The splice must not pin the opcode: a Text response echoes as Text
+		// with the same [status][corrId][body] payload
+		{
+			LOG_INFO("Test: WriteResponse Opcode Passthrough");
+			const UINT32 status = 0x11223344;
+			const UINT32 corrId = 0x55667788;
+			const UINT32 bodySize = 64;
+
+			PCHAR body = new CHAR[bodySize];
+			PCHAR spliced = new CHAR[bodySize + 8];
+			if (!body || !spliced)
+			{
+				LOG_ERROR("Failed to allocate memory for opcode passthrough");
+				delete[] body;
+				delete[] spliced;
+				allPassed = false;
+			}
+			else
+			{
+				FillPattern(body, bodySize);
+				Memory::Copy(spliced, &status, sizeof(status));
+				Memory::Copy(spliced + 4, &corrId, sizeof(corrId));
+				Memory::Copy(spliced + 8, body, bodySize);
+
+				BOOL ok = true;
+				auto writeResult = ws.WriteResponse(status, corrId, Span<const CHAR>(body, bodySize), WebSocketOpcode::Text);
+				if (!writeResult)
+					ok = false;
+				else
+				{
+					auto readResult = ws.Read();
+					if (!readResult || readResult.Value().Opcode != WebSocketOpcode::Text ||
+					    readResult.Value().Length != bodySize + 8 ||
+					    Memory::Compare(readResult.Value().Data, spliced, bodySize + 8) != 0)
+						ok = false;
+				}
+
+				if (ok)
+					LOG_INFO("  PASSED: WriteResponse opcode passthrough");
+				else
+				{
+					LOG_ERROR("  FAILED: WriteResponse opcode passthrough");
+					allPassed = false;
+				}
+
+				delete[] body;
+				delete[] spliced;
+			}
+		}
+
 		// --- Close handshake ---
 		{
 			LOG_INFO("Test: WebSocket Close Handshake");

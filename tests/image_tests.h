@@ -49,6 +49,27 @@ public:
 		RunTest(allPassed, &TestFused_RightEdgePlusInterior, "Fused diff right-edge plus interior rects");
 		RunTest(allPassed, &TestFused_DriftAccumulates, "Fused diff sub-threshold drift reverts and accumulates");
 
+		// Threshold boundary: SAD exactly at, one under, one over the threshold
+		RunTest(allPassed, &TestFused_ThresholdBoundary, "Fused diff SAD at/under/over threshold 24");
+		RunTest(allPassed, &TestFused_SinglePixelChange, "Fused diff single changed pixel marks its tile");
+
+		// Edge-clamp shapes beyond the right edge: odd widths, bottom edge, corner
+		RunTest(allPassed, &TestDirtyRects_OddWidthRightEdge, "FindDirtyRects right-edge tile at odd widths");
+		RunTest(allPassed, &TestDirtyRects_BottomEdgeRow, "FindDirtyRects bottom-edge row clamps height");
+		RunTest(allPassed, &TestDirtyRects_CornerTileBothEdges, "FindDirtyRects corner tile clamps width and height");
+		RunTest(allPassed, &TestDirtyRects_Tile32RightEdge, "FindDirtyRects tile-32 right edge passes span filter");
+
+		// Merge shapes and whole-frame coverage
+		RunTest(allPassed, &TestDirtyRects_StaircaseMerge, "FindDirtyRects staircase tiles stay separate rects");
+		RunTest(allPassed, &TestDirtyRects_FullFrameDirty, "FindDirtyRects full-frame dirty yields one clamped rect");
+		RunTest(allPassed, &TestFused_StaircaseRects, "Fused diff staircase rects match hand-computed");
+		RunTest(allPassed, &TestFused_CornerTileRects, "Fused diff corner tile rect clamps both edges");
+		RunTest(allPassed, &TestFused_FullFrameChange, "Fused diff full-frame change yields one clamped rect");
+
+		// Statelessness across calls and multi-frame drift accumulation
+		RunTest(allPassed, &TestFused_AlternatingRegions, "Fused diff alternating regions reflect only the current frame");
+		RunTest(allPassed, &TestFused_DriftAccumulatesMultiFrame, "Fused diff multi-frame drift stays clean until crossing");
+
 		if (allPassed)
 			LOG_INFO("All Image Processing tests passed!");
 		else
@@ -782,6 +803,331 @@ private:
 				const DirtyRect expected[] = {{0, 0, 64, 64}};
 				pass = RectsMatch(r2.Value(), expected, 1, "DriftAccumulates");
 				r2.Value().Free();
+			}
+		}
+
+		delete[] base;
+		delete[] frame;
+		return pass;
+	}
+
+	// ---- Threshold boundary tests ----
+
+	// Base frame is (40,60,80); each mutator sets an exact per-channel delta
+	static VOID MutateSadExactlyThreshold(RGB *frame, UINT32 width, [[maybe_unused]] UINT32 height)
+	{
+		for (USIZE i = 0; i < (USIZE)width * height; i++)
+			frame[i] = {48, 68, 88}; // +8/+8/+8 = SAD 24
+	}
+
+	static VOID MutateSadJustUnder(RGB *frame, UINT32 width, [[maybe_unused]] UINT32 height)
+	{
+		for (USIZE i = 0; i < (USIZE)width * height; i++)
+			frame[i] = {48, 68, 87}; // +8/+8/+7 = SAD 23
+	}
+
+	static VOID MutateSadJustOver(RGB *frame, UINT32 width, [[maybe_unused]] UINT32 height)
+	{
+		for (USIZE i = 0; i < (USIZE)width * height; i++)
+			frame[i] = {48, 68, 89}; // +8/+8/+9 = SAD 25
+	}
+
+	static VOID MutateSadSingleChannelOver(RGB *frame, UINT32 width, [[maybe_unused]] UINT32 height)
+	{
+		for (USIZE i = 0; i < (USIZE)width * height; i++)
+			frame[i] = {65, 60, 80}; // Red +25 alone = SAD 25
+	}
+
+	static VOID MutateSadSplitEvenlyAtThreshold(RGB *frame, UINT32 width, [[maybe_unused]] UINT32 height)
+	{
+		for (USIZE i = 0; i < (USIZE)width * height; i++)
+			frame[i] = {52, 72, 80}; // +12/+12/+0 = SAD 24
+	}
+
+	// SAD == threshold and one under are clean; one over (whole-spread or
+	// single-channel) is dirty — the SAD is a sum across all three channels
+	static BOOL TestFused_ThresholdBoundary()
+	{
+		const DirtyRect wholeTile[] = {{0, 0, 64, 64}};
+		return RunFusedRectCase(64, 64, 24, &MutateSadExactlyThreshold, nullptr, 0, "ThresholdAt24") &&
+		       RunFusedRectCase(64, 64, 24, &MutateSadJustUnder, nullptr, 0, "Threshold23") &&
+		       RunFusedRectCase(64, 64, 24, &MutateSadJustOver, wholeTile, 1, "Threshold25") &&
+		       RunFusedRectCase(64, 64, 24, &MutateSadSingleChannelOver, wholeTile, 1, "ThresholdSingleChannel25") &&
+		       RunFusedRectCase(64, 64, 24, &MutateSadSplitEvenlyAtThreshold, nullptr, 0, "ThresholdSplit24");
+	}
+
+	// ---- Single-pixel sensitivity tests ----
+
+	// One interior pixel changed marks exactly its 64x64 tile
+	static VOID MutateSinglePixelInterior(RGB *frame, UINT32 width, [[maybe_unused]] UINT32 height)
+	{
+		frame[66 * width + 130] = {240, 200, 160}; // tile (2,1) of a 256x192 frame
+	}
+
+	// The row's very last pixel (x = width-1) still lands in the edge tile
+	static VOID MutateSinglePixelRightEdge(RGB *frame, UINT32 width, [[maybe_unused]] UINT32 height)
+	{
+		frame[width - 1] = {240, 200, 160}; // tile (21,0) of a 1366-wide frame
+	}
+
+	static BOOL TestFused_SinglePixelChange()
+	{
+		const DirtyRect interior[] = {{128, 64, 64, 64}};
+		const DirtyRect rightEdge[] = {{1344, 0, 22, 64}};
+		return RunFusedRectCase(256, 192, 24, &MutateSinglePixelInterior, interior, 1, "SinglePixelInterior") &&
+		       RunFusedRectCase(1366, 128, 24, &MutateSinglePixelRightEdge, rightEdge, 1, "SinglePixelRightEdge");
+	}
+
+	// ---- Edge-clamp shapes beyond the right edge ----
+
+	// Odd widths: the edge tile is 39/37 px wide and must be emitted as-is
+	static BOOL TestDirtyRects_OddWidthRightEdge()
+	{
+		const UINT32 tiles999[] = {15, 0};
+		const DirtyRect expected999[] = {{960, 0, 39, 64}};
+		const UINT32 tiles997[] = {15, 0};
+		const DirtyRect expected997[] = {{960, 0, 37, 64}};
+		return RunTwoStepTileCase(999, 128, 64, tiles999, 1, expected999, 1, "OddWidth999") &&
+		       RunTwoStepTileCase(997, 128, 64, tiles997, 1, expected997, 1, "OddWidth997");
+	}
+
+	// 1280x810: bottom tile row is 42 px tall; a vertical run into it clamps
+	static BOOL TestDirtyRects_BottomEdgeRow()
+	{
+		const UINT32 tilesSingle[] = {10, 12};
+		const DirtyRect expectedSingle[] = {{640, 768, 64, 42}};
+		const UINT32 tilesMerged[] = {10, 11, 10, 12};
+		const DirtyRect expectedMerged[] = {{640, 704, 64, 106}};
+		return RunTwoStepTileCase(1280, 810, 64, tilesSingle, 1, expectedSingle, 1, "BottomEdgeSingle") &&
+		       RunTwoStepTileCase(1280, 810, 64, tilesMerged, 2, expectedMerged, 1, "BottomEdgeMerged");
+	}
+
+	// 1366x810: tile (21,12) clamps in BOTH dimensions; a run into it merges
+	static BOOL TestDirtyRects_CornerTileBothEdges()
+	{
+		const UINT32 tilesCorner[] = {21, 12};
+		const DirtyRect expectedCorner[] = {{1344, 768, 22, 42}};
+		const UINT32 tilesRun[] = {20, 12, 21, 12};
+		const DirtyRect expectedRun[] = {{1280, 768, 86, 42}};
+		return RunTwoStepTileCase(1366, 810, 64, tilesCorner, 1, expectedCorner, 1, "CornerTile") &&
+		       RunTwoStepTileCase(1366, 810, 64, tilesRun, 2, expectedRun, 1, "CornerRun");
+	}
+
+	// Tile size 32 at 1366: the 22-px edge tile's span is exactly the 32-px
+	// filter minimum — it must pass (the filter sees the tile span, not the
+	// clamped width)
+	static BOOL TestDirtyRects_Tile32RightEdge()
+	{
+		const UINT32 tiles[] = {42, 0};
+		const DirtyRect expected[] = {{1344, 0, 22, 32}};
+		return RunTwoStepTileCase(1366, 128, 32, tiles, 1, expected, 1, "Tile32RightEdge");
+	}
+
+	// ---- Merge shapes and whole-frame coverage ----
+
+	// Tiles (0,0), (1,1), (1,2): the vertical pair must not absorb (0,0)
+	// (its span does not match) — two rects in scan order
+	static BOOL TestDirtyRects_StaircaseMerge()
+	{
+		const UINT32 tiles[] = {0, 0, 1, 1, 1, 2};
+		const DirtyRect expected[] = {{0, 0, 64, 64}, {64, 64, 64, 128}};
+		return RunTwoStepTileCase(192, 192, 64, tiles, 3, expected, 2, "StaircaseMerge");
+	}
+
+	// Every pixel dirty: one rect covering the frame, clamped at both edges
+	static BOOL TestDirtyRects_FullFrameDirty()
+	{
+		constexpr UINT32 w = 1366;
+		constexpr UINT32 h = 128;
+		UINT8 *biDiff = new UINT8[(USIZE)w * h];
+		if (!biDiff)
+			return false;
+		Memory::Set(biDiff, 1, (USIZE)w * h);
+
+		BOOL pass = false;
+		auto r = ImageProcessor::FindDirtyRects(Span<const UINT8>(biDiff, (USIZE)w * h), w, h, 64);
+		if (!r)
+			LOG_ERROR("FullFrameDirty: FindDirtyRects failed: %e", r.Error());
+		else
+		{
+			const DirtyRect expected[] = {{0, 0, 1366, 128}};
+			pass = RectsMatch(r.Value(), expected, 1, "FullFrameDirty");
+			r.Value().Free();
+		}
+		delete[] biDiff;
+		return pass;
+	}
+
+	// 10x10 blocks inside tiles (0,0), (1,1), (1,2)
+	static VOID MutateStaircase(RGB *frame, UINT32 width, [[maybe_unused]] UINT32 height)
+	{
+		for (UINT32 y = 5; y < 15; y++)
+			for (UINT32 x = 5; x < 15; x++)
+				frame[(USIZE)y * width + x] = {240, 200, 160};
+		for (UINT32 y = 69; y < 79; y++)
+			for (UINT32 x = 69; x < 79; x++)
+				frame[(USIZE)y * width + x] = {240, 200, 160};
+		for (UINT32 y = 133; y < 143; y++)
+			for (UINT32 x = 69; x < 79; x++)
+				frame[(USIZE)y * width + x] = {240, 200, 160};
+	}
+
+	static BOOL TestFused_StaircaseRects()
+	{
+		const DirtyRect expected[] = {{0, 0, 64, 64}, {64, 64, 64, 128}};
+		return RunFusedRectCase(192, 192, 24, &MutateStaircase, expected, 2, "FusedStaircase");
+	}
+
+	// Block inside the corner tile (21,12) of a 1366x810 frame
+	static VOID MutateCornerTile(RGB *frame, UINT32 width, [[maybe_unused]] UINT32 height)
+	{
+		for (UINT32 y = 774; y < 784; y++)
+			for (UINT32 x = 1350; x < 1360; x++)
+				frame[(USIZE)y * width + x] = {240, 200, 160};
+	}
+
+	static BOOL TestFused_CornerTileRects()
+	{
+		const DirtyRect expected[] = {{1344, 768, 22, 42}};
+		return RunFusedRectCase(1366, 810, 24, &MutateCornerTile, expected, 1, "FusedCornerTile");
+	}
+
+	static VOID MutateFullFrame(RGB *frame, UINT32 width, UINT32 height)
+	{
+		for (USIZE i = 0; i < (USIZE)width * height; i++)
+			frame[i] = {180, 140, 100};
+	}
+
+	static BOOL TestFused_FullFrameChange()
+	{
+		const DirtyRect expected[] = {{0, 0, 1366, 128}};
+		return RunFusedRectCase(1366, 128, 24, &MutateFullFrame, expected, 1, "FusedFullFrame");
+	}
+
+	// ---- Statelessness across calls ----
+
+	// Restore the flat frame, then dirty 10x10 blocks at the given columns
+	// (tile row 1 of a 256x192 frame: x 70..80 is tile (1,1), x 136..146 is (2,1))
+	static VOID DirtyRegionBlocks(RGB *frame, UINT32 width, UINT32 height, BOOL left, BOOL right)
+	{
+		for (USIZE i = 0; i < (USIZE)width * height; i++)
+			frame[i] = {40, 60, 80};
+		for (UINT32 y = 70; y < 80; y++)
+		{
+			for (UINT32 x = 70; x < 80 && left; x++)
+				frame[(USIZE)y * width + x] = {240, 200, 160};
+			for (UINT32 x = 136; x < 146 && right; x++)
+				frame[(USIZE)y * width + x] = {240, 200, 160};
+		}
+	}
+
+	// Disjoint regions dirty on alternating frames: each call's rects reflect
+	// only that call's inputs — no state carries between invocations
+	static BOOL TestFused_AlternatingRegions()
+	{
+		constexpr UINT32 w = 256;
+		constexpr UINT32 h = 192;
+		RGB *frame = nullptr;
+		RGB *base = nullptr;
+		if (!BuildFramePair(w, h, &frame, &base, nullptr))
+			return false;
+
+		BOOL pass = false;
+		auto run = [&](PCCHAR label, BOOL left, BOOL right,
+		               const DirtyRect *expected, UINT32 expectedCount) -> BOOL {
+			DirtyRegionBlocks(frame, w, h, left, right);
+			auto r = ImageProcessor::FindDirtyRects(
+				Span<RGB>(frame, (USIZE)w * h), Span<const RGB>(base, (USIZE)w * h), w, h, 64, 24);
+			if (!r)
+			{
+				LOG_ERROR("%s: fused FindDirtyRects failed: %e", label, r.Error());
+				return false;
+			}
+			BOOL ok = RectsMatch(r.Value(), expected, expectedCount, label);
+			r.Value().Free();
+			return ok;
+		};
+
+		const DirtyRect leftRect[] = {{64, 64, 64, 64}};
+		const DirtyRect rightRect[] = {{128, 64, 64, 64}};
+		// The two blocks sit in adjacent tiles, so both dirty at once merge
+		// into one horizontal run
+		const DirtyRect mergedRect[] = {{64, 64, 128, 64}};
+		pass = run("AlternatingLeft", true, false, leftRect, 1) &&
+		       run("AlternatingRight", false, true, rightRect, 1) &&
+		       run("AlternatingLeftAgain", true, false, leftRect, 1) &&
+		       run("AlternatingBoth", true, true, mergedRect, 1);
+
+		delete[] frame;
+		delete[] base;
+		return pass;
+	}
+
+	// A +2/channel fade per capture: four frames stay under the threshold
+	// (each reverted against the base), the fifth crosses it
+	static BOOL TestFused_DriftAccumulatesMultiFrame()
+	{
+		const USIZE px = 64 * 64;
+		RGB *base = new RGB[px];
+		RGB *frame = new RGB[px];
+		if (base == nullptr || frame == nullptr)
+		{
+			delete[] base;
+			delete[] frame;
+			return false;
+		}
+		for (USIZE i = 0; i < px; i++)
+			base[i] = {10, 10, 10};
+
+		BOOL pass = true;
+		// n = 1..4: SAD = 6n <= 24 — clean, and each frame is fully reverted
+		for (UINT32 n = 1; n <= 4 && pass; n++)
+		{
+			UINT8 level = (UINT8)(10 + 2 * n);
+			for (USIZE i = 0; i < px; i++)
+				frame[i] = {level, level, level};
+
+			auto r = ImageProcessor::FindDirtyRects(
+				Span<RGB>(frame, px), Span<const RGB>(base, px), 64, 64, 64, 24);
+			if (!r)
+			{
+				LOG_ERROR("DriftMultiFrame: frame %u pass failed: %e", n, r.Error());
+				pass = false;
+			}
+			else
+			{
+				if (r.Value().Count != 0)
+				{
+					LOG_ERROR("DriftMultiFrame: frame %u (SAD %u) reported %u rects", n, 6 * n, r.Value().Count);
+					pass = false;
+				}
+				r.Value().Free();
+			}
+			for (USIZE i = 0; pass && i < px; i++)
+				if (frame[i].Red != 10 || frame[i].Green != 10 || frame[i].Blue != 10)
+				{
+					LOG_ERROR("DriftMultiFrame: frame %u drift not reverted", n);
+					pass = false;
+				}
+		}
+
+		// n = 5: SAD 30 crosses the threshold against the untouched base
+		if (pass)
+		{
+			for (USIZE i = 0; i < px; i++)
+				frame[i] = {20, 20, 20};
+			auto r = ImageProcessor::FindDirtyRects(
+				Span<RGB>(frame, px), Span<const RGB>(base, px), 64, 64, 64, 24);
+			if (!r)
+			{
+				LOG_ERROR("DriftMultiFrame: crossing pass failed: %e", r.Error());
+				pass = false;
+			}
+			else
+			{
+				const DirtyRect expected[] = {{0, 0, 64, 64}};
+				pass = RectsMatch(r.Value(), expected, 1, "DriftMultiFrameCrossing");
+				r.Value().Free();
 			}
 		}
 

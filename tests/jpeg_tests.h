@@ -32,6 +32,17 @@ public:
 		RunTest(allPassed, &TestSOF0SamplingQualityGate, "JPEG SOF0 sampling quality gate (4:2:0 below q90)");
 		RunTest(allPassed, &TestEncodeSubsampledEdgeSizes, "JPEG encode 4:2:0 partial-MCU edge sizes");
 
+		// Quality clamp edges observed through the emitted tables and bytes
+		RunTest(allPassed, &TestEncodeQualityClampEquivalence, "JPEG quality clamp: q0==q1 and q200==q100 byte-for-byte");
+		RunTest(allPassed, &TestEncodeQualityDQTScale, "JPEG DQT luma scale pins the clamped quality");
+		RunTest(allPassed, &TestSOF0SamplingClampedQuality, "JPEG SOF0 sampling at clamped quality extremes");
+
+		// Tiny images and the stride (sub-rect) overload
+		RunTest(allPassed, &TestEncode7x5AcrossGate, "JPEG encode 7x5 across the 4:2:0 gate boundary");
+		RunTest(allPassed, &TestEncodeStrideMatchesPacked, "JPEG stride encode of a sub-rect matches packed rows");
+		RunTest(allPassed, &TestEncodeStride1x1Rect, "JPEG stride encode of a 1x1 corner rect");
+		RunTest(allPassed, &TestEncodeRepeatedDeterministic, "JPEG repeated encodes stay byte-identical");
+
 		if (allPassed)
 			LOG_INFO("All JPEG tests passed!");
 		else
@@ -424,5 +435,242 @@ private:
 				return false;
 		}
 		return true;
+	}
+
+	// --- Quality clamp edge tests ---
+
+	// Encode a deterministic pattern (up to 64x64) into a capture buffer
+	static BOOL EncodePatternInto(CaptureBuffer &buf, INT32 quality, INT32 width, INT32 height)
+	{
+		UINT8 pixels[64 * 64 * 3];
+		for (INT32 i = 0; i < width * height * 3; ++i)
+			pixels[i] = (UINT8)((i * 7 + (i >> 4) * 13) & 0xFF);
+
+		buf.size = 0;
+		auto r = JpegEncoder::Encode(&CaptureCallback, &buf, quality, width, height, 3,
+		                             Span<const UINT8>(pixels, (USIZE)width * height * 3));
+		if (!r)
+		{
+			LOG_ERROR("Encode %dx%d q%d failed: %e", width, height, quality, r.Error());
+			return false;
+		}
+		return VerifyJpegMarkers(buf);
+	}
+
+	// Find the first DQT marker and return its first (DC) luma table byte
+	static BOOL ReadFirstDQTValue(const CaptureBuffer &buf, UINT8 &value)
+	{
+		for (USIZE i = 0; i + 6 <= buf.size; i++)
+		{
+			if (buf.data[i] == 0xFF && buf.data[i + 1] == 0xDB)
+			{
+				value = buf.data[i + 5];
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// Clamping happens before table scaling: out-of-range qualities must
+	// produce the exact bytes of their clamped values
+	static BOOL TestEncodeQualityClampEquivalence()
+	{
+		CaptureBuffer a;
+		CaptureBuffer b;
+
+		if (!EncodePatternInto(a, 0, 16, 16) || !EncodePatternInto(b, 1, 16, 16))
+			return false;
+		if (!CompareBytes(Span<const UINT8>(a.data, a.size), Span<const UINT8>(b.data, b.size)))
+		{
+			LOG_ERROR("q0 output differs from q1 (%u vs %u bytes)", (UINT32)a.size, (UINT32)b.size);
+			return false;
+		}
+
+		if (!EncodePatternInto(a, 200, 16, 16) || !EncodePatternInto(b, 100, 16, 16))
+			return false;
+		if (!CompareBytes(Span<const UINT8>(a.data, a.size), Span<const UINT8>(b.data, b.size)))
+		{
+			LOG_ERROR("q200 output differs from q100 (%u vs %u bytes)", (UINT32)a.size, (UINT32)b.size);
+			return false;
+		}
+		return true;
+	}
+
+	// IJG table scaling at the clamp edges: q1 saturates at 255, q100 floors
+	// at 1, q25/q50 land on hand-computed midpoints
+	static BOOL TestEncodeQualityDQTScale()
+	{
+		struct
+		{
+			INT32 quality;
+			UINT8 expected;
+		} cases[6] = {{0, 255}, {1, 255}, {25, 32}, {50, 16}, {100, 1}, {200, 1}};
+
+		for (UINT32 c = 0; c < 6; c++)
+		{
+			CaptureBuffer buf;
+			UINT8 value = 0;
+			if (!EncodePatternInto(buf, cases[c].quality, 16, 16) ||
+			    !ReadFirstDQTValue(buf, value) || value != cases[c].expected)
+			{
+				LOG_ERROR("q%d DQT luma DC: expected %u, got %u",
+				          cases[c].quality, cases[c].expected, value);
+				return false;
+			}
+		}
+		return true;
+	}
+
+	// The 4:2:0 gate sees the clamped quality: q0 subsamples, q200 stays 4:4:4
+	static BOOL TestSOF0SamplingClampedQuality()
+	{
+		struct
+		{
+			INT32 quality;
+			UINT8 expected[3];
+		} cases[5] = {
+			{0, {0x22, 0x11, 0x11}},
+			{1, {0x22, 0x11, 0x11}},
+			{100, {0x11, 0x11, 0x11}},
+			{200, {0x11, 0x11, 0x11}},
+			{1000, {0x11, 0x11, 0x11}}};
+
+		for (UINT32 c = 0; c < 5; c++)
+		{
+			UINT8 s[3] = {0, 0, 0};
+			if (!EncodeAndReadSampling(cases[c].quality, 64, 64, s) ||
+			    s[0] != cases[c].expected[0] || s[1] != cases[c].expected[1] || s[2] != cases[c].expected[2])
+			{
+				LOG_ERROR("q%d sampling: expected %02X/%02X/%02X, got %02X/%02X/%02X",
+				          cases[c].quality, cases[c].expected[0], cases[c].expected[1], cases[c].expected[2],
+				          s[0], s[1], s[2]);
+				return false;
+			}
+		}
+		return true;
+	}
+
+	// --- Tiny images and the stride overload ---
+
+	// 7x5 forces partial MCUs on both axes; the sampling gate must still
+	// switch at q89/q90 at this size
+	static BOOL TestEncode7x5AcrossGate()
+	{
+		UINT8 s89[3] = {0, 0, 0};
+		UINT8 s90[3] = {0, 0, 0};
+		if (!EncodeAndReadSampling(89, 7, 5, s89) || !EncodeAndReadSampling(90, 7, 5, s90))
+			return false;
+		if (s89[0] != 0x22 || s89[1] != 0x11 || s89[2] != 0x11)
+		{
+			LOG_ERROR("7x5 q89 sampling: got %02X/%02X/%02X, want 22/11/11", s89[0], s89[1], s89[2]);
+			return false;
+		}
+		if (s90[0] != 0x11 || s90[1] != 0x11 || s90[2] != 0x11)
+		{
+			LOG_ERROR("7x5 q90 sampling: got %02X/%02X/%02X, want 11/11/11", s90[0], s90[1], s90[2]);
+			return false;
+		}
+		return true;
+	}
+
+	// A 45x27 sub-rect (width not a multiple of 8) read from a 130x33 frame
+	// with stride must match a packed encode of the gathered rows byte-for-byte
+	static BOOL TestEncodeStrideMatchesPacked()
+	{
+		constexpr INT32 fw = 130;
+		constexpr INT32 fh = 33;
+		constexpr INT32 rw = 45;
+		constexpr INT32 rh = 27;
+		constexpr INT32 ox = 7;
+		constexpr INT32 oy = 5;
+
+		UINT8 frame[fw * fh * 3];
+		for (INT32 i = 0; i < fw * fh * 3; ++i)
+			frame[i] = (UINT8)((i * 7 + (i >> 4) * 13) & 0xFF);
+
+		UINT8 packed[rw * rh * 3];
+		for (INT32 y = 0; y < rh; ++y)
+			Memory::Copy(packed + (USIZE)y * rw * 3,
+			             frame + ((USIZE)(oy + y) * fw + ox) * 3, (USIZE)rw * 3);
+
+		CaptureBuffer strideBuf;
+		strideBuf.size = 0;
+		CaptureBuffer packedBuf;
+		packedBuf.size = 0;
+
+		USIZE offset = ((USIZE)oy * fw + ox) * 3;
+		auto rs = JpegEncoder::Encode(&CaptureCallback, &strideBuf, 60, rw, rh, 3,
+		                              Span<const UINT8>(frame + offset, sizeof(frame) - offset), fw);
+		auto rp = JpegEncoder::Encode(&CaptureCallback, &packedBuf, 60, rw, rh, 3,
+		                              Span<const UINT8>(packed, sizeof(packed)));
+		if (!rs)
+		{
+			LOG_ERROR("Stride encode %dx%d failed: %e", rw, rh, rs.Error());
+			return false;
+		}
+		if (!rp)
+		{
+			LOG_ERROR("Packed encode %dx%d failed: %e", rw, rh, rp.Error());
+			return false;
+		}
+		return CompareBytes(Span<const UINT8>(strideBuf.data, strideBuf.size),
+		                    Span<const UINT8>(packedBuf.data, packedBuf.size));
+	}
+
+	// 1x1 rectangles pulled from the corners of a larger strided frame
+	static BOOL TestEncodeStride1x1Rect()
+	{
+		constexpr INT32 fw = 40;
+		constexpr INT32 fh = 20;
+		UINT8 frame[fw * fh * 3];
+		for (INT32 i = 0; i < fw * fh * 3; ++i)
+			frame[i] = (UINT8)((i * 9 + (i >> 5)) & 0xFF);
+
+		// Bottom-right corner pixel (the last byte triple of the frame)
+		CaptureBuffer buf;
+		buf.size = 0;
+		USIZE offset = ((USIZE)(fh - 1) * fw + (fw - 1)) * 3;
+		auto r = JpegEncoder::Encode(&CaptureCallback, &buf, 75, 1, 1, 3,
+		                             Span<const UINT8>(frame + offset, 3), fw);
+		if (!r)
+		{
+			LOG_ERROR("Stride encode of the corner 1x1 rect failed: %e", r.Error());
+			return false;
+		}
+		if (!VerifyJpegMarkers(buf))
+			return false;
+
+		// Top-left pixel with a stride larger than the rect
+		buf.size = 0;
+		r = JpegEncoder::Encode(&CaptureCallback, &buf, 75, 1, 1, 3,
+		                        Span<const UINT8>(frame, 3), fw);
+		if (!r)
+		{
+			LOG_ERROR("Stride encode of the origin 1x1 rect failed: %e", r.Error());
+			return false;
+		}
+		return VerifyJpegMarkers(buf);
+	}
+
+	// The same input encoded twice with a different encode in between must
+	// produce identical bytes — no state may carry between Encode calls
+	static BOOL TestEncodeRepeatedDeterministic()
+	{
+		CaptureBuffer first;
+		CaptureBuffer second;
+
+		if (!EncodePatternInto(first, 70, 32, 24))
+			return false;
+		{
+			// Different size and quality in between
+			CaptureBuffer middle;
+			if (!EncodePatternInto(middle, 90, 16, 16))
+				return false;
+		}
+		if (!EncodePatternInto(second, 70, 32, 24))
+			return false;
+
+		return CompareBytes(Span<const UINT8>(first.data, first.size),
+		                    Span<const UINT8>(second.data, second.size));
 	}
 };

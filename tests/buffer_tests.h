@@ -16,6 +16,9 @@ public:
 		RunTest(allPassed, &TestGrowthSuite, "Growth suite");
 		RunTest(allPassed, &TestMoveSemanticsSuite, "Move semantics suite");
 		RunTest(allPassed, &TestEdgeCasesSuite, "Edge cases suite");
+		RunTest(allPassed, &TestRoundTripSuite, "Round-trip suite");
+		RunTest(allPassed, &TestGrowthLadderSuite, "Growth ladder suite");
+		RunTest(allPassed, &TestReleaseDetachSuite, "Release detach suite");
 
 		if (allPassed)
 			LOG_INFO("All Buffer tests passed!");
@@ -664,6 +667,299 @@ private:
 			else
 			{
 				LOG_ERROR("  FAILED: Zero-length Append is a no-op");
+				allPassed = false;
+			}
+		}
+
+		return allPassed;
+	}
+
+	// Append → Resize → Reset → Append → Release chained on one buffer
+	static BOOL TestRoundTripSuite()
+	{
+		BOOL allPassed = true;
+
+		// --- Append/Resize/Reset/Release round-trip ---
+		{
+			Buffer<UINT8> b;
+			BOOL passed = true;
+
+			if (!b.Init(8))
+				return false;
+			if (!b.Append(Span<const UINT8>((const UINT8 *)"abcdefgh", 8)))
+				passed = false;
+
+			// Grow via Resize: the existing prefix must survive
+			if (passed && !b.Resize(64))
+				passed = false;
+			if (passed && (b.Size != 64 || b.Capacity < 64))
+				passed = false;
+			if (passed && Memory::Compare(b.Data, "abcdefgh", 8) != 0)
+				passed = false;
+
+			// Shrink is logical only, then Reset keeps the allocation
+			if (passed && !b.Resize(8))
+				passed = false;
+			b.Reset();
+			if (passed && (b.Size != 0 || b.Capacity < 64))
+				passed = false;
+
+			// Append after Reset lands at the front of the retained array
+			UINT8 *dataBefore = b.Data;
+			if (passed && !b.Append(Span<const UINT8>((const UINT8 *)"XY", 2)))
+				passed = false;
+			if (passed && (b.Size != 2 || b.Data != dataBefore || b.Data[0] != 'X' || b.Data[1] != 'Y'))
+				passed = false;
+
+			// Release detaches; the buffer is reusable afterwards
+			UINT8 *detached = b.Release();
+			if (passed && (detached != dataBefore || b.Data != nullptr || b.Capacity != 0 || b.Size != 0))
+				passed = false;
+			if (passed && !b.Init(4))
+				passed = false;
+			if (passed && (!b.Add(7) || b.Size != 1 || b.Data[0] != 7))
+				passed = false;
+
+			delete[] detached;
+
+			if (passed)
+				LOG_INFO("  PASSED: Append/Resize/Reset/Release round-trip");
+			else
+			{
+				LOG_ERROR("  FAILED: Append/Resize/Reset/Release round-trip");
+				allPassed = false;
+			}
+		}
+
+		// --- Resize growth uses the doubling ladder ---
+		{
+			Buffer<UINT8> b;
+			if (!b.Init(4)) return false;
+			for (UINT8 i = 0; i < 4; i++)
+				if (!b.Add(i)) return false;
+
+			BOOL passed = true;
+			// Size 4 → Resize(100): 4→8→…→128 is the first doubling ≥ 100
+			if (!b.Resize(100))
+				passed = false;
+			if (passed && b.Capacity != 128)
+			{
+				LOG_ERROR("Capacity = %u after Resize(100), expected 128", (UINT32)b.Capacity);
+				passed = false;
+			}
+			if (passed && b.Size != 100)
+				passed = false;
+			// The four appended elements are still at the front
+			for (UINT8 i = 0; passed && i < 4; i++)
+				if (b.Data[i] != i)
+					passed = false;
+
+			if (passed)
+				LOG_INFO("  PASSED: Resize growth uses the doubling ladder");
+			else
+			{
+				LOG_ERROR("  FAILED: Resize growth uses the doubling ladder");
+				allPassed = false;
+			}
+		}
+
+		// --- Append after a shrink Resize keeps the tail intact ---
+		{
+			Buffer<UINT16> b;
+			if (!b.Init(4)) return false;
+			for (UINT16 i = 1; i <= 4; i++)
+				if (!b.Add(i * 0x100)) return false;
+
+			BOOL passed = true;
+			if (!b.Resize(2) || !b.Add(0xBEEF))
+				passed = false;
+			// The append must land exactly at index 2, not at the old Size 4
+			if (passed && (b.Size != 3 || b.Data[2] != 0xBEEF || b.Data[0] != 0x100 || b.Data[1] != 0x200))
+				passed = false;
+
+			if (passed)
+				LOG_INFO("  PASSED: Append after shrink Resize lands at Size");
+			else
+			{
+				LOG_ERROR("  FAILED: Append after shrink Resize lands at Size");
+				allPassed = false;
+			}
+		}
+
+		return allPassed;
+	}
+
+	// Exact capacity boundaries of the doubling growth policy
+	static BOOL TestGrowthLadderSuite()
+	{
+		BOOL allPassed = true;
+
+		// --- Fill to exactly capacity: no growth; one more: double ---
+		{
+			Buffer<UINT32> b;
+			BOOL passed = true;
+
+			USIZE expected = BufferInitialCapacity;
+			for (INT32 round = 0; round < 4 && passed; round++)
+			{
+				while (b.Size < expected)
+				{
+					if (!b.Add((UINT32)b.Size))
+					{
+						passed = false;
+						break;
+					}
+				}
+				if (passed && b.Capacity != expected)
+				{
+					LOG_ERROR("Capacity = %u at Size %u, expected %u",
+					          (UINT32)b.Capacity, (UINT32)b.Size, (UINT32)expected);
+					passed = false;
+				}
+				if (passed)
+				{
+					// Exactly full must NOT reallocate (Reserve only grows past Capacity)
+					UINT32 *dataBefore = b.Data;
+					if (!b.Add(0xABCDEF))
+						passed = false;
+					else if (b.Data == dataBefore || b.Capacity != expected * 2)
+					{
+						LOG_ERROR("Capacity = %u past full, expected %u with a new array",
+						          (UINT32)b.Capacity, (UINT32)(expected * 2));
+						passed = false;
+					}
+				}
+				expected *= 2;
+			}
+
+			if (passed)
+				LOG_INFO("  PASSED: Doubling ladder 16/32/64/128 with exact-fill boundaries");
+			else
+			{
+				LOG_ERROR("  FAILED: Doubling ladder 16/32/64/128 with exact-fill boundaries");
+				allPassed = false;
+			}
+		}
+
+		// --- One large Append jumps straight to the first power-of-two fit ---
+		{
+			Buffer<UINT8> b;
+			BOOL passed = b.Append(Span<const UINT8>((const UINT8 *)"x", 1)) && b.Capacity == BufferInitialCapacity;
+
+			UINT8 chunk[1000];
+			Memory::Set(chunk, 0x5A, sizeof(chunk));
+			if (passed && !b.Append(Span<const UINT8>(chunk, sizeof(chunk))))
+				passed = false;
+			if (passed && b.Capacity != 1024)
+			{
+				LOG_ERROR("Capacity = %u after Append(1000), expected 1024", (UINT32)b.Capacity);
+				passed = false;
+			}
+			if (passed && (b.Size != 1001 || b.Data[0] != 'x' || b.Data[1] != 0x5A || b.Data[1000] != 0x5A))
+				passed = false;
+
+			if (passed)
+				LOG_INFO("  PASSED: Single large Append doubles until it fits");
+			else
+			{
+				LOG_ERROR("  FAILED: Single large Append doubles until it fits");
+				allPassed = false;
+			}
+		}
+
+		// --- Growth from a non-power-of-two capacity lands exactly on the request ---
+		{
+			Buffer<UINT8> b;
+			if (!b.Init(5)) return false;
+			BOOL passed = true;
+
+			UINT8 chunk[40];
+			Memory::Set(chunk, 0xC3, sizeof(chunk));
+			if (!b.Append(Span<const UINT8>(chunk, sizeof(chunk))))
+				passed = false;
+			// 5→10→20→40: the ladder stops exactly at the request
+			if (passed && b.Capacity != 40)
+			{
+				LOG_ERROR("Capacity = %u, expected 40", (UINT32)b.Capacity);
+				passed = false;
+			}
+
+			if (passed)
+				LOG_INFO("  PASSED: Non-power-of-two start lands exactly on the request");
+			else
+			{
+				LOG_ERROR("  FAILED: Non-power-of-two start lands exactly on the request");
+				allPassed = false;
+			}
+		}
+
+		return allPassed;
+	}
+
+	// Release() must fully detach the array, not just drop it
+	static BOOL TestReleaseDetachSuite()
+	{
+		BOOL allPassed = true;
+
+		// --- Pointer identity and independence after Release ---
+		{
+			Buffer<UINT64> b;
+			if (!b.Init(8)) return false;
+			for (UINT64 i = 0; i < 6; i++)
+				if (!b.Add(i + 1)) return false;
+
+			UINT64 *origData = b.Data;
+			UINT64 *released = b.Release();
+
+			BOOL passed = true;
+			if (released != origData)
+			{
+				LOG_ERROR("Release() returned a different pointer than Data");
+				passed = false;
+			}
+			// The detached array keeps its contents and is independently usable
+			if (passed && (released[0] != 1 || released[5] != 6))
+				passed = false;
+			released[0] = 0xDEADBEEF;
+			if (passed && (b.Data != nullptr || b.Capacity != 0 || b.Size != 0))
+			{
+				LOG_ERROR("Buffer not fully reset by Release()");
+				passed = false;
+			}
+
+			// New writes through the buffer must not touch the detached array
+			if (passed && b.Init(4) && b.Add(99) && released[0] != 0xDEADBEEF)
+				passed = false;
+
+			delete[] released;
+
+			if (passed)
+				LOG_INFO("  PASSED: Release detaches the exact array and stays independent");
+			else
+			{
+				LOG_ERROR("  FAILED: Release detaches the exact array and stays independent");
+				allPassed = false;
+			}
+		}
+
+		// --- Release after Reset still returns the allocation ---
+		{
+			Buffer<UINT8> b;
+			if (!b.Init(8)) return false;
+			if (!b.Add(1)) return false;
+			UINT8 *dataBefore = b.Data;
+
+			b.Reset();
+			UINT8 *released = b.Release();
+
+			BOOL passed = released == dataBefore && b.Data == nullptr && b.Capacity == 0 && b.Size == 0;
+			delete[] released;
+
+			if (passed)
+				LOG_INFO("  PASSED: Release after Reset returns the allocation");
+			else
+			{
+				LOG_ERROR("  FAILED: Release after Reset returns the allocation");
 				allPassed = false;
 			}
 		}

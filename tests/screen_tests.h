@@ -19,6 +19,7 @@ public:
 		RunTest(allPassed, &TestCapture16bpp, "Capture honors a 16bpp request");
 		RunTest(allPassed, &TestCaptureDepthSwitch, "Capture depth switch reports DepthChanged");
 		RunTest(allPassed, &TestCaptureGateSkip, "Change gate leaves the buffer untouched on skip");
+		RunTest(allPassed, &TestCaptureDefaultAfterExplicit, "Default-option captures stay stable after explicit-option captures");
 
 		if (allPassed)
 			LOG_INFO("All Screen tests passed!");
@@ -484,6 +485,85 @@ private:
 						LOG_DEBUG("Gate detected a change (live screen) — no skip to verify");
 					}
 				}
+			}
+			Screen::DestroyCaptureState(state.Value());
+		}
+
+		delete[] pixels;
+		list.Free();
+		return ok;
+	}
+
+	// A capture state primed with explicit options must keep serving the
+	// default path (options=nullptr, status=nullptr) on repeated calls
+	static BOOL TestCaptureDefaultAfterExplicit()
+	{
+		auto r = Screen::GetDevices();
+		if (!r)
+		{
+			LOG_WARNING("GetDevices unavailable (no display): %e", r.Error());
+			return true;
+		}
+
+		auto list = r.Value();
+		if (list.Count == 0)
+		{
+			LOG_WARNING("No devices to capture (headless?)");
+			list.Free();
+			return true;
+		}
+
+		const ScreenDevice &dev = list.Devices[0];
+		UINT32 pixelCount = dev.Width * dev.Height;
+		RGB *pixels = new RGB[pixelCount];
+		if (pixels == nullptr)
+		{
+			LOG_ERROR("Failed to allocate capture buffer");
+			list.Free();
+			return false;
+		}
+
+		BOOL ok = true;
+		auto state = Screen::CreateCaptureState(dev);
+		if (!state)
+		{
+			LOG_WARNING("CreateCaptureState failed (platform without state): %e", state.Error());
+		}
+		else
+		{
+			// Prime the state with an explicit-options capture first
+			CaptureOptions explicitOptions;
+			explicitOptions.BitsPerPixel = 32;
+			explicitOptions.AllowSkip = false;
+			CaptureStatus primed;
+			Memory::Zero(&primed, sizeof(primed));
+			auto first = Screen::Capture(dev, Span<RGB>(pixels, pixelCount), state.Value(), &explicitOptions, &primed);
+			if (!first)
+			{
+				LOG_WARNING("Explicit capture unavailable (headless?): %e", first.Error());
+			}
+			else
+			{
+				// Two default-path captures through the primed state, then a
+				// stateless one — all must succeed with consistent dimensions
+				BOOL stable = true;
+				for (INT32 round = 0; round < 2 && stable; round++)
+				{
+					auto captureResult = Screen::Capture(dev, Span<RGB>(pixels, pixelCount), state.Value());
+					if (!captureResult)
+					{
+						LOG_ERROR("Default capture round %d failed after explicit options: %e",
+							round, captureResult.Error());
+						stable = false;
+					}
+				}
+				auto stateless = Screen::Capture(dev, Span<RGB>(pixels, pixelCount));
+				if (stable && !stateless)
+				{
+					LOG_ERROR("Stateless default capture failed: %e", stateless.Error());
+					stable = false;
+				}
+				ok = stable;
 			}
 			Screen::DestroyCaptureState(state.Value());
 		}
