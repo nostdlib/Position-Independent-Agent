@@ -49,12 +49,27 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 		if (!(dd.StateFlags & DISPLAY_DEVICE_ACTIVE))
 			continue;
 
+		// Mirroring/indirect driver adapters report active with a mode but
+		// cannot be captured via GDI (DC creation and blts fail on them)
+		if (dd.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER)
+			continue;
+
 		DEVMODEW dm;
 		Memory::Zero(&dm, sizeof(dm));
 		dm.dmSize = sizeof(DEVMODEW);
 
 		if (!User32::EnumDisplaySettingsW(dd.DeviceName, ENUM_CURRENT_SETTINGS, &dm))
 			continue;
+
+		// Degenerate mode (phantom/headless adapter): GDI object creation
+		// fails on zero or absurd dimensions, so the display is unusable
+		if (dm.dmPelsWidth == 0 || dm.dmPelsHeight == 0 ||
+			dm.dmPelsWidth > 32768 || dm.dmPelsHeight > 32768)
+		{
+			LOG_WARNING("skipping display %ws with degenerate mode %ux%u",
+			            dd.DeviceName, dm.dmPelsWidth, dm.dmPelsHeight);
+			continue;
+		}
 
 		tempDevices[deviceCount].Left = dm.dmPositionX;
 		tempDevices[deviceCount].Top = dm.dmPositionY;
@@ -191,9 +206,14 @@ static BOOL RebuildGdiObjects(WinCaptureState *state, INT32 width, INT32 height)
 
 	PVOID screenDC = AcquireScreenDC(state);
 	if (screenDC == nullptr)
+	{
+		LOG_ERROR("gdi rebuild %dx%d: no source dc", width, height);
 		return false;
+	}
 
 	state->memDC = Gdi32::CreateCompatibleDC(screenDC);
+	if (state->memDC == nullptr)
+		LOG_ERROR("gdi rebuild %dx%d: CreateCompatibleDC failed", width, height);
 	if (state->memDC != nullptr)
 	{
 		// 32bpp top-down format shared by both modes (DIB target / GetDIBits)
@@ -211,19 +231,29 @@ static BOOL RebuildGdiObjects(WinCaptureState *state, INT32 width, INT32 height)
 			PVOID bits = nullptr;
 			BITMAPINFO *info = (BITMAPINFO *)&state->bmi;
 			state->bitmap = Gdi32::CreateDIBSection(screenDC, info, DIB_RGB_COLORS, &bits, nullptr, 0);
-			if (state->bitmap != nullptr && bits != nullptr)
+			if (state->bitmap == nullptr || bits == nullptr)
+				LOG_ERROR("gdi rebuild %dx%d: CreateDIBSection failed", width, height);
+			else
 			{
 				state->bgra = (UINT8 *)bits;
 				state->bgraSize = (UINT32)width * (UINT32)height * 4;
 				state->bgraIsDibSection = true;
 				state->oldBitmap = Gdi32::SelectObject(state->memDC, state->bitmap);
+				if (state->oldBitmap == nullptr)
+					LOG_ERROR("gdi rebuild %dx%d: SelectObject (dib) failed", width, height);
 			}
 		}
 		else
 		{
 			state->bitmap = Gdi32::CreateCompatibleBitmap(screenDC, width, height);
-			if (state->bitmap != nullptr)
+			if (state->bitmap == nullptr)
+				LOG_ERROR("gdi rebuild %dx%d: CreateCompatibleBitmap failed", width, height);
+			else
+			{
 				state->oldBitmap = Gdi32::SelectObject(state->memDC, state->bitmap);
+				if (state->oldBitmap == nullptr)
+					LOG_ERROR("gdi rebuild %dx%d: SelectObject failed", width, height);
+			}
 		}
 	}
 
@@ -273,12 +303,17 @@ static BOOL MatchDeviceName(const ScreenDevice &device, WCHAR *deviceName)
 
 		if (!(dd.StateFlags & DISPLAY_DEVICE_ACTIVE))
 			continue;
+		if (dd.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER)
+			continue;
 
 		DEVMODEW dm;
 		Memory::Zero(&dm, sizeof(dm));
 		dm.dmSize = sizeof(DEVMODEW);
 
 		if (!User32::EnumDisplaySettingsW(dd.DeviceName, ENUM_CURRENT_SETTINGS, &dm))
+			continue;
+
+		if (dm.dmPelsWidth == 0 || dm.dmPelsHeight == 0)
 			continue;
 
 		if (dm.dmPositionX == device.Left && dm.dmPositionY == device.Top &&
