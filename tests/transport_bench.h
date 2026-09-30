@@ -283,8 +283,18 @@ public:
 		RunTest(allPassed, &TestRecordModel, "record count model");
 		LOG_INFO("  Test: AEAD per-record overhead");
 		RunTest(allPassed, &TestAeadRecordOverhead, "AEAD record overhead");
-		LOG_INFO("  Test: 64 KiB echo round trip");
-		RunTest(allPassed, &TestEchoRoundTrip, "echo round trip");
+		// The echo round trip is the one bench that needs the network — it
+		// has its own opt-in so PIR_BENCH stays offline and deterministic
+		CHAR echoFlag[8];
+		if (Environment::GetVariable("PIR_BENCH_ECHO", Span<CHAR>(echoFlag, sizeof(echoFlag))) > 0 && echoFlag[0] == '1')
+		{
+			LOG_INFO("  Test: 64 KiB echo round trip");
+			RunTest(allPassed, &TestEchoRoundTrip, "echo round trip");
+		}
+		else
+		{
+			LOG_INFO("  SKIP: 64 KiB echo round trip (PIR_BENCH_ECHO=1; needs egress)");
+		}
 
 		if (allPassed)
 			LOG_INFO("Transport bench complete!");

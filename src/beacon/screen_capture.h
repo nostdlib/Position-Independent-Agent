@@ -153,6 +153,12 @@ struct Graphics
     // sized for the old mode, and the blt would write past them
     VOID Init(const ScreenDevice &device)
     {
+        // Reject degenerate/absurd modes before the pixel arithmetic below —
+        // the multiplication must not overflow the size type on any target
+        // (mirrors the GetDevices degenerate-mode filter)
+        if (device.Width == 0 || device.Height == 0 ||
+            device.Width > 32768 || device.Height > 32768)
+            return;
         USIZE pixelCount = (USIZE)device.Width * device.Height;
         if (currentScreenshot == nullptr || storedWidth != device.Width || storedHeight != device.Height)
         {
