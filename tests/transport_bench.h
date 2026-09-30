@@ -228,15 +228,26 @@ private:
 			if (readResult && (readResult.Value().Length != frameSize ||
 			    Memory::Compare(readResult.Value().Data, frame, frameSize) != 0))
 			{
-				delete[] readResult.Value().Data; // a prepended greeting, not the echo
+				// A prepended greeting, not the echo — release ownership
+				// before reassigning so no stale pointer survives
+				delete[] readResult.Value().Data;
+				readResult.Value().Data = nullptr;
+				readResult.Value().Length = 0;
 				readResult = ws.Read();
 			}
 			UINT64 t1 = DateTime::GetMonotonicNanoseconds();
 			times[r] = t1 - t0;
 			writeNs[r] = tWrite - t0;
 
-			if (!writeResult || !readResult || readResult.Value().Length != frameSize ||
-			    Memory::Compare(readResult.Value().Data, frame, frameSize) != 0)
+			BOOL roundOk = writeResult && readResult &&
+			               readResult.Value().Length == frameSize &&
+			               Memory::Compare(readResult.Value().Data, frame, frameSize) == 0;
+			if (readResult)
+			{
+				delete[] readResult.Value().Data;
+				readResult.Value().Data = nullptr;
+			}
+			if (!roundOk)
 			{
 				LOG_ERROR("  64 KiB echo round %u failed", r);
 				ok = false;

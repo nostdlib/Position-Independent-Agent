@@ -1831,9 +1831,12 @@ static VOID EncodeImageData(EncoderState *state, const UINT8 *srcData,
 	Span<const UINT8> srcData,
 	INT32 stride)
 {
+	// Size math in UINT64: on 32-bit-size targets the USIZE product wraps and
+	// would pass an undersized span
+	UINT64 neededBytes = ((UINT64)stride * (UINT64)(height - 1) + (UINT64)width) * (UINT64)numComponents;
 	if ((numComponents != 3 && numComponents != 4) || width <= 0 || height <= 0 ||
 		width > 0xFFFF || height > 0xFFFF || stride < width ||
-		((USIZE)stride * (USIZE)(height - 1) + (USIZE)width) * (USIZE)numComponents > srcData.Size())
+		neededBytes > (UINT64)srcData.Size())
 	{
 		return Result<VOID, Error>::Err(Error::Jpeg_InvalidParams);
 	}

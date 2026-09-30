@@ -798,6 +798,15 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     if (context->screenCaptureContext->GraphicsList.count == 0)
         context->screenCaptureContext->GraphicsList.Init(context->screenCaptureContext->DeviceList.Count);
 
+    // The alloc may have failed (count stays 0 and is retried) — never index
+    // the array before it is known to exist
+    if (context->screenCaptureContext->GraphicsList.graphicsArray == nullptr)
+    {
+        LOG_ERROR("Failed to allocate the per-display graphics list");
+        WriteErrorResponse(response, responseLength, StatusCode::StatusError);
+        return;
+    }
+
     Graphics &graphics = context->screenCaptureContext->GraphicsList.graphicsArray[displayIndex];
 
     // Unconditional: Init is a no-op unless the buffers are missing or the
@@ -813,12 +822,19 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     }
 
     // Persistent capture resources (Windows GDI reuse): created on first use;
-    // the platform layer rebuilds them in place on mode changes and failures
-    if (graphics.captureState == nullptr)
+    // the platform layer rebuilds them in place on mode changes and failures.
+    // A display swap at the same list index retires the old monitor's state —
+    // its cached DC and diff base describe a different screen
+    if (graphics.captureState == nullptr || !graphics.deviceKnown ||
+        graphics.deviceLeft != device.Left || graphics.deviceTop != device.Top)
     {
+        graphics.ReleaseCaptureState();
         auto state = Screen::CreateCaptureState(device);
         if (state)
             graphics.captureState = state.Value();
+        graphics.deviceLeft = device.Left;
+        graphics.deviceTop = device.Top;
+        graphics.deviceKnown = true;
     }
 
     // Capture policy: low-quality streams may use 16bpp capture (the platform

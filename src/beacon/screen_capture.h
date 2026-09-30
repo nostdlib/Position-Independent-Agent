@@ -101,6 +101,9 @@ struct Graphics
     // handler re-Init()s on the next request
     Buffer<CHAR> packet;
     PVOID captureState;  // Opaque per-display resources from Screen::CreateCaptureState
+    INT32 deviceLeft = 0;  // Identity of the display the capture state was built for
+    INT32 deviceTop = 0;
+    BOOL deviceKnown = false;
     BOOL lastFrameClean; // Previous frame had no dirty rects; enables the change gate
 
     Graphics() : currentScreenshot(nullptr), screenshot(nullptr), captureState(nullptr), lastFrameClean(false) {}
@@ -150,7 +153,7 @@ struct Graphics
     VOID Init(const ScreenDevice &device)
     {
         USIZE pixelCount = (USIZE)device.Width * device.Height;
-        if (currentScreenshot == nullptr || storedPixels != pixelCount)
+        if (currentScreenshot == nullptr || storedWidth != device.Width || storedHeight != device.Height)
         {
             delete[] currentScreenshot;
             delete[] screenshot;
@@ -163,16 +166,19 @@ struct Graphics
                 delete[] screenshot;
                 currentScreenshot = nullptr;
                 screenshot = nullptr;
-                storedPixels = 0;
+                storedWidth = 0;
+                storedHeight = 0;
                 return;
             }
-            storedPixels = pixelCount;
+            storedWidth = device.Width;
+            storedHeight = device.Height;
             // A fresh base reads as all-black: the next diff reports the full
             // frame dirty, resynchronizing the receiver with one full rect
             Memory::Zero(screenshot, pixelCount * sizeof(RGB));
         }
     }
-    USIZE storedPixels = 0;
+    UINT32 storedWidth = 0;
+    UINT32 storedHeight = 0;
 };
 
 struct GraphicsList
@@ -210,6 +216,8 @@ struct GraphicsList
         }
 
         graphicsArray = new Graphics[Count];
+        if (graphicsArray == nullptr)
+            return; // count stays 0 so the next request retries the alloc
         count = Count;
     }
 };
