@@ -112,6 +112,19 @@ private:
 		return true;
 	}
 
+	// Record AAD exactly as the shipped path builds it (TlsCipher::Encode):
+	// [type][legacy version][BE ciphertext size incl. tag][BE sequence number]
+	static VOID BuildRecordAad(UCHAR (&aad)[13], UINT32 plainSize, UINT64 seq)
+	{
+		aad[0] = CONTENT_APPLICATION_DATA;
+		aad[1] = 0x03;
+		aad[2] = 0x03;
+		UINT16 encSize = ByteOrder::Swap16((UINT16)ChaCha20Encoder::ComputeSize((INT32)plainSize, CipherDirection::Encode));
+		Memory::Copy(aad + 3, &encSize, sizeof(UINT16));
+		UINT64 seqBe = ByteOrder::Swap64(seq);
+		Memory::Copy(aad + 5, &seqBe, sizeof(UINT64));
+	}
+
 	static BOOL TestAeadRecordOverhead()
 	{
 		ChaCha20Encoder encoder;
@@ -142,13 +155,15 @@ private:
 
 		TlsBuffer out;
 		UINT64 small[5], large[5];
+		UINT64 seq = 0;
 		for (UINT32 r = 0; r < 5; r++)
 		{
 			(VOID)out.SetSize(0);
 			UINT64 t0 = DateTime::GetMonotonicNanoseconds();
 			for (USIZE offset = 0; offset < BenchBytes; offset += 256)
 			{
-				UCHAR aad[5] = {0x17, 0x03, 0x03, 0x01, 0x00};
+				UCHAR aad[13];
+				BuildRecordAad(aad, 256, seq++);
 				encoder.Encode(out, Span<const CHAR>((PCHAR)payload + offset, 256), Span<const UCHAR>(aad, sizeof(aad)));
 			}
 			UINT64 t1 = DateTime::GetMonotonicNanoseconds();
@@ -158,7 +173,8 @@ private:
 			t0 = DateTime::GetMonotonicNanoseconds();
 			for (USIZE offset = 0; offset + RecordMax <= BenchBytes; offset += RecordMax)
 			{
-				UCHAR aad[5] = {0x17, 0x03, 0x03, 0x40, 0x00};
+				UCHAR aad[13];
+				BuildRecordAad(aad, RecordMax, seq++);
 				encoder.Encode(out, Span<const CHAR>((PCHAR)payload + offset, RecordMax), Span<const UCHAR>(aad, sizeof(aad)));
 			}
 			t1 = DateTime::GetMonotonicNanoseconds();

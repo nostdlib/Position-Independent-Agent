@@ -800,8 +800,10 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
 
     Graphics &graphics = context->screenCaptureContext->GraphicsList.graphicsArray[displayIndex];
 
-    if (!graphics.IsInitialized())
-        graphics.Init(device);
+    // Unconditional: Init is a no-op unless the buffers are missing or the
+    // display dimensions changed (a mode change after a display-list refresh
+    // must reallocate, not reuse the old-mode buffers)
+    graphics.Init(device);
 
     if (!graphics.IsInitialized())
     {

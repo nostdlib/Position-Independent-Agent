@@ -668,6 +668,9 @@ VOID Screen::DestroyCaptureState(PVOID captureState)
 static VOID ConvertBgraToRgb(const UINT8 *bgra, PRGB rgb, UINT32 pixelCount)
 {
 	UINT32 i = 0;
+#if defined(ARCHITECTURE_X86_64) || defined(ARCHITECTURE_I386) || defined(ARCHITECTURE_AARCH64)
+	// Dword-packed stores at 3-byte strides are unaligned — safe on targets
+	// whose architecture permits unaligned word access in hardware
 	for (; i + 4 <= pixelCount; i += 4, bgra += 16)
 	{
 		const UINT32 *src = (const UINT32 *)bgra;
@@ -681,6 +684,7 @@ static VOID ConvertBgraToRgb(const UINT8 *bgra, PRGB rgb, UINT32 pixelCount)
 		out[1] = g1 | (b1 << 8) | (r2 << 16) | (g2 << 24);
 		out[2] = b2 | (r3 << 8) | (g3 << 16) | (b3 << 24);
 	}
+#endif
 
 	// Tail (last <4 pixels)
 	for (; i < pixelCount; i++, bgra += 4)
@@ -709,6 +713,9 @@ static VOID ConvertBgr565ToRgb(const UINT8 *bgr565, PRGB rgb, UINT32 width, UINT
 		const UINT16 *src = (const UINT16 *)(bgr565 + (USIZE)row * strideBytes);
 		PRGB dst = rgb + (USIZE)row * width;
 		UINT32 i = 0;
+#if defined(ARCHITECTURE_X86_64) || defined(ARCHITECTURE_I386) || defined(ARCHITECTURE_AARCH64)
+		// Dword-packed stores at 3-byte strides are unaligned — safe on targets
+		// whose architecture permits unaligned word access in hardware
 		for (; i + 4 <= width; i += 4)
 		{
 			UINT32 *out = (UINT32 *)(dst + i);
@@ -725,6 +732,7 @@ static VOID ConvertBgr565ToRgb(const UINT8 *bgr565, PRGB rgb, UINT32 width, UINT
 			out[1] = (p[1] >> 8) | (p[2] << 16);
 			out[2] = (p[2] >> 16) | (p[3] << 8);
 		}
+#endif
 
 		// Tail (last <4 pixels of the row)
 		for (; i < width; i++)

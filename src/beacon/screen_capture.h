@@ -144,18 +144,25 @@ struct Graphics
         return currentScreenshot != nullptr && screenshot != nullptr;
     }
 
+    // (Re)allocate the frame buffers for the device's CURRENT dimensions — a
+    // display-mode change after a display-list refresh hands Capture buffers
+    // sized for the old mode, and the blt would write past them
     VOID Init(const ScreenDevice &device)
     {
         USIZE pixelCount = (USIZE)device.Width * device.Height;
-        if (currentScreenshot == nullptr)
+        if (currentScreenshot == nullptr || storedPixels != pixelCount)
         {
+            delete[] currentScreenshot;
+            delete[] screenshot;
             currentScreenshot = new RGB[pixelCount];
-        }
-        if (screenshot == nullptr)
-        {
             screenshot = new RGB[pixelCount];
+            storedPixels = pixelCount;
+            // A fresh base reads as all-black: the next diff reports the full
+            // frame dirty, resynchronizing the receiver with one full rect
+            Memory::Zero(screenshot, pixelCount * sizeof(RGB));
         }
     }
+    USIZE storedPixels = 0;
 };
 
 struct GraphicsList

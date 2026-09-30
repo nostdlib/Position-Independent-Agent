@@ -147,8 +147,15 @@ private:
 				Width, Height, 64, 24);
 			t1 = DateTime::GetMonotonicNanoseconds();
 			fusedNs[r] = t1 - t0;
-			if (fused)
-				fused.Value().Free();
+			if (!fused)
+			{
+				LOG_ERROR("  FindDirtyRects failed: %e", fused.Error());
+				delete[] current;
+				delete[] previous;
+				delete[] bidiff;
+				return false;
+			}
+			fused.Value().Free();
 		}
 
 		LOG_INFO("  two-step diff 1080p (bidiff + tile scan): %.2f ms",
@@ -161,6 +168,7 @@ private:
 		// fused diff — the handler replies an empty section list immediately
 		Memory::Copy(previous, current, PixelCount * sizeof(RGB));
 		UINT64 idleNs[5];
+		UINT32 idleCount = 0;
 		for (UINT32 r = 0; r < 5; r++)
 		{
 			UINT64 t0 = DateTime::GetMonotonicNanoseconds();
@@ -169,17 +177,26 @@ private:
 				Width, Height, 64, 24);
 			UINT64 t1 = DateTime::GetMonotonicNanoseconds();
 			idleNs[r] = t1 - t0;
-			if (fused && fused.Value().Count != 0)
+			if (!fused)
+			{
+				LOG_ERROR("  FindDirtyRects failed: %e", fused.Error());
+				delete[] current;
+				delete[] previous;
+				delete[] bidiff;
+				return false;
+			}
+			if (fused.Value().Count != 0)
 			{
 				LOG_ERROR("  idle frame unexpectedly dirty (%u rects)", fused.Value().Count);
 				fused.Value().Free();
 				break;
 			}
-			if (fused)
-				fused.Value().Free();
+			fused.Value().Free();
+			idleCount++;
 		}
-		LOG_INFO("  idle frame diff 1080p (0 rects):         %.2f ms",
-		         (DOUBLE)Median(idleNs, 5) / 1000000.0);
+		if (idleCount > 0)
+			LOG_INFO("  idle frame diff 1080p (0 rects):         %.2f ms",
+			         (DOUBLE)Median(idleNs, idleCount) / 1000000.0);
 
 		delete[] current;
 		delete[] previous;
@@ -287,7 +304,12 @@ private:
 		OutBuffer jpeg;
 		Buffer<CHAR> packet;
 		if (!packet.Init(sizeof(UINT32) * 2 + PixelCount * sizeof(RGB) / 2))
+		{
+			delete[] current;
+			delete[] previous;
+			delete[] rectBuffer;
 			return false;
+		}
 		UINT64 ns[5];
 		UINT32 totalRects = 0;
 		USIZE packetBytes = 0;
@@ -304,7 +326,10 @@ private:
 			if (!dirty)
 			{
 				LOG_ERROR("  FindDirtyRects failed: %e", dirty.Error());
-				break;
+				delete[] current;
+				delete[] previous;
+				delete[] rectBuffer;
+				return false;
 			}
 
 			UINT32 packetOffset = sizeof(UINT32) * 2;
@@ -323,8 +348,12 @@ private:
 				                                  Span<const UINT8>((UINT8 *)rectBuffer, (USIZE)dr.Width * dr.Height * sizeof(RGB)));
 				if (encode.IsErr() || jpeg.failed)
 				{
+					LOG_ERROR("  rect encode failed (%ux%u)", dr.Width, dr.Height);
 					dirty.Value().Free();
-					break;
+					delete[] current;
+					delete[] previous;
+					delete[] rectBuffer;
+					return false;
 				}
 
 				Memory::Copy(packet.Data + packetOffset, &dr.X, sizeof(UINT32));
@@ -361,6 +390,13 @@ private:
 		{
 			LOG_INFO("  SKIP: no display available (headless). Run under xvfb-run for capture numbers");
 			return true;
+		}
+
+		if (devices.Value().Count == 0)
+		{
+			LOG_ERROR("  no display devices found");
+			devices.Value().Free();
+			return false;
 		}
 
 		const ScreenDevice &device = devices.Value().Devices[0];

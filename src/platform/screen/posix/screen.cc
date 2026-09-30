@@ -1842,7 +1842,9 @@ static BOOL X11CaptureOnSocket(const ScreenDevice &device, const X11ConnectionIn
 			Memory::Move(chunk, chunk + offset, have);
 	}
 
-	// Drain trailing reply pad — unread bytes would desync the next frame
+	// Drain trailing reply pad — unread bytes would desync the next frame.
+	// A failed drain leaves the socket mid-reply: report it so the caller
+	// drops the connection instead of desyncing every later frame
 	while (received < totalDataBytes)
 	{
 		USIZE want = totalDataBytes - received;
@@ -1850,7 +1852,7 @@ static BOOL X11CaptureOnSocket(const ScreenDevice &device, const X11ConnectionIn
 			want = chunkCap;
 		SSIZE n = UnixRecv(fd, chunk, want);
 		if (n <= 0)
-			break;
+			return false;
 		received += (USIZE)n;
 	}
 	return true;
@@ -1905,6 +1907,8 @@ Result<PVOID, Error> Screen::CreateCaptureState(const ScreenDevice &device)
 		return Result<PVOID, Error>::Ok(nullptr);
 
 	auto *state = new X11CaptureState();
+	if (state == nullptr)
+		return Result<PVOID, Error>::Err(Error(Error::Screen_AllocFailed));
 	Memory::Zero(state, sizeof(X11CaptureState));
 	state->fd = -1;
 	state->displayNum = (UINT32)(-(device.Left + 1000));

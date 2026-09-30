@@ -111,12 +111,23 @@ VOID ImageProcessor::CalculateBiDifference(
 		UINT32 i = 0;
 		if (totalPixels > 1)
 		{
+#if defined(ARCHITECTURE_X86_64) || defined(ARCHITECTURE_I386)
+			// 4-byte reads at 3-byte strides are unaligned — x86 only; the
+			// byte loads below are the portable fallback
 			for (; i < totalPixels - 1; ++i)
 			{
 				UINT32 v1 = *(const UINT32 *)(p1 + i * 3);
 				UINT32 v2 = *(const UINT32 *)(p2 + i * 3);
 				biDiff[i] = ((v1 ^ v2) & 0x00FFFFFF) ? 1 : 0;
 			}
+#else
+			for (; i < totalPixels - 1; ++i)
+			{
+				const UINT8 *q1 = p1 + i * 3;
+				const UINT8 *q2 = p2 + i * 3;
+				biDiff[i] = (q1[0] != q2[0] || q1[1] != q2[1] || q1[2] != q2[2]) ? 1 : 0;
+			}
+#endif
 		}
 
 		// Last pixel: per-byte comparison to avoid out-of-bounds read

@@ -211,6 +211,10 @@ Result<UINT32, Error> WebSocketClient::WritePayload(Span<const CHAR> prefix, Spa
 	}
 
 	USIZE payloadSize = prefix.Size() + body.Size();
+	// Frame lengths are 32-bit throughout — refuse (never truncate) an
+	// oversized payload, which no real reply approaches
+	if (payloadSize > 0x7FFFFFFFu)
+		return Result<UINT32, Error>::Err(Error(Error::Ws_WriteFailed));
 
 	// Build frame header on stack (max 14 bytes: 2 base + 8 ext length + 4 mask key)
 	UINT8 header[14];
