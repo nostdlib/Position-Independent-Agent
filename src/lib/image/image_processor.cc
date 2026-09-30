@@ -8,6 +8,7 @@
 
 #include "lib/image/image_processor.h"
 #include "core/containers/vector.h"
+#include "core/memory/memory.h"
 
 #if defined(ARCHITECTURE_X86_64)
 // SSE2 via the project's own declarations — no compiler headers
@@ -50,13 +51,16 @@ static BOOL ScanPixelsScalar(
 {
 	for (UINT32 i = 0; i + 1 < n; ++i, cur8 += 3, prev8 += 3)
 	{
-#if defined(ARCHITECTURE_X86_64) || defined(ARCHITECTURE_I386)
-		// 4-byte pre-compare via one unaligned word read per side: the high
-		// byte belongs to the next pixel on both sides, so an equal word
-		// implies an identical pixel and the SAD is skipped
-		if (*(const UINT32 *)cur8 == *(const UINT32 *)prev8)
+		// 4-byte pre-compare per side: the high byte belongs to the next
+		// pixel on both sides, so an equal word implies an identical pixel
+		// and the SAD is skipped. Loaded via fixed-size Memory::Copy — one
+		// unaligned-safe load on every target, never a UINT32-typed access
+		// to the 3-byte-packed buffer
+		UINT32 curWord, prevWord;
+		Memory::Copy(&curWord, cur8, sizeof(curWord));
+		Memory::Copy(&prevWord, prev8, sizeof(prevWord));
+		if (curWord == prevWord)
 			continue;
-#endif
 
 		UINT32 sad = PixelSad(*(const RGB *)cur8, *(const RGB *)prev8);
 		if (sad > threshold)
@@ -111,23 +115,16 @@ VOID ImageProcessor::CalculateBiDifference(
 		UINT32 i = 0;
 		if (totalPixels > 1)
 		{
-#if defined(ARCHITECTURE_X86_64) || defined(ARCHITECTURE_I386)
-			// 4-byte reads at 3-byte strides are unaligned — x86 only; the
-			// byte loads below are the portable fallback
+			// 4-byte reads at 3-byte strides via fixed-size Memory::Copy —
+			// one unaligned-safe load per side on every target, never a
+			// UINT32-typed access to the 3-byte-packed buffer
 			for (; i < totalPixels - 1; ++i)
 			{
-				UINT32 v1 = *(const UINT32 *)(p1 + i * 3);
-				UINT32 v2 = *(const UINT32 *)(p2 + i * 3);
+				UINT32 v1, v2;
+				Memory::Copy(&v1, p1 + i * 3, sizeof(v1));
+				Memory::Copy(&v2, p2 + i * 3, sizeof(v2));
 				biDiff[i] = ((v1 ^ v2) & 0x00FFFFFF) ? 1 : 0;
 			}
-#else
-			for (; i < totalPixels - 1; ++i)
-			{
-				const UINT8 *q1 = p1 + i * 3;
-				const UINT8 *q2 = p2 + i * 3;
-				biDiff[i] = (q1[0] != q2[0] || q1[1] != q2[1] || q1[2] != q2[2]) ? 1 : 0;
-			}
-#endif
 		}
 
 		// Last pixel: per-byte comparison to avoid out-of-bounds read

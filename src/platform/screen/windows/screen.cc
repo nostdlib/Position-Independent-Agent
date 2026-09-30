@@ -668,23 +668,24 @@ VOID Screen::DestroyCaptureState(PVOID captureState)
 static VOID ConvertBgraToRgb(const UINT8 *bgra, PRGB rgb, UINT32 pixelCount)
 {
 	UINT32 i = 0;
-#if defined(ARCHITECTURE_X86_64) || defined(ARCHITECTURE_I386) || defined(ARCHITECTURE_AARCH64)
-	// Dword-packed stores at 3-byte strides are unaligned — safe on targets
-	// whose architecture permits unaligned word access in hardware
+	// Four pixels per iteration pack into three dwords. Words are moved with
+	// fixed-size Memory::Copy — one unaligned-safe load/store on every
+	// target, and never a UINT32-typed access to a packed pixel buffer
 	for (; i + 4 <= pixelCount; i += 4, bgra += 16)
 	{
-		const UINT32 *src = (const UINT32 *)bgra;
-		UINT32 *out = (UINT32 *)(rgb + i);
-		UINT32 d0 = src[0], d1 = src[1], d2 = src[2], d3 = src[3];
+		UINT32 d[4];
+		Memory::Copy(d, bgra, sizeof(d));
+		UINT32 d0 = d[0], d1 = d[1], d2 = d[2], d3 = d[3];
 		UINT32 r0 = (d0 >> 16) & 0xFF, g0 = (d0 >> 8) & 0xFF;
 		UINT32 r1 = (d1 >> 16) & 0xFF, g1 = (d1 >> 8) & 0xFF, b1 = d1 & 0xFF;
 		UINT32 r2 = (d2 >> 16) & 0xFF, g2 = (d2 >> 8) & 0xFF, b2 = d2 & 0xFF;
 		UINT32 r3 = (d3 >> 16) & 0xFF, g3 = (d3 >> 8) & 0xFF, b3 = d3 & 0xFF;
-		out[0] = r0 | (g0 << 8) | ((d0 & 0xFF) << 16) | (r1 << 24);
-		out[1] = g1 | (b1 << 8) | (r2 << 16) | (g2 << 24);
-		out[2] = b2 | (r3 << 8) | (g3 << 16) | (b3 << 24);
+		UINT32 packed[3];
+		packed[0] = r0 | (g0 << 8) | ((d0 & 0xFF) << 16) | (r1 << 24);
+		packed[1] = g1 | (b1 << 8) | (r2 << 16) | (g2 << 24);
+		packed[2] = b2 | (r3 << 8) | (g3 << 16) | (b3 << 24);
+		Memory::Copy(rgb + i, packed, sizeof(packed));
 	}
-#endif
 
 	// Tail (last <4 pixels)
 	for (; i < pixelCount; i++, bgra += 4)
@@ -713,12 +714,11 @@ static VOID ConvertBgr565ToRgb(const UINT8 *bgr565, PRGB rgb, UINT32 width, UINT
 		const UINT16 *src = (const UINT16 *)(bgr565 + (USIZE)row * strideBytes);
 		PRGB dst = rgb + (USIZE)row * width;
 		UINT32 i = 0;
-#if defined(ARCHITECTURE_X86_64) || defined(ARCHITECTURE_I386) || defined(ARCHITECTURE_AARCH64)
-		// Dword-packed stores at 3-byte strides are unaligned — safe on targets
-		// whose architecture permits unaligned word access in hardware
+		// Four pixels per iteration pack into three dwords, written with a
+		// fixed-size Memory::Copy — one unaligned-safe store on every target,
+		// never a UINT32-typed access to the 3-byte-packed row
 		for (; i + 4 <= width; i += 4)
 		{
-			UINT32 *out = (UINT32 *)(dst + i);
 			UINT32 p[4];
 			for (INT32 k = 0; k < 4; k++)
 			{
@@ -728,11 +728,12 @@ static VOID ConvertBgr565ToRgb(const UINT8 *bgr565, PRGB rgb, UINT32 width, UINT
 				UINT32 b5 = (UINT32)(px & 0x1F);
 				p[k] = ((r5 << 3) | (r5 >> 2)) | (((g6 << 2) | (g6 >> 4)) << 8) | (((b5 << 3) | (b5 >> 2)) << 16);
 			}
-			out[0] = p[0] | (p[1] << 24);
-			out[1] = (p[1] >> 8) | (p[2] << 16);
-			out[2] = (p[2] >> 16) | (p[3] << 8);
+			UINT32 packed[3];
+			packed[0] = p[0] | (p[1] << 24);
+			packed[1] = (p[1] >> 8) | (p[2] << 16);
+			packed[2] = (p[2] >> 16) | (p[3] << 8);
+			Memory::Copy(dst + i, packed, sizeof(packed));
 		}
-#endif
 
 		// Tail (last <4 pixels of the row)
 		for (; i < width; i++)
