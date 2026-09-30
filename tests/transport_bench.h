@@ -224,16 +224,23 @@ private:
 			UINT64 t0 = DateTime::GetMonotonicNanoseconds();
 			auto writeResult = ws.Write(Span<const CHAR>(frame, frameSize), WebSocketOpcode::Binary);
 			UINT64 tWrite = DateTime::GetMonotonicNanoseconds();
-			auto readResult = ws.Read();
-			if (readResult && (readResult.Value().Length != frameSize ||
-			    Memory::Compare(readResult.Value().Data, frame, frameSize) != 0))
+
+			// Read only after a successful write: a failed send leaves
+			// nothing coming back, and Read() has no timeout to bound the wait
+			auto readResult = Result<WebSocketMessage, Error>::Err(Error::Ws_ReceiveFailed);
+			if (writeResult)
 			{
-				// A prepended greeting, not the echo — release ownership
-				// before reassigning so no stale pointer survives
-				delete[] readResult.Value().Data;
-				readResult.Value().Data = nullptr;
-				readResult.Value().Length = 0;
 				readResult = ws.Read();
+				if (readResult && (readResult.Value().Length != frameSize ||
+				    Memory::Compare(readResult.Value().Data, frame, frameSize) != 0))
+				{
+					// A prepended greeting, not the echo — release ownership
+					// before reassigning so no stale pointer survives
+					delete[] readResult.Value().Data;
+					readResult.Value().Data = nullptr;
+					readResult.Value().Length = 0;
+					readResult = ws.Read();
+				}
 			}
 			UINT64 t1 = DateTime::GetMonotonicNanoseconds();
 			times[r] = t1 - t0;

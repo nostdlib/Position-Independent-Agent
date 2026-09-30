@@ -828,11 +828,17 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     if (graphics.captureState == nullptr || !graphics.deviceKnown ||
         graphics.deviceLeft != device.Left || graphics.deviceTop != device.Top)
     {
-        graphics.ReleaseCaptureState();
         // A different display in this slot differs from the old base
-        // everywhere — force one full frame and re-baseline the gate
-        graphics.baseInvalid = true;
-        graphics.lastFrameClean = false;
+        // everywhere — force one full frame and re-baseline the gate. Only
+        // on a real coordinate change: stateless platforms hit the null-state
+        // case on EVERY capture and must keep incremental replies
+        if (graphics.deviceKnown &&
+            (graphics.deviceLeft != device.Left || graphics.deviceTop != device.Top))
+        {
+            graphics.baseInvalid = true;
+            graphics.lastFrameClean = false;
+        }
+        graphics.ReleaseCaptureState();
         auto state = Screen::CreateCaptureState(device);
         if (state)
             graphics.captureState = state.Value();
