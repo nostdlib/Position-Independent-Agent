@@ -795,7 +795,10 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
 
     const ScreenDevice &device = context->screenCaptureContext->DeviceList.Devices[displayIndex];
 
-    if (context->screenCaptureContext->GraphicsList.count == 0)
+    // Re-init also when the refreshed display count changed: the old array
+    // was sized for the old count and a higher index would walk past it
+    if (context->screenCaptureContext->GraphicsList.count !=
+        context->screenCaptureContext->DeviceList.Count)
         context->screenCaptureContext->GraphicsList.Init(context->screenCaptureContext->DeviceList.Count);
 
     // The alloc may have failed (count stays 0 and is retried) — never index
