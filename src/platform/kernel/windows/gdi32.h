@@ -302,4 +302,21 @@ public:
 	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-deleteobject
 	 */
 	static BOOL DeleteObject(PVOID ho);
+
+	/**
+	 * @brief Flushes the calling thread's GDI batching queue.
+	 *
+	 * @details DIB-section bits are read as raw memory, outside GDI, so a
+	 * batched write may not have landed when the bits are examined; drain
+	 * the queue before reading.
+	 *
+	 * @return true on success, false on failure.
+	 *
+	 * @par Requirements
+	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
+	 *
+	 * @see GdiFlush
+	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-gdiflush
+	 */
+	static BOOL GdiFlush();
 };

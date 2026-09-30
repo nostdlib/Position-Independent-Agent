@@ -156,6 +156,16 @@ struct Graphics
             delete[] screenshot;
             currentScreenshot = new RGB[pixelCount];
             screenshot = new RGB[pixelCount];
+            if (currentScreenshot == nullptr || screenshot == nullptr)
+            {
+                // Leave both null; the caller's IsInitialized() reports it
+                delete[] currentScreenshot;
+                delete[] screenshot;
+                currentScreenshot = nullptr;
+                screenshot = nullptr;
+                storedPixels = 0;
+                return;
+            }
             storedPixels = pixelCount;
             // A fresh base reads as all-black: the next diff reports the full
             // frame dirty, resynchronizing the receiver with one full rect

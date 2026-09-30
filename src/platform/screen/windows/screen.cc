@@ -810,6 +810,8 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 
 		if (gateOk)
 		{
+			// gateBits is read as raw memory below — drain the GDI batch
+			Gdi32::GdiFlush();
 			BOOL resyncDue = state->gateSkipStreak >= GateResyncInterval;
 			if (state->gateValid && !resyncDue &&
 			    Memory::Compare(state->gateBits, state->gatePrev,
@@ -882,7 +884,11 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 		}
 
 		if (state->useDib)
-			break; // pixels are in state->bgra already
+		{
+			// bgra is read as raw memory below — drain the GDI batch
+			Gdi32::GdiFlush();
+			break;
+		}
 
 		// DDB destination: read the pixels back. GetDIBits requires the bitmap
 		// not be selected into a DC (documented precondition — some drivers

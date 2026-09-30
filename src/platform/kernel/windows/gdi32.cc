@@ -91,3 +91,11 @@ BOOL Gdi32::DeleteObject(PVOID ho)
 		return false;
 	return fn(ho);
 }
+
+BOOL Gdi32::GdiFlush()
+{
+	auto fn = (BOOL(STDCALL *)())ResolveGdi32ExportAddress("GdiFlush");
+	if (fn == nullptr)
+		return false;
+	return fn();
+}

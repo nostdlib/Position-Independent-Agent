@@ -205,10 +205,9 @@ private:
 		}
 		WebSocketClient &ws = createResult.Value();
 
-		// Discard the server greeting so the first timed read is our own echo
-		auto greeting = ws.Read();
-		if (greeting)
-			LOG_INFO("  discarded greeting (%u bytes)", (UINT32)greeting.Value().Length);
+		// No untimed pre-read of the greeting — a server that connects but
+		// stays silent would block it forever; every read below waits only
+		// for the guaranteed echo of our own frame
 
 		constexpr UINT32 frameSize = 64 * 1024;
 		PCHAR frame = new CHAR[frameSize];
@@ -226,6 +225,12 @@ private:
 			auto writeResult = ws.Write(Span<const CHAR>(frame, frameSize), WebSocketOpcode::Binary);
 			UINT64 tWrite = DateTime::GetMonotonicNanoseconds();
 			auto readResult = ws.Read();
+			if (readResult && (readResult.Value().Length != frameSize ||
+			    Memory::Compare(readResult.Value().Data, frame, frameSize) != 0))
+			{
+				delete[] readResult.Value().Data; // a prepended greeting, not the echo
+				readResult = ws.Read();
+			}
 			UINT64 t1 = DateTime::GetMonotonicNanoseconds();
 			times[r] = t1 - t0;
 			writeNs[r] = tWrite - t0;
