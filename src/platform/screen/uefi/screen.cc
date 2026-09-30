@@ -120,8 +120,9 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	if (bltBuf == nullptr)
 		return Result<VOID, Error>::Err(Error(Error::Screen_AllocFailed));
 
-	// Copy from video framebuffer to BLT buffer
-	EFI_STATUS status = gop->Blt(
+	// Copy from video framebuffer to BLT buffer (bltStatus — the parameter
+	// `status` is the caller's CaptureStatus out)
+	EFI_STATUS bltStatus = gop->Blt(
 		gop,
 		bltBuf,
 		EfiBltVideoToBltBuffer,
@@ -133,7 +134,7 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 		(USIZE)height,
 		0);                  // Delta (0 = Width * sizeof(BLT_PIXEL))
 
-	if (EFI_ERROR_CHECK(status))
+	if (EFI_ERROR_CHECK(bltStatus))
 	{
 		delete[] bltBuf;
 		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
