@@ -210,9 +210,12 @@ Result<UINT32, Error> WebSocketClient::WritePayload(Span<const CHAR> prefix, Spa
 		return Result<UINT32, Error>::Err(Error::Ws_NotConnected);
 	}
 
-	USIZE payloadSize = prefix.Size() + body.Size();
 	// Frame lengths are 32-bit throughout — refuse (never truncate) an
-	// oversized payload, which no real reply approaches
+	// oversized payload, which no real reply approaches. Each operand is
+	// bounded first so the addition cannot wrap the size type
+	if (prefix.Size() > 0x7FFFFFFFu || body.Size() > 0x7FFFFFFFu)
+		return Result<UINT32, Error>::Err(Error(Error::Ws_WriteFailed));
+	USIZE payloadSize = prefix.Size() + body.Size();
 	if (payloadSize > 0x7FFFFFFFu)
 		return Result<UINT32, Error>::Err(Error(Error::Ws_WriteFailed));
 

@@ -829,6 +829,10 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         graphics.deviceLeft != device.Left || graphics.deviceTop != device.Top)
     {
         graphics.ReleaseCaptureState();
+        // A different display in this slot differs from the old base
+        // everywhere — force one full frame and re-baseline the gate
+        graphics.baseInvalid = true;
+        graphics.lastFrameClean = false;
         auto state = Screen::CreateCaptureState(device);
         if (state)
             graphics.captureState = state.Value();
@@ -841,7 +845,6 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     // equivalence with the receiver — black regions read as unchanged against
     // the zeroed base — so reply one full frame to resynchronize
     BOOL forceFullFrame = isFullScreen || graphics.baseInvalid;
-    graphics.baseInvalid = false;
 
     // Capture policy: low-quality streams may use 16bpp capture (the platform
     // layer decides per machine via its one-time probe); after a clean frame
@@ -911,6 +914,7 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
             return;
         }
         graphics.SwapFrames();
+        graphics.baseInvalid = false; // full frame shipped — base now matches the receiver
         BinaryWriter writer{Span<UINT8>((UINT8 *)*response, *responseLength)};
         writer.Write<UINT32>(StatusCode::StatusSuccess);
         writer.Write<UINT32>(countOfSegments);
