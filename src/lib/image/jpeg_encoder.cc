@@ -57,6 +57,13 @@ static FORCE_INLINE float F32(UINT32 bits)
 //  barrier below for the same reason.
 // ============================================================
 
+// AAN DCT constants shared by the SIMD vector init and the scalar path —
+// single-sourced so a retune cannot diverge the two
+static constexpr UINT32 kDctC4Bits = 0x3F3504F3u;   ///< cos(4*pi/16) * sqrt(2)
+static constexpr UINT32 kDctC6Bits = 0x3EC3EF15u;   ///< cos(6*pi/16) * sqrt(2)
+static constexpr UINT32 kDctC2C6Bits = 0x3F0A8BD4u; ///< cos(2*pi/16) - cos(6*pi/16)
+static constexpr UINT32 kDctC2P6Bits = 0x3FA73D75u; ///< cos(2*pi/16) + cos(6*pi/16)
+
 #if defined(ARCHITECTURE_X86_64)
 
 /// @brief 128-bit vector of 8-bit lanes
@@ -217,13 +224,6 @@ struct Sse2Const
 	V4F dctC2C6;	 ///< cos(2*pi/16) - cos(6*pi/16)
 	V4F dctC2P6;	 ///< cos(2*pi/16) + cos(6*pi/16)
 };
-
-// AAN DCT constants shared by the SIMD vector init and the scalar path —
-// single-sourced so a retune cannot diverge the two
-static constexpr UINT32 kDctC4Bits = 0x3F3504F3u;   ///< cos(4*pi/16) * sqrt(2)
-static constexpr UINT32 kDctC6Bits = 0x3EC3EF15u;   ///< cos(6*pi/16) * sqrt(2)
-static constexpr UINT32 kDctC2C6Bits = 0x3F0A8BD4u; ///< cos(2*pi/16) - cos(6*pi/16)
-static constexpr UINT32 kDctC2P6Bits = 0x3FA73D75u; ///< cos(2*pi/16) + cos(6*pi/16)
 
 /// @brief Initialize the per-encode SSE2 constant set
 static VOID InitSse2Const(Sse2Const *k)
