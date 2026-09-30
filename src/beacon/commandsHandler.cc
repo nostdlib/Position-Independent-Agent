@@ -837,12 +837,18 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
         graphics.deviceKnown = true;
     }
 
+    // A fresh diff base (first frame or a display-mode change) cannot prove
+    // equivalence with the receiver — black regions read as unchanged against
+    // the zeroed base — so reply one full frame to resynchronize
+    BOOL forceFullFrame = isFullScreen || graphics.baseInvalid;
+    graphics.baseInvalid = false;
+
     // Capture policy: low-quality streams may use 16bpp capture (the platform
     // layer decides per machine via its one-time probe); after a clean frame
     // the change gate may prove the screen unchanged and skip the readback
     CaptureOptions captureOptions;
     captureOptions.BitsPerPixel = (quality < CaptureDepthQualityThreshold) ? 16 : 32;
-    captureOptions.AllowSkip = !isFullScreen && graphics.lastFrameClean;
+    captureOptions.AllowSkip = !forceFullFrame && graphics.lastFrameClean;
     CaptureStatus captureStatus;
     Memory::Zero(&captureStatus, sizeof(captureStatus));
 
@@ -872,9 +878,10 @@ VOID Handle_GetScreenshotCommand(PCHAR command, USIZE commandLength, PPCHAR resp
     }
 
     // In case of full screen request, encode the whole screenshot as JPEG and send it back.
-    // A depth switch (16<->32bpp capture) invalidates the diff base, so it
-    // takes the same full-frame path to rebuild the receiver canvas
-    if (isFullScreen || captureStatus.DepthChanged)
+    // A depth switch (16<->32bpp capture) or a rebuilt base invalidates the
+    // diff base, so it takes the same full-frame path to rebuild the receiver
+    // canvas
+    if (forceFullFrame || captureStatus.DepthChanged)
     {
         graphics.jpegBuffer.Reset();
         graphics.jpegBuffer.ReserveForImage(device.Width, device.Height);

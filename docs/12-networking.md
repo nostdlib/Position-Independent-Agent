@@ -259,7 +259,7 @@ an automatic Pong, Close echoes the status code and shuts down.
 ```
 
 Payload length: 0-125 inline, 126 means 16-bit follows, 127 means 64-bit follows.
-Frames >64 MB are rejected. The `WebSocketFrame` struct maps directly to this wire format.
+Frames >64 MiB are rejected. The `WebSocketFrame` struct maps directly to this wire format.
 
 ### Frame Masking
 

@@ -218,7 +218,7 @@ private:
 	 *   5. Applies the masking key to unmask the payload if MASK was set
 	 *
 	 * Rejects frames with non-zero RSV bits (no extensions negotiated) per Section 5.2.
-	 * Rejects frames with payload length > 64 MB to prevent excessive allocation.
+	 * Rejects frames with payload length > 64 MiB to prevent excessive allocation.
 	 *
 	 * @see RFC 6455 Section 5.2 — Base Framing Protocol
 	 *      https://datatracker.ietf.org/doc/html/rfc6455#section-5.2

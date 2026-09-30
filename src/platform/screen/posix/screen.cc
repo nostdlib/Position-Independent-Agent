@@ -2617,11 +2617,21 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 #if defined(PLATFORM_ANDROID)
 	// Android MediaProjection device: Left <= -3000
 	if (device.Left <= MP_DEVICE_LEFT)
-		return MediaProjectionCapture(device, buffer);
+	{
+		auto result = MediaProjectionCapture(device, buffer);
+		if (result && status != nullptr)
+			status->BitsPerPixel = 32;
+		return result;
+	}
 
 	// Android screencap device: Left <= -2000 encodes -(2000 + displayIndex)
 	if (device.Left <= SCREENCAP_DEVICE_LEFT)
-		return ScreencapCapture(device, buffer);
+	{
+		auto result = ScreencapCapture(device, buffer);
+		if (result && status != nullptr)
+			status->BitsPerPixel = 32;
+		return result;
+	}
 #endif
 
 	// DRM device: Left < 0 (and > -1000) encodes -(cardIndex + 1)
@@ -2667,7 +2677,12 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 
 #if defined(PLATFORM_ANDROID)
 		// DRM and framebuffer both failed — last resort: screencap
-		return ScreencapCapture(device, buffer);
+	{
+		auto result = ScreencapCapture(device, buffer);
+		if (result && status != nullptr)
+			status->BitsPerPixel = 32;
+		return result;
+	}
 #else
 		return fbResult;
 #endif

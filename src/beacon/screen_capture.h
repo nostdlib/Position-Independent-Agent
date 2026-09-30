@@ -105,6 +105,7 @@ struct Graphics
     INT32 deviceTop = 0;
     BOOL deviceKnown = false;
     BOOL lastFrameClean; // Previous frame had no dirty rects; enables the change gate
+    BOOL baseInvalid = false; // Diff base was reallocated; next reply must be a full frame
 
     Graphics() : currentScreenshot(nullptr), screenshot(nullptr), captureState(nullptr), lastFrameClean(false) {}
 
@@ -172,9 +173,10 @@ struct Graphics
             }
             storedWidth = device.Width;
             storedHeight = device.Height;
-            // A fresh base reads as all-black: the next diff reports the full
-            // frame dirty, resynchronizing the receiver with one full rect
+            // A fresh base reads as all-black; the handler sees baseInvalid
+            // and replies a full frame rather than trusting the zeroed base
             Memory::Zero(screenshot, pixelCount * sizeof(RGB));
+            baseInvalid = true;
         }
     }
     UINT32 storedWidth = 0;
