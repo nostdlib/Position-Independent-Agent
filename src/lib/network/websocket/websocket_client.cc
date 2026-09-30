@@ -389,7 +389,7 @@ Result<VOID, Error> WebSocketClient::ReceiveFrame(WebSocketFrame &frame)
 		frame.Length = lengthBits;
 	}
 
-	// Reject frames that would require an absurd allocation (>64 MB)
+	// Reject frames that would require an absurd allocation (>64 MiB)
 	if (frame.Length > 0x4000000)
 		return Result<VOID, Error>::Err(Error::Ws_FrameTooLarge);
 
