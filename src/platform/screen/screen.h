@@ -59,6 +59,21 @@ struct ScreenDeviceList
 	}
 };
 
+/// @brief Per-capture knobs supplied by the caller (zero value = platform default)
+struct CaptureOptions
+{
+	UINT32 BitsPerPixel; ///< Desired capture depth: 0 or 32 = full 32bpp (default), 16 = RGB565 where the platform measured it worthwhile
+	BOOL AllowSkip;      ///< true = the platform may report an unchanged frame instead of capturing (change gate)
+};
+
+/// @brief Per-capture facts reported by the platform (fields stay false/0 when not applicable)
+struct CaptureStatus
+{
+	BOOL FrameUnchanged; ///< true = change gate proved the screen identical; buffer was NOT written, no full capture ran
+	BOOL DepthChanged;   ///< true = capture depth changed since the previous Capture through this state
+	UINT32 BitsPerPixel; ///< Actual depth used (16 or 32)
+};
+
 /**
  * @class Screen
  * @brief Screen device enumeration and framebuffer capture
@@ -86,6 +101,27 @@ public:
 	[[nodiscard]] static Result<ScreenDeviceList, Error> GetDevices();
 
 	/**
+	 * @brief Create opaque per-display state for fast repeated captures
+	 *
+	 * @details Allocates the heavyweight capture resources (Windows: compatible
+	 * memory DC, bitmap, and conversion buffer) so per-frame Capture() calls
+	 * reuse them instead of recreating and destroying everything. The state is
+	 * bound to the device dimensions; Capture() rebuilds it on a mode change.
+	 * Platforms without persistent resources return Ok(nullptr).
+	 *
+	 * @param device Display device the state is bound to (from GetDevices())
+	 * @return Ok(state) on success, Err on allocation or initialization failure
+	 */
+	[[nodiscard]] static Result<PVOID, Error> CreateCaptureState(const ScreenDevice &device);
+
+	/**
+	 * @brief Release capture state created by CreateCaptureState
+	 *
+	 * @param state State to release; nullptr is a no-op
+	 */
+	static VOID DestroyCaptureState(PVOID state);
+
+	/**
 	 * @brief Capture a screenshot of the specified display device
 	 *
 	 * @details Copies the current framebuffer contents of the given display
@@ -94,11 +130,23 @@ public:
 	 *
 	 * @param device Display device to capture (from GetDevices())
 	 * @param buffer Output RGB pixel buffer (top-down, left-to-right)
-	 * @return Ok on success, Err on capture failure
+	 * @param captureState Optional state from CreateCaptureState() for repeated
+	 *        captures of the same display; nullptr takes the stateless
+	 *        create-per-call path
+	 * @param options Optional capture knobs (depth, change-gate permission);
+	 *        nullptr takes the platform defaults (32bpp, no skipping)
+	 * @param status Optional per-capture facts (unchanged frame, depth switch,
+	 *        actual depth); nullptr when the caller does not care
+	 * @return Ok on success, Err on capture failure. With a non-null status,
+	 *         FrameUnchanged means the buffer was deliberately left untouched
+	 *         because the screen provably did not change
 	 */
 	[[nodiscard]] static Result<VOID, Error> Capture(
 		const ScreenDevice &device,
-		Span<RGB> buffer);
+		Span<RGB> buffer,
+		PVOID captureState = nullptr,
+		const CaptureOptions *options = nullptr,
+		CaptureStatus *status = nullptr);
 };
 
 /** @} */ // end of display group

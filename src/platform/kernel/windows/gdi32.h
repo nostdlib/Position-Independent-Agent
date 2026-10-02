@@ -27,7 +27,10 @@
 
 #define SRCCOPY        0x00CC0020
 #define BI_RGB         0
+#define BI_BITFIELDS   3
 #define DIB_RGB_COLORS 0
+#define COLORONCOLOR   3
+#define HALFTONE       4
 
 /**
  * @brief Bitmap information header defining the dimensions and color format.
@@ -52,6 +55,35 @@ typedef struct _BITMAPINFOHEADER
 	UINT32 biClrUsed;       ///< Number of color indices in the color table
 	UINT32 biClrImportant;  ///< Number of important color indices
 } BITMAPINFOHEADER, *PBITMAPINFOHEADER;
+
+/**
+ * @brief RGB color quad (color-table element of a BITMAPINFO).
+ *
+ * @see RGBQUAD structure
+ *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-rgbquad
+ */
+typedef struct _RGBQUAD
+{
+	UINT8 rgbBlue;     ///< Blue intensity
+	UINT8 rgbGreen;    ///< Green intensity
+	UINT8 rgbRed;      ///< Red intensity
+	UINT8 rgbReserved; ///< Reserved (must be zero)
+} RGBQUAD;
+
+/**
+ * @brief Bitmap information: header plus the first color-table entry.
+ *
+ * @details 32bpp BI_RGB bitmaps carry no color table, so a bare
+ * BITMAPINFOHEADER is a valid BITMAPINFO for them.
+ *
+ * @see BITMAPINFO structure
+ *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapinfo
+ */
+typedef struct _BITMAPINFO
+{
+	BITMAPINFOHEADER bmiHeader; ///< Bitmap dimensions and color format
+	RGBQUAD bmiColors[1];       ///< First color-table entry
+} BITMAPINFO, *PBITMAPINFO;
 
 /**
  * @brief Wrappers for Win32 GDI functions exported by gdi32.dll.
@@ -82,6 +114,29 @@ public:
 	[[nodiscard]] static PVOID CreateCompatibleDC(PVOID hdc);
 
 	/**
+	 * @brief Creates a device context for a named display device.
+	 *
+	 * @details A per-monitor DC created with the device name from
+	 * EnumDisplayDevicesW sources exactly that monitor (origin at its
+	 * top-left), reaching displays the shared GetDC(nullptr) DC cannot
+	 * (hybrid graphics, DPI-virtualized sessions). Private DCs are meant
+	 * to be held long-term and released with DeleteDC.
+	 *
+	 * @param lpszDriver Driver name (L"DISPLAY" for display devices).
+	 * @param lpszDevice Device name (e.g. L"\\\\.\\DISPLAY2"), or NULL for the primary.
+	 * @param lpszOutput Port name (unused; pass NULL).
+	 * @param lpInitData Optional DEVMODEW (pass NULL for current settings).
+	 * @return Handle to the DC, or NULL on failure.
+	 *
+	 * @par Requirements
+	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
+	 *
+	 * @see CreateDCW
+	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-createdcw
+	 */
+	[[nodiscard]] static PVOID CreateDCW(PCWCHAR lpszDriver, PCWCHAR lpszDevice, PCWCHAR lpszOutput, PCVOID lpInitData);
+
+	/**
 	 * @brief Creates a bitmap compatible with the specified device context.
 	 *
 	 * @param hdc Handle to a device context.
@@ -96,6 +151,29 @@ public:
 	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-createcompatiblebitmap
 	 */
 	[[nodiscard]] static PVOID CreateCompatibleBitmap(PVOID hdc, INT32 cx, INT32 cy);
+
+	/**
+	 * @brief Creates a DIB section whose pixel memory is directly accessible.
+	 *
+	 * @details Selecting the returned bitmap into a DC makes drawing land
+	 * directly in *ppvBits — the readback copy a GetDIBits path performs
+	 * never happens.
+	 *
+	 * @param hdc Handle to a device context (color format reference).
+	 * @param pbmi Bitmap dimensions and format.
+	 * @param usage Color table type (DIB_RGB_COLORS).
+	 * @param ppvBits Receives the pointer to the bitmap bits.
+	 * @param hSection File-mapping handle for a shared-memory DIB (nullptr for plain memory).
+	 * @param offset Offset into hSection (ignored when hSection is nullptr).
+	 * @return Handle to the DIB section bitmap, or NULL on failure.
+	 *
+	 * @par Requirements
+	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
+	 *
+	 * @see CreateDIBSection
+	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-createdibsection
+	 */
+	[[nodiscard]] static PVOID CreateDIBSection(PVOID hdc, const BITMAPINFO *pbmi, UINT32 usage, PPVOID ppvBits, PVOID hSection, UINT32 offset);
 
 	/**
 	 * @brief Selects a GDI object into the specified device context.
@@ -133,6 +211,49 @@ public:
 	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-bitblt
 	 */
 	[[nodiscard]] static BOOL BitBlt(PVOID hdc, INT32 x, INT32 y, INT32 cx, INT32 cy, PVOID hdcSrc, INT32 x1, INT32 y1, UINT32 rop);
+
+	/**
+	 * @brief Sets the bitmap stretching mode used by StretchBlt on a DC.
+	 *
+	 * @param hdc Handle to the device context.
+	 * @param mode Stretch mode (COLORONCOLOR or HALFTONE).
+	 * @return Previous stretch mode, or 0 on failure.
+	 *
+	 * @par Requirements
+	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
+	 *
+	 * @see SetStretchBltMode
+	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setstretchbltmode
+	 */
+	[[nodiscard]] static INT32 SetStretchBltMode(PVOID hdc, INT32 mode);
+
+	/**
+	 * @brief Copies a rectangle between DCs, scaling it to the destination size.
+	 *
+	 * @details Downscaling from the screen lets the driver sample the source
+	 * at reduced density before the readback, so the copy cost can track the
+	 * destination size rather than the source size.
+	 *
+	 * @param hdc Destination device context.
+	 * @param x Destination upper-left corner X coordinate.
+	 * @param y Destination upper-left corner Y coordinate.
+	 * @param w Destination width in pixels.
+	 * @param h Destination height in pixels.
+	 * @param hdcSrc Source device context.
+	 * @param x1 Source upper-left corner X coordinate.
+	 * @param y1 Source upper-left corner Y coordinate.
+	 * @param w1 Source width in pixels.
+	 * @param h1 Source height in pixels.
+	 * @param rop Raster operation code (e.g., SRCCOPY).
+	 * @return true on success, false on failure.
+	 *
+	 * @par Requirements
+	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
+	 *
+	 * @see StretchBlt
+	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-stretchblt
+	 */
+	[[nodiscard]] static BOOL StretchBlt(PVOID hdc, INT32 x, INT32 y, INT32 w, INT32 h, PVOID hdcSrc, INT32 x1, INT32 y1, INT32 w1, INT32 h1, UINT32 rop);
 
 	/**
 	 * @brief Retrieves the bits of a bitmap and copies them into a buffer.
@@ -181,4 +302,21 @@ public:
 	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-deleteobject
 	 */
 	static BOOL DeleteObject(PVOID ho);
+
+	/**
+	 * @brief Flushes the calling thread's GDI batching queue.
+	 *
+	 * @details DIB-section bits are read as raw memory, outside GDI, so a
+	 * batched write may not have landed when the bits are examined; drain
+	 * the queue before reading.
+	 *
+	 * @return true on success, false on failure.
+	 *
+	 * @par Requirements
+	 * Minimum supported client: Windows 2000 Professional [desktop apps only]
+	 *
+	 * @see GdiFlush
+	 *      https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-gdiflush
+	 */
+	static BOOL GdiFlush();
 };

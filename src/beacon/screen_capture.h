@@ -43,6 +43,39 @@ struct JpegBuffer
         }
     }
 
+    /// @brief Grow the backing buffer to at least the requested size, keeping contents
+    /// @param needed Minimum capacity in bytes
+    /// @return void (sets allocationFailed on failure)
+    VOID EnsureCapacity(UINT32 needed)
+    {
+        if (size >= needed || allocationFailed)
+            return;
+        PUINT8 grown = new UINT8[needed];
+        if (grown == nullptr)
+        {
+            allocationFailed = true;
+            return;
+        }
+        if (outputBuffer != nullptr)
+        {
+            Memory::Copy(grown, outputBuffer, offset);
+            delete[] outputBuffer;
+        }
+        outputBuffer = grown;
+        size = needed;
+    }
+
+    /// @brief Pre-size for a whole-frame or single-rect JPEG encode
+    /// @param width Region width in pixels
+    /// @param height Region height in pixels
+    /// @return void (sets allocationFailed on failure)
+    /// @note Screen-content JPEG at q75 fits well under 1/8 of raw RGB plus
+    ///       header slack; underestimates still grow via EnsureCapacity
+    VOID ReserveForImage(UINT32 width, UINT32 height)
+    {
+        EnsureCapacity((UINT32)((USIZE)width * height * 3 / 8 + 4096));
+    }
+
     ~JpegBuffer()
     {
         if (outputBuffer)
@@ -53,18 +86,51 @@ struct JpegBuffer
     }
 };
 
+// Capture-depth policy: streams below this quality use 16bpp RGB565 capture
+// (the platform layer decides per machine via its one-time probe); at or
+// above it capture stays full 32bpp
+static constexpr UINT32 CaptureDepthQualityThreshold = 60;
+
 struct Graphics
 {
-    PRGB currentScreenshot; 
-    PRGB screenshot;     
-    PUCHAR bidiff;          
-    PRGB rectBuffer;        
+    PRGB currentScreenshot;
+    PRGB screenshot;
     JpegBuffer jpegBuffer;
+    // Persistent incremental-reply packet: Reset() keeps the capacity across
+    // frames; Release() (the per-reply ownership handoff) empties it, so the
+    // handler re-Init()s on the next request
+    Buffer<CHAR> packet;
+    PVOID captureState;  // Opaque per-display resources from Screen::CreateCaptureState
+    INT32 deviceLeft = 0;  // Identity of the display the capture state was built for
+    INT32 deviceTop = 0;
+    BOOL deviceKnown = false;
+    BOOL lastFrameClean; // Previous frame had no dirty rects; enables the change gate
+    BOOL baseInvalid = false; // Diff base was reallocated; next reply must be a full frame
 
-    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), bidiff(nullptr), rectBuffer(nullptr) {}
+    Graphics() : currentScreenshot(nullptr), screenshot(nullptr), captureState(nullptr), lastFrameClean(false) {}
+
+    // Drop the persistent capture state; the next capture re-creates it
+    VOID ReleaseCaptureState()
+    {
+        if (captureState != nullptr)
+        {
+            Screen::DestroyCaptureState(captureState);
+            captureState = nullptr;
+        }
+    }
+
+    // Make the current frame the comparison base for the next request
+    // (pointer swap — no full-frame copy)
+    VOID SwapFrames()
+    {
+        PRGB previous = currentScreenshot;
+        currentScreenshot = screenshot;
+        screenshot = previous;
+    }
 
     ~Graphics()
     {
+        ReleaseCaptureState();
         if (currentScreenshot)
         {
             delete[] currentScreenshot;
@@ -75,43 +141,52 @@ struct Graphics
             delete[] screenshot;
             screenshot = nullptr;
         }
-        if (bidiff)
-        {
-            delete[] bidiff;
-            bidiff = nullptr;
-        }
-        if (rectBuffer)
-        {
-            delete[] rectBuffer;
-            rectBuffer = nullptr;
-        }
     }
 
     BOOL IsInitialized() const
     {
-        return currentScreenshot != nullptr && screenshot != nullptr && bidiff != nullptr && rectBuffer != nullptr;
+        return currentScreenshot != nullptr && screenshot != nullptr;
     }
 
+    // (Re)allocate the frame buffers for the device's CURRENT dimensions — a
+    // display-mode change after a display-list refresh hands Capture buffers
+    // sized for the old mode, and the blt would write past them
     VOID Init(const ScreenDevice &device)
     {
+        // Reject degenerate/absurd modes before the pixel arithmetic below —
+        // the multiplication must not overflow the size type on any target
+        // (mirrors the GetDevices degenerate-mode filter)
+        if (device.Width == 0 || device.Height == 0 ||
+            device.Width > 32768 || device.Height > 32768)
+            return;
         USIZE pixelCount = (USIZE)device.Width * device.Height;
-        if (currentScreenshot == nullptr)
+        if (currentScreenshot == nullptr || storedWidth != device.Width || storedHeight != device.Height)
         {
+            delete[] currentScreenshot;
+            delete[] screenshot;
             currentScreenshot = new RGB[pixelCount];
-        }
-        if (screenshot == nullptr)
-        {
             screenshot = new RGB[pixelCount];
-        }
-        if (bidiff == nullptr)
-        {
-            bidiff = new UINT8[pixelCount];
-        }
-        if (rectBuffer == nullptr)
-        {
-            rectBuffer = new RGB[pixelCount];
+            if (currentScreenshot == nullptr || screenshot == nullptr)
+            {
+                // Leave both null; the caller's IsInitialized() reports it
+                delete[] currentScreenshot;
+                delete[] screenshot;
+                currentScreenshot = nullptr;
+                screenshot = nullptr;
+                storedWidth = 0;
+                storedHeight = 0;
+                return;
+            }
+            storedWidth = device.Width;
+            storedHeight = device.Height;
+            // A fresh base reads as all-black; the handler sees baseInvalid
+            // and replies a full frame rather than trusting the zeroed base
+            Memory::Zero(screenshot, pixelCount * sizeof(RGB));
+            baseInvalid = true;
         }
     }
+    UINT32 storedWidth = 0;
+    UINT32 storedHeight = 0;
 };
 
 struct GraphicsList
@@ -149,6 +224,8 @@ struct GraphicsList
         }
 
         graphicsArray = new Graphics[Count];
+        if (graphicsArray == nullptr)
+            return; // count stays 0 so the next request retries the alloc
         count = Count;
     }
 };
@@ -157,11 +234,8 @@ struct ScreenCaptureContext
 {
     ScreenDeviceList DeviceList;
     GraphicsList GraphicsList;
-    UINT32 CurrentIndex;
-    UINT32 Quality;
-    UINT32 Count;
 
-    ScreenCaptureContext() : CurrentIndex(0), Quality(75), Count(0)
+    ScreenCaptureContext()
     {
         DeviceList.Devices = nullptr;
         DeviceList.Count = 0;

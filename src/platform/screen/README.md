@@ -9,23 +9,33 @@ Platform-independent display enumeration and framebuffer capture. Five fundament
 The classic Win32 screen capture approach, but implemented without linking to any DLLs:
 
 ```
-GetDC(NULL)                          → screen DC (entire virtual desktop)
-  │
+CreateDCW(L"DISPLAY", \\.\DISPLAYN)  → per-monitor private source DC
+  │                                    (GetDC(nullptr) fallback: shared
+  │                                     virtual-screen DC, virtual coords)
   CreateCompatibleDC(screenDC)       → memory DC (offscreen buffer)
-  CreateCompatibleBitmap(w, h)       → bitmap matching screen format
-  SelectObject(memDC, bitmap)        → target bitmap into memory DC
+  CreateDIBSection(32bpp top-down)   → capture target; its pixel memory IS
+  │                                    the conversion buffer (no GetDIBits
+  │                                    round trip; a rejected DIB target
+  │                                    degrades to CreateCompatibleBitmap
+  │                                    + GetDIBits)
+  BitBlt(memDC, 0, 0, w, h,          → copy pixels from screen to DIB memory
+         screenDC, srcX, srcY, SRCCOPY)
   │
-  BitBlt(memDC, 0, 0, w, h,         → copy pixels from screen to memory
-         screenDC, x, y, SRCCOPY)      (handles multi-monitor offsets)
-  │
-  GetDIBits(memDC, bitmap, 0, h,     → extract pixel data into buffer
-            buffer, &bmi,              (converts to 32-bit BGRA top-down)
-            DIB_RGB_COLORS)
-  │
-  Cleanup: DeleteObject, DeleteDC, ReleaseDC
+  ConvertBgraToRgb / ConvertBgr565ToRgb → BGRA or RGB565 → packed RGB
 ```
 
-Multi-monitor support: `EnumDisplayDevicesW` iterates adapters, `EnumDisplaySettingsW` gets resolution, and `DEVMODEW.dmPositionX/Y` provides the virtual desktop offset for `BitBlt`.
+Multi-monitor support: `EnumDisplayDevicesW` iterates adapters, `EnumDisplaySettingsW` gets resolution, and the device is matched back to its `\\.\DISPLAYN` name for the per-monitor DC (some drivers refuse to source a non-primary display, or accept a DIB target, only through it).
+
+### Persistent capture state
+
+`Screen::CreateCaptureState(device)` allocates the GDI objects and conversion buffer once per display; `Screen::Capture(device, buffer, state, options, status)` reuses them per frame (only the `BitBlt` runs per call). A width/height change rebuilds the objects in place, and a capture failure through persistent objects rebuilds them once and retries before reporting failure. Callers pass `nullptr` to run the same sequence through a temporary state (tests, one-shot captures). `Screen::DestroyCaptureState` releases everything. Windows allocates GDI resources, Linux X11 keeps one server connection (`posix/screen.cc:1901`-`1930`; DRM/fbdev stay stateless), all other platforms return `Ok(nullptr)` and capture statelessly; the handler calls `CreateCaptureState` unconditionally (`commandsHandler.cc:801`-`806`).
+
+### One-time probe, depth gating, and the change gate
+
+At state creation a one-shot probe times blts of several sizes and formats and logs one `[probe]` line classifying the machine's cost curve: if capture cost tracks the copied size (bytes-bound), two levers engage; if it is a per-call floor (remote-desktop-style drivers), both stay off and the probe line is the deliverable.
+
+- **16bpp capture** (`CaptureOptions::BitsPerPixel == 16`): the DIB is rebuilt as RGB565 and read back through `ConvertBgr565ToRgb`, roughly halving the bytes crossing the blt. Engaged only where the probe measured it worthwhile; a depth switch reports `CaptureStatus::DepthChanged` so the caller replies a full frame (the diff base is invalid).
+- **Change gate** (`CaptureOptions::AllowSkip`): before the full blt, a quarter-scale `StretchBlt` into a persistent gate DIB is compared against the previous gate frame — proof the screen is unchanged skips the blt and the conversion entirely (`CaptureStatus::FrameUnchanged`; the caller's buffer is untouched). A forced full capture every 15 gate-only frames bounds the staleness of changes too small to survive downsampling.
 
 ## Linux: Three-Tier Capture Strategy
 

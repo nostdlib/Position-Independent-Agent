@@ -94,6 +94,37 @@ public:
 		UINT32 width,
 		UINT32 height,
 		UINT32 tileSize);
+
+	/**
+	 * @brief Fused difference + dirty rectangle detection in a single pass
+	 *
+	 * @details Walks each tile once, computing the per-pixel SAD inline and
+	 * stopping at the first dirty pixel — no binary difference map and no
+	 * second scan. This is the screenshot handler's hot path. A tile whose
+	 * pixels all changed by no more than the threshold counts as clean: its
+	 * sub-threshold drift is reverted to the previous content so the diff
+	 * base stays what the receiver actually has — otherwise the frame swap
+	 * absorbs the drift and a slowly-changing region is never re-sent.
+	 *
+	 * @param current Current frame RGB pixels (MUTATED: clean tiles with
+	 * sub-threshold drift are reverted to previous)
+	 * @param previous Previous frame RGB pixels (same dimensions)
+	 * @param width Image width in pixels
+	 * @param height Image height in pixels
+	 * @param tileSize Tile size in pixels (must be > 0, typically 64; must be
+	 *        >= 32 for this overload: smaller tiles can produce spans the
+	 *        merge filter drops (image_processor.cc:243), permanently losing
+	 *        changes under the frame-swap contract)
+	 * @param threshold Sum-of-absolute-differences threshold per pixel
+	 * @return Ok(DirtyRectResult) on success, or error on allocation failure
+	 */
+	[[nodiscard]] static Result<DirtyRectResult, Error> FindDirtyRects(
+		Span<RGB> current,
+		Span<const RGB> previous,
+		UINT32 width,
+		UINT32 height,
+		UINT32 tileSize,
+		UINT32 threshold);
 };
 
 /** @} */ // end of image group

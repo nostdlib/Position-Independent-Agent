@@ -259,7 +259,7 @@ an automatic Pong, Close echoes the status code and shuts down.
 ```
 
 Payload length: 0-125 inline, 126 means 16-bit follows, 127 means 64-bit follows.
-Frames >64 MB are rejected. The `WebSocketFrame` struct maps directly to this wire format.
+Frames >64 MiB are rejected. The `WebSocketFrame` struct maps directly to this wire format.
 
 ### Frame Masking
 
@@ -280,7 +280,11 @@ static VOID MaskFrame(WebSocketFrame &frame, UINT32 maskKey);
 ```
 
 The `Write()` method optimizes by batching header + masked payload into one TLS write
-for small frames (<=242 bytes), and streaming 256-byte masked chunks for large ones.
+for small frames <=248 bytes (16-bit header framing; 250 with the 7-bit header) and
+large ones alike (heap scratch buffer),
+so large payloads cross TLS as full 16 KiB records instead of one tiny record per
+256-byte masked chunk. `WriteResponse()` feeds the same path with `[status][corrId][body]`,
+splicing the correlation id inside the masked frame buffer instead of a separate wire copy.
 
 ---
 

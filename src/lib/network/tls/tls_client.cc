@@ -90,7 +90,7 @@ Result<VOID, Error> TlsClient::SendPacket(INT32 packetType, INT32 ver, TlsBuffer
 	UINT16 bodySize = ByteOrder::Swap16(tempBuffer.GetSize() - bodySizeIndex - 2);
 	Memory::Copy(tempBuffer.GetBuffer() + bodySizeIndex, &bodySize, sizeof(UINT16));
 
-	// Write it in context and validate it 
+	// Write it in context and validate it
 	auto writeResult = context.Write(Span<const CHAR>(tempBuffer.GetBuffer(), tempBuffer.GetSize()));
 	if (!writeResult)
 	{
@@ -787,7 +787,9 @@ Result<UINT32, Error> TlsClient::Write(Span<const CHAR> buffer)
 		return Result<UINT32, Error>::Err(Error::Tls_WriteFailed_NotReady);
 	}
 
-	sendBuffer.Clear();
+	// Reset without freeing: Write is per-frame hot, the 16 KiB staging
+	// allocation must survive across records and across calls
+	(VOID)sendBuffer.SetSize(0);
 	for (UINT32 i = 0; i < bufferLength;)
 	{
 		INT32 sendSize = Math::Min(bufferLength - i, 1024 * 16);

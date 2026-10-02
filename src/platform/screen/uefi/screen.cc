@@ -87,10 +87,25 @@ Result<ScreenDeviceList, Error> Screen::GetDevices()
 }
 
 // =============================================================================
+// Screen::CreateCaptureState / Screen::DestroyCaptureState
+// =============================================================================
+
+// Persistent capture state is a Windows optimization; GOP captures take the
+// stateless path and report no state to own
+Result<PVOID, Error> Screen::CreateCaptureState([[maybe_unused]] const ScreenDevice &device)
+{
+	return Result<PVOID, Error>::Ok(nullptr);
+}
+
+VOID Screen::DestroyCaptureState([[maybe_unused]] PVOID captureState)
+{
+}
+
+// =============================================================================
 // Screen::Capture
 // =============================================================================
 
-Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer)
+Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer, [[maybe_unused]] PVOID captureState, [[maybe_unused]] const CaptureOptions *options, CaptureStatus *status)
 {
 	EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = LocateGop();
 	if (gop == nullptr)
@@ -105,8 +120,9 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	if (bltBuf == nullptr)
 		return Result<VOID, Error>::Err(Error(Error::Screen_AllocFailed));
 
-	// Copy from video framebuffer to BLT buffer
-	EFI_STATUS status = gop->Blt(
+	// Copy from video framebuffer to BLT buffer (bltStatus — the parameter
+	// `status` is the caller's CaptureStatus out)
+	EFI_STATUS bltStatus = gop->Blt(
 		gop,
 		bltBuf,
 		EfiBltVideoToBltBuffer,
@@ -118,7 +134,7 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 		(USIZE)height,
 		0);                  // Delta (0 = Width * sizeof(BLT_PIXEL))
 
-	if (EFI_ERROR_CHECK(status))
+	if (EFI_ERROR_CHECK(bltStatus))
 	{
 		delete[] bltBuf;
 		return Result<VOID, Error>::Err(Error(Error::Screen_CaptureFailed));
@@ -134,5 +150,7 @@ Result<VOID, Error> Screen::Capture(const ScreenDevice &device, Span<RGB> buffer
 	}
 
 	delete[] bltBuf;
+	if (status != nullptr)
+		status->BitsPerPixel = 32;
 	return Result<VOID, Error>::Ok();
 }

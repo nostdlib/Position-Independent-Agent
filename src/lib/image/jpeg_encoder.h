@@ -101,6 +101,37 @@ public:
 		INT32 height,
 		INT32 numComponents,
 		Span<const UINT8> srcData);
+
+	/**
+	 * @brief Encode a sub-rectangle of a larger frame to JPEG format
+	 *
+	 * @details Identical to the packed-row overload except rows are read
+	 * stride pixels apart instead of width pixels apart, so a dirty
+	 * rectangle can be encoded in place straight out of the frame buffer
+	 * (srcData points at the rectangle's top-left pixel) with no row
+	 * gather into a staging buffer.
+	 *
+	 * @param func Write callback for emitting compressed JPEG data
+	 * @param context Opaque pointer passed through to the write callback
+	 * @param quality Compression quality (1–100, clamped; 100 = best quality)
+	 * @param width Rectangle width in pixels (must be 1–65535)
+	 * @param height Rectangle height in pixels (must be 1–65535)
+	 * @param numComponents Bytes per pixel (3 = RGB, 4 = RGBA)
+	 * @param srcData Raw pixel data starting at the rectangle's top-left
+	 *                pixel; must cover at least (stride * (height - 1) + width)
+	 *                pixels of the enclosing frame
+	 * @param stride Row pitch of the enclosing frame in pixels (>= width)
+	 * @return Ok on success, or Jpeg_InvalidParams if parameters are out of range
+	 */
+	[[nodiscard]] static Result<void, Error> Encode(
+		JpegWriteFunc *func,
+		PVOID context,
+		INT32 quality,
+		INT32 width,
+		INT32 height,
+		INT32 numComponents,
+		Span<const UINT8> srcData,
+		INT32 stride);
 };
 
 /** @} */ // end of jpeg group
