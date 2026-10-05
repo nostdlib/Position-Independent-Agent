@@ -134,7 +134,7 @@ DNS queries sent over HTTPS (RFC 8484) to prevent DNS snooping:
 5. Fallback: if AAAA fails, retry as A query
 ```
 
-Short-circuits `"localhost"` → `127.0.0.1` without network access.
+Short-circuits IP literals (`127.0.0.1`, `::1`) and `"localhost"` (any letter case) → no network access.
 
 ## HTTP/1.1 Client
 

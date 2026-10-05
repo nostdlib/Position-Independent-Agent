@@ -519,8 +519,11 @@ static_assert(sizeof(DNS_REQUEST_QUESTION) == 4, "DNS question must be 4 bytes (
  */
 Result<IPAddress, Error> DnsClient::ResolveOverHttp(Span<const CHAR> host, const IPAddress &dnsServerIp, Span<const CHAR> dnsServerName, DnsRecordType dnstype)
 {
-	// Short-circuit for "localhost" — return loopback without network I/O (RFC 6761 Section 6.3)
-	if (StringUtils::Equals<CHAR>(host.Data(), "localhost"))
+	// Short-circuit for "localhost" — return loopback without network I/O (RFC 6761 Section 6.3).
+	// DNS names are case-insensitive (RFC 1035 Section 2.3.3), so match any letter case and
+	// compare by span bounds — host is not guaranteed to be NUL-terminated.
+	const CHAR localHostName[] = "localhost";
+	if (StringUtils::Compare<CHAR>(host, Span<const CHAR>(localHostName, sizeof(localHostName) - 1), true))
 		return Result<IPAddress, Error>::Ok(IPAddress::LocalHost(dnstype == DnsRecordType::AAAA));
 
 	auto tlsResult = TlsClient::Create(dnsServerName.Data(), dnsServerIp, 443);
@@ -675,11 +678,18 @@ Result<IPAddress, Error> DnsClient::Resolve(Span<const CHAR> host, DnsRecordType
 {
 	LOG_DEBUG("Resolve(host: %s) called", host.Data());
 
-	// Short-circuit for IP literals (e.g., "127.0.0.1", "::1") — the host is already an address,
-	// so no network I/O is needed regardless of the requested record type
+	// Short-circuit for IP literals (e.g., "127.0.0.1", "::1") — the host is already an
+	// address, so no network I/O is needed. An explicit A request only matches an IPv4
+	// literal: an IPv6 literal has no A record, and the IPv4-fallback callers in the HTTP
+	// and WebSocket clients rely on that failure. AAAA requests accept either family since
+	// the AAAA→A fallback below would surface an IPv4 literal anyway.
 	auto literalResult = IPAddress::FromString(host);
 	if (literalResult)
-		return literalResult;
+	{
+		if (dnstype != DnsRecordType::A || literalResult.Value().IsIPv4())
+			return literalResult;
+		return Result<IPAddress, Error>::Err(Error::Dns_ResolveFailed);
+	}
 
 	auto result = CloudflareResolve(host, dnstype);
 	if (!result)

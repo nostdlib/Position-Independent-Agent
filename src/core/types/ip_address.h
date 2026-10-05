@@ -162,6 +162,8 @@ public:
 	 * @brief Parse IP address from string span
 	 * @param ipString String span representation (e.g., "192.168.1.1" or "::1")
 	 * @return Ok(IPAddress) on success, Err(IpAddress_ParseFailed) on failure
+	 * @note IPv6 follows the strict RFC 4291 Section 2.2 grammar: groups of 1-4 hex
+	 *       digits, "::" at most once, and the full string must form a complete address
 	 */
 	[[nodiscard]] static Result<IPAddress, Error> FromString(Span<const CHAR> ipString);
 
@@ -169,6 +171,8 @@ public:
 	 * @brief Parse IP address from null-terminated string
 	 * @param ipString Null-terminated string representation (e.g., "192.168.1.1" or "::1")
 	 * @return Ok(IPAddress) on success, Err(IpAddress_ParseFailed) on failure
+	 * @note IPv6 follows the strict RFC 4291 Section 2.2 grammar: groups of 1-4 hex
+	 *       digits, "::" at most once, and the full string must form a complete address
 	 */
 	[[nodiscard]] static Result<IPAddress, Error> FromString(PCCHAR ipString);
 
