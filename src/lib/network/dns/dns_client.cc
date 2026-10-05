@@ -492,6 +492,49 @@ static_assert(sizeof(DNS_REQUEST_QUESTION) == 4, "DNS question must be 4 bytes (
 }
 
 /**
+ * @brief Checks whether a name is a well-formed DNS hostname (RFC 1035 Section 2.3.1)
+ * @param name Name to validate, without a trailing root dot
+ * @return true when every label is 1-63 characters of letters, digits, and hyphens
+ *         (leading digits allowed per RFC 1123 Section 2.1) with no leading or trailing
+ *         hyphen, and the name is non-empty and at most 253 characters
+ *
+ * @details Gates the ".localhost" suffix shortcut: only syntactically valid names can
+ * be RFC 6761 Section 6.3 special names — malformed ones fall through to the normal
+ * DoH path exactly as they did before the shortcut existed.
+ *
+ * @see RFC 1035 Section 2.3.1 — Preferred name syntax
+ *      https://datatracker.ietf.org/doc/html/rfc1035#section-2.3.1
+ */
+[[nodiscard]] static BOOL IsWellFormedDnsName(Span<const CHAR> name)
+{
+	if (name.Size() == 0 || name.Size() > 253)
+		return false;
+
+	USIZE labelStart = 0;
+	for (USIZE i = 0; i <= name.Size(); i++)
+	{
+		if (i == name.Size() || name[i] == '.')
+		{
+			USIZE labelLength = i - labelStart;
+			if (labelLength == 0 || labelLength > 63)
+				return false;
+			if (name[labelStart] == '-' || name[i - 1] == '-')
+				return false;
+			if (i == name.Size())
+				break;
+			labelStart = i + 1;
+		}
+		else
+		{
+			CHAR c = name[i];
+			if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-'))
+				return false;
+		}
+	}
+	return true;
+}
+
+/**
  * @brief Resolves a hostname via DNS-over-HTTPS (DoH) to a single DoH server
  * @param host Hostname to resolve
  * @param dnsServerIp IP address of the DoH server
@@ -519,9 +562,32 @@ static_assert(sizeof(DNS_REQUEST_QUESTION) == 4, "DNS question must be 4 bytes (
  */
 Result<IPAddress, Error> DnsClient::ResolveOverHttp(Span<const CHAR> host, const IPAddress &dnsServerIp, Span<const CHAR> dnsServerName, DnsRecordType dnstype)
 {
-	// Short-circuit for "localhost" — return loopback without network I/O (RFC 6761 Section 6.3)
-	if (StringUtils::Equals<CHAR>(host.Data(), "localhost"))
+	// Short-circuit for "localhost" names — never forwarded upstream, for any record
+	// type (RFC 6761 Section 6.3: the special names are "localhost." itself and anything
+	// ending ".localhost."; resolvers should not send them to the wire). DNS names are
+	// case-insensitive (RFC 1035 Section 2.3.3), so match any letter case and compare by
+	// span bounds — host is not guaranteed to be NUL-terminated. A single trailing root
+	// dot (FQDN form, e.g. "service.localhost.") is ignored for the match. Only well-formed
+	// names (RFC 1035 Section 2.3.1 labels) qualify as ".localhost" family — malformed
+	// ones fall through to DoH as they always have. A/AAAA answer loopback locally
+	// (RFC 6761 Section 6.3); other record types fail fast like they do for IP literals.
+	const CHAR localHostName[] = "localhost";
+	const CHAR localSuffix[] = ".localhost";
+	Span<const CHAR> name = host;
+	if (name.Size() > 0 && name[name.Size() - 1] == '.')
+		name = Span<const CHAR>(name.Data(), name.Size() - 1);
+	BOOL isLocalhostName = false;
+	if (name.Size() == sizeof(localHostName) - 1)
+		isLocalhostName = StringUtils::Compare<CHAR>(name, Span<const CHAR>(localHostName, sizeof(localHostName) - 1), true);
+	else if (name.Size() >= sizeof(localSuffix) - 1 &&
+			 StringUtils::Compare<CHAR>(Span<const CHAR>(name.Data() + name.Size() - (sizeof(localSuffix) - 1), sizeof(localSuffix) - 1), Span<const CHAR>(localSuffix, sizeof(localSuffix) - 1), true))
+		isLocalhostName = IsWellFormedDnsName(name);
+	if (isLocalhostName)
+	{
+		if (dnstype != DnsRecordType::A && dnstype != DnsRecordType::AAAA)
+			return Result<IPAddress, Error>::Err(Error::Dns_ResolveFailed);
 		return Result<IPAddress, Error>::Ok(IPAddress::LocalHost(dnstype == DnsRecordType::AAAA));
+	}
 
 	auto tlsResult = TlsClient::Create(dnsServerName.Data(), dnsServerIp, 443);
 	if (!tlsResult)
@@ -674,6 +740,23 @@ Result<IPAddress, Error> DnsClient::GoogleResolve(Span<const CHAR> host, DnsReco
 Result<IPAddress, Error> DnsClient::Resolve(Span<const CHAR> host, DnsRecordType dnstype)
 {
 	LOG_DEBUG("Resolve(host: %s) called", host.Data());
+
+	// Short-circuit for IP literals (e.g., "127.0.0.1", "::1") — the host is already an
+	// address, so no network I/O is needed. Only address record types can be answered by
+	// a literal: a forward query for any other type (PTR, TXT, MX, ...) on an all-numeric
+	// qname cannot succeed, so it fails fast instead of returning the address. An explicit
+	// A request only matches an IPv4 literal: an IPv6 literal has no A record, and the
+	// IPv4-fallback callers in the HTTP and WebSocket clients rely on that failure. AAAA
+	// requests accept either family since the AAAA→A fallback below would surface an
+	// IPv4 literal anyway.
+	auto literalResult = IPAddress::FromString(host);
+	if (literalResult)
+	{
+		BOOL isAddressQuery = (dnstype == DnsRecordType::A || dnstype == DnsRecordType::AAAA);
+		if (!isAddressQuery || (dnstype == DnsRecordType::A && !literalResult.Value().IsIPv4()))
+			return Result<IPAddress, Error>::Err(Error::Dns_ResolveFailed);
+		return literalResult;
+	}
 
 	auto result = CloudflareResolve(host, dnstype);
 	if (!result)

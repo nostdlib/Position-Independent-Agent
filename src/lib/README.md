@@ -134,7 +134,7 @@ DNS queries sent over HTTPS (RFC 8484) to prevent DNS snooping:
 5. Fallback: if AAAA fails, retry as A query
 ```
 
-Short-circuits `"localhost"` → `127.0.0.1` without network access.
+Short-circuits IP literals and `"localhost"` (any letter case) → no network access. IPv6 literals are recognized only in hex-groups form (`::1`, `2001:db8::1`); the mixed form with an embedded dotted-decimal tail (`::ffff:192.0.2.1`, RFC 4291 Section 2.2 form 3) is not parsed and resolves through DoH like any other name. The literal shortcut applies to A/AAAA queries only — other record types fail fast for literal hosts, and no `localhost`-family query of any type is ever forwarded upstream: `localhost` itself and any well-formed name ending `.localhost` (RFC 1035 labels, trailing root dot tolerated) answer loopback for A/AAAA and fail fast otherwise (RFC 6761 Section 6.3).
 
 ## HTTP/1.1 Client
 

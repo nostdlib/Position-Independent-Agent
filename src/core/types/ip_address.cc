@@ -22,6 +22,15 @@ Result<IPAddress, Error> IPAddress::FromString(Span<const CHAR> ipString)
 
 	if (hasColon)
 	{
+		// An address may end with "::" but never with a single ':' (RFC 4291 Section 2.2) —
+		// a trailing lone colon after 8 complete groups would otherwise be consumed as the
+		// final group separator and silently accepted
+		USIZE last = ipString.Size() - 1;
+		if (ipString[last] == ':' && (last == 0 || ipString[last - 1] != ':'))
+		{
+			return Result<IPAddress, Error>::Err(Error::IpAddress_ParseFailed);
+		}
+
 		// Parse IPv6 address
 		UINT8 ipv6[16];
 		Memory::Zero(ipv6, 16);
@@ -37,8 +46,13 @@ Result<IPAddress, Error> IPAddress::FromString(Span<const CHAR> ipString)
 		{
 			if (ipString[pos] == ':')
 			{
-				if (pos + 1 < ipString.Size() && ipString[pos + 1] == ':' && !foundDoubleColon)
+				if (pos + 1 < ipString.Size() && ipString[pos + 1] == ':')
 				{
+					if (foundDoubleColon)
+					{
+						// "::" may appear only once (RFC 4291 Section 2.2)
+						return Result<IPAddress, Error>::Err(Error::IpAddress_ParseFailed);
+					}
 					// Flush accumulated hex digits before :: as a separate group
 					if (hexIndex > 0 && groupIndex < 8)
 					{
@@ -68,17 +82,20 @@ Result<IPAddress, Error> IPAddress::FromString(Span<const CHAR> ipString)
 				}
 				else
 				{
-					pos++;
+					// A stray ':' with no accumulated group — only the single "::" may skip a group
+					return Result<IPAddress, Error>::Err(Error::IpAddress_ParseFailed);
 				}
 			}
 			else if ((ipString[pos] >= '0' && ipString[pos] <= '9') ||
 					 (ipString[pos] >= 'a' && ipString[pos] <= 'f') ||
 					 (ipString[pos] >= 'A' && ipString[pos] <= 'F'))
 			{
-				if (hexIndex < 4)
+				if (hexIndex >= 4)
 				{
-					hexBuffer[hexIndex++] = ipString[pos];
+					// A group holds at most 4 hex digits (RFC 4291 Section 2.2)
+					return Result<IPAddress, Error>::Err(Error::IpAddress_ParseFailed);
 				}
+				hexBuffer[hexIndex++] = ipString[pos];
 				pos++;
 			}
 			else
@@ -94,6 +111,14 @@ Result<IPAddress, Error> IPAddress::FromString(Span<const CHAR> ipString)
 			ipv6[groupIndex * 2] = (UINT8)(value >> 8);
 			ipv6[groupIndex * 2 + 1] = (UINT8)(value & 0xFF);
 			groupIndex++;
+		}
+
+		// The whole string must be consumed: the loop caps at 8 groups, so leftover input
+		// means more than 8 groups were present. Without "::" exactly 8 groups are required;
+		// with "::" at most 7 (RFC 4291 Section 2.2).
+		if (pos < ipString.Size() || (foundDoubleColon ? groupIndex >= 8 : groupIndex != 8))
+		{
+			return Result<IPAddress, Error>::Err(Error::IpAddress_ParseFailed);
 		}
 
 		// Handle double colon expansion
