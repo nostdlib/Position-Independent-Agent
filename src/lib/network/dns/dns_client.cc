@@ -492,6 +492,49 @@ static_assert(sizeof(DNS_REQUEST_QUESTION) == 4, "DNS question must be 4 bytes (
 }
 
 /**
+ * @brief Checks whether a name is a well-formed DNS hostname (RFC 1035 Section 2.3.1)
+ * @param name Name to validate, without a trailing root dot
+ * @return true when every label is 1-63 characters of letters, digits, and hyphens
+ *         (leading digits allowed per RFC 1123 Section 2.1) with no leading or trailing
+ *         hyphen, and the name is non-empty and at most 253 characters
+ *
+ * @details Gates the ".localhost" suffix shortcut: only syntactically valid names can
+ * be RFC 6761 Section 6.3 special names — malformed ones fall through to the normal
+ * DoH path exactly as they did before the shortcut existed.
+ *
+ * @see RFC 1035 Section 2.3.1 — Preferred name syntax
+ *      https://datatracker.ietf.org/doc/html/rfc1035#section-2.3.1
+ */
+[[nodiscard]] static BOOL IsWellFormedDnsName(Span<const CHAR> name)
+{
+	if (name.Size() == 0 || name.Size() > 253)
+		return false;
+
+	USIZE labelStart = 0;
+	for (USIZE i = 0; i <= name.Size(); i++)
+	{
+		if (i == name.Size() || name[i] == '.')
+		{
+			USIZE labelLength = i - labelStart;
+			if (labelLength == 0 || labelLength > 63)
+				return false;
+			if (name[labelStart] == '-' || name[i - 1] == '-')
+				return false;
+			if (i == name.Size())
+				break;
+			labelStart = i + 1;
+		}
+		else
+		{
+			CHAR c = name[i];
+			if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-'))
+				return false;
+		}
+	}
+	return true;
+}
+
+/**
  * @brief Resolves a hostname via DNS-over-HTTPS (DoH) to a single DoH server
  * @param host Hostname to resolve
  * @param dnsServerIp IP address of the DoH server
@@ -524,9 +567,10 @@ Result<IPAddress, Error> DnsClient::ResolveOverHttp(Span<const CHAR> host, const
 	// ending ".localhost."; resolvers should not send them to the wire). DNS names are
 	// case-insensitive (RFC 1035 Section 2.3.3), so match any letter case and compare by
 	// span bounds — host is not guaranteed to be NUL-terminated. A single trailing root
-	// dot (FQDN form, e.g. "service.localhost.") is ignored for the match. A/AAAA answer
-	// loopback locally (RFC 6761 Section 6.3); other record types fail fast like they do
-	// for IP literals.
+	// dot (FQDN form, e.g. "service.localhost.") is ignored for the match. Only well-formed
+	// names (RFC 1035 Section 2.3.1 labels) qualify as ".localhost" family — malformed
+	// ones fall through to DoH as they always have. A/AAAA answer loopback locally
+	// (RFC 6761 Section 6.3); other record types fail fast like they do for IP literals.
 	const CHAR localHostName[] = "localhost";
 	const CHAR localSuffix[] = ".localhost";
 	Span<const CHAR> name = host;
@@ -535,8 +579,9 @@ Result<IPAddress, Error> DnsClient::ResolveOverHttp(Span<const CHAR> host, const
 	BOOL isLocalhostName = false;
 	if (name.Size() == sizeof(localHostName) - 1)
 		isLocalhostName = StringUtils::Compare<CHAR>(name, Span<const CHAR>(localHostName, sizeof(localHostName) - 1), true);
-	else if (name.Size() >= sizeof(localSuffix) - 1)
-		isLocalhostName = StringUtils::Compare<CHAR>(Span<const CHAR>(name.Data() + name.Size() - (sizeof(localSuffix) - 1), sizeof(localSuffix) - 1), Span<const CHAR>(localSuffix, sizeof(localSuffix) - 1), true);
+	else if (name.Size() >= sizeof(localSuffix) - 1 &&
+			 StringUtils::Compare<CHAR>(Span<const CHAR>(name.Data() + name.Size() - (sizeof(localSuffix) - 1), sizeof(localSuffix) - 1), Span<const CHAR>(localSuffix, sizeof(localSuffix) - 1), true))
+		isLocalhostName = IsWellFormedDnsName(name);
 	if (isLocalhostName)
 	{
 		if (dnstype != DnsRecordType::A && dnstype != DnsRecordType::AAAA)

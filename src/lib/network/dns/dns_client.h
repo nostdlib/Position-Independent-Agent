@@ -86,9 +86,9 @@ private:
 	 * and extracts the first A or AAAA record from the answer section.
 	 *
 	 * Short-circuits for "localhost" names without network access for every record
-	 * type (RFC 6761 Section 6.3 — "localhost" and any name ending ".localhost" are
-	 * never forwarded upstream; a single trailing root dot is tolerated): A/AAAA
-	 * return loopback, all other record types fail fast.
+	 * type (RFC 6761 Section 6.3 — "localhost" and any well-formed name ending
+	 * ".localhost" are never forwarded upstream; a single trailing root dot is
+	 * tolerated): A/AAAA return loopback, all other record types fail fast.
 	 *
 	 * @see RFC 8484 Section 4.1 — DNS Wire Format (POST method)
 	 *      https://datatracker.ietf.org/doc/html/rfc8484#section-4.1

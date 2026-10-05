@@ -208,7 +208,7 @@ private:
 
 			if (passed)
 			{
-				CHAR buffer[64];
+				CHAR buffer[64]{};
 				auto toStrResult = result.Value().ToString(Span<CHAR>(buffer));
 				if (!toStrResult || !StringUtils::Equals((PCCHAR)buffer, cases[i].expected))
 				{
@@ -420,7 +420,7 @@ private:
 
 			if (passed)
 			{
-				CHAR buffer[64];
+				CHAR buffer[64]{};
 				auto toStrResult = result.Value().ToString(Span<CHAR>(buffer));
 				passed = toStrResult && StringUtils::Equals((PCCHAR)buffer, (PCCHAR)"192.168.1.1");
 			}
@@ -442,7 +442,7 @@ private:
 
 			if (passed)
 			{
-				CHAR buffer[64];
+				CHAR buffer[64]{};
 				auto toStrResult = result.Value().ToString(Span<CHAR>(buffer));
 				passed = toStrResult && StringUtils::Equals((PCCHAR)buffer, (PCCHAR)"127.0.0.1");
 			}
@@ -577,7 +577,7 @@ private:
 
 				if (passed)
 				{
-					CHAR buffer[64];
+					CHAR buffer[64]{};
 					auto toStrResult = result.Value().ToString(Span<CHAR>(buffer));
 					if (!toStrResult || !StringUtils::Equals((PCCHAR)buffer, cases[i].expected))
 					{
@@ -610,7 +610,7 @@ private:
 
 				if (passed)
 				{
-					CHAR once[64];
+					CHAR once[64]{};
 					auto onceResult = first.Value().ToString(Span<CHAR>(once));
 					if (!onceResult)
 						passed = false;
@@ -623,7 +623,7 @@ private:
 
 						if (passed)
 						{
-							CHAR twice[64];
+							CHAR twice[64]{};
 							auto twiceResult = second.Value().ToString(Span<CHAR>(twice));
 							if (!twiceResult || !StringUtils::Equals((PCCHAR)twice, (PCCHAR)once))
 								passed = false;
@@ -657,7 +657,7 @@ private:
 				passed = false;
 
 			// Invalid address has no textual form
-			CHAR buffer[64];
+			CHAR buffer[64]{};
 			if (IPAddress::Invalid().ToString(Span<CHAR>(buffer)))
 				passed = false;
 

@@ -314,9 +314,11 @@ private:
 		}
 
 		// --- The whole .localhost family is special (RFC 6761 Section 6.3): the root-dot
-		//     FQDN form, and any subdomain, answer loopback / fail fast without the wire.
-		//     (Dot-boundary negatives like "evillocalhost" cannot be asserted here — a
-		//     non-matching name legitimately performs DoH, which would touch the network.) ---
+		//     FQDN form, and any well-formed subdomain (RFC 1035 Section 2.3.1 labels),
+		//     answer loopback / fail fast without the wire. (Negatives — malformed names
+		//     like "a..localhost", or dot-boundary misses like "evillocalhost" — cannot be
+		//     asserted here: a non-matching name legitimately performs DoH, which would
+		//     touch the network.) ---
 		auto rootDot = DnsClient::CloudflareResolve("localhost.", DnsRecordType::A);
 		if (!rootDot || !rootDot.Value().IsIPv4() || rootDot.Value().ToIPv4() != 0x0100007F)
 		{
@@ -328,6 +330,14 @@ private:
 		if (!subdomain || !subdomain.Value().IsIPv4() || subdomain.Value().ToIPv4() != 0x0100007F)
 		{
 			LOG_ERROR("Resolve did not answer loopback for a .localhost subdomain");
+			return false;
+		}
+
+		// Hyphenated and multi-label names exercise the label validator's accept path
+		auto hyphenated = DnsClient::Resolve("my-service.a.localhost", DnsRecordType::A);
+		if (!hyphenated || !hyphenated.Value().IsIPv4() || hyphenated.Value().ToIPv4() != 0x0100007F)
+		{
+			LOG_ERROR("Resolve did not answer loopback for a hyphenated .localhost name");
 			return false;
 		}
 
