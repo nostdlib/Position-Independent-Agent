@@ -192,7 +192,7 @@ private:
 			{"192.168.1.1", "192.168.1.1"},
 			// Characterization: a leading-zero octet reads as decimal ("010" -> 10), which
 			// diverges from inet_pton (rejects) and inet_aton (octal 8). Pinned deliberately
-			// so any future tightening has to come update this test consciously.
+			// so that any future tightening must update this test consciously.
 			{"010.1.1.1", "10.1.1.1"},
 		};
 
@@ -382,9 +382,9 @@ private:
 			"hello::1",          // non-hex letters
 			"2001:db8 ::1",      // embedded space
 			"::1 ",              // trailing space
-			// Embedded-IPv4 tail (RFC 4291 Section 2.5.5.2, e.g. "::ffff:192.0.2.1") is
-			// not part of the strict Section 2.2 grammar — pins current rejection; adding
-			// that feature means updating this row.
+			// The embedded dotted-decimal IPv4 tail is a valid RFC 4291 Section 2.2 address
+			// form (form 3, "x:x:x:x:x:x:d.d.d.d"), but this parser supports the hex-groups
+			// forms only — pins current rejection; adding that form means updating this row.
 			"::ffff:192.0.2.1",
 			"", // empty (delegates to the shared size check)
 		};

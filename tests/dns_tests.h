@@ -207,6 +207,36 @@ private:
 			return false;
 		}
 
+		// --- Non-address record types must never be answered by a literal ---
+		// A forward query for PTR/TXT/MX/CNAME/NS on an all-numeric qname cannot
+		// succeed, so a literal host fails fast for those types instead of
+		// returning its own address
+		{
+			struct Case
+			{
+				PCCHAR host;
+				DnsRecordType type;
+			};
+			Case nonAddress[] = {
+				{"127.0.0.1", DnsRecordType::PTR},
+				{"127.0.0.1", DnsRecordType::TXT},
+				{"192.0.2.1", DnsRecordType::MX},
+				{"::1", DnsRecordType::PTR},
+				{"fe80::1", DnsRecordType::CNAME},
+				{"192.0.2.1", DnsRecordType::NS},
+			};
+
+			for (USIZE i = 0; i < sizeof(nonAddress) / sizeof(nonAddress[0]); i++)
+			{
+				auto host = Span<const CHAR>(nonAddress[i].host, StringUtils::Length(nonAddress[i].host));
+				if (DnsClient::Resolve(host, nonAddress[i].type))
+				{
+					LOG_ERROR("Resolve returned an address for a non-address record type (%s)", nonAddress[i].host);
+					return false;
+				}
+			}
+		}
+
 		// --- Span-bounded host: the literal match must not rely on NUL termination ---
 		CHAR hostWithPort[] = "127.0.0.1:8080";
 		auto spanHost = DnsClient::Resolve(Span<const CHAR>(hostWithPort, 9));
