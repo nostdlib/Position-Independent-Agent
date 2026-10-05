@@ -129,6 +129,9 @@ public:
 	 *   1. Cloudflare DoH (1.1.1.1, 1.0.0.1)
 	 *   2. Google DoH (8.8.8.8, 8.8.4.4)
 	 *
+	 * Short-circuits without network I/O when the host is already an IP literal
+	 * (IPv4 or IPv6) or "localhost".
+	 *
 	 * If the requested type is AAAA and all attempts fail, automatically retries with A (IPv4)
 	 * through both providers. This handles environments without IPv6 connectivity.
 	 */

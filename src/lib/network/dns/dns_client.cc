@@ -675,6 +675,12 @@ Result<IPAddress, Error> DnsClient::Resolve(Span<const CHAR> host, DnsRecordType
 {
 	LOG_DEBUG("Resolve(host: %s) called", host.Data());
 
+	// Short-circuit for IP literals (e.g., "127.0.0.1", "::1") — the host is already an address,
+	// so no network I/O is needed regardless of the requested record type
+	auto literalResult = IPAddress::FromString(host);
+	if (literalResult)
+		return literalResult;
+
 	auto result = CloudflareResolve(host, dnstype);
 	if (!result)
 		result = GoogleResolve(host, dnstype);
