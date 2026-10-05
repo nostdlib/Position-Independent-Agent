@@ -297,6 +297,22 @@ private:
 			return false;
 		}
 
+		// --- Non-address record types fail fast: localhost is never forwarded upstream,
+		//     for any record type (RFC 6761 Section 6.3) ---
+		auto txt = DnsClient::Resolve("localhost", DnsRecordType::TXT);
+		if (txt)
+		{
+			LOG_ERROR("Resolve returned a result for a non-address localhost query");
+			return false;
+		}
+
+		auto ptr = DnsClient::CloudflareResolve("LOCALHOST", DnsRecordType::PTR);
+		if (ptr)
+		{
+			LOG_ERROR("CloudflareResolve returned a result for a non-address localhost query");
+			return false;
+		}
+
 		LOG_INFO("  PASSED: localhost short-circuit");
 		return true;
 	}

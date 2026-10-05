@@ -85,8 +85,9 @@ private:
 	 * (RFC 8484 Section 4.1). Parses the HTTP response body as a DNS wire-format message
 	 * and extracts the first A or AAAA record from the answer section.
 	 *
-	 * Short-circuits for "localhost" without network access (address record types only;
-	 * other record types fall through to the real query since "localhost" is a valid qname).
+	 * Short-circuits for "localhost" without network access for every record type
+	 * (RFC 6761 Section 6.3 — localhost queries are never forwarded upstream): A/AAAA
+	 * return loopback, all other record types fail fast.
 	 *
 	 * @see RFC 8484 Section 4.1 — DNS Wire Format (POST method)
 	 *      https://datatracker.ietf.org/doc/html/rfc8484#section-4.1
@@ -134,7 +135,8 @@ public:
 	 * (IPv4 or IPv6) or "localhost", but only for address record types: an A
 	 * request does not match an IPv6 literal (no A record exists for it) and any
 	 * non-address type (PTR, TXT, MX, ...) fails fast rather than returning the
-	 * address; AAAA requests accept either family.
+	 * address; AAAA requests accept either family. "localhost" is never forwarded
+	 * upstream for any record type (RFC 6761 Section 6.3).
 	 *
 	 * If the requested type is AAAA and all attempts fail, automatically retries with A (IPv4)
 	 * through both providers. This handles environments without IPv6 connectivity.

@@ -519,14 +519,18 @@ static_assert(sizeof(DNS_REQUEST_QUESTION) == 4, "DNS question must be 4 bytes (
  */
 Result<IPAddress, Error> DnsClient::ResolveOverHttp(Span<const CHAR> host, const IPAddress &dnsServerIp, Span<const CHAR> dnsServerName, DnsRecordType dnstype)
 {
-	// Short-circuit for "localhost" — return loopback without network I/O (RFC 6761 Section 6.3).
+	// Short-circuit for "localhost" — never forwarded upstream, for any record type
+	// (RFC 6761 Section 6.3: resolvers should not send localhost queries to the wire).
 	// DNS names are case-insensitive (RFC 1035 Section 2.3.3), so match any letter case and
-	// compare by span bounds — host is not guaranteed to be NUL-terminated. Address records
-	// only: "localhost" is a valid qname, so other record types fall through to the real query.
+	// compare by span bounds — host is not guaranteed to be NUL-terminated. A/AAAA return
+	// loopback; other record types fail fast like they do for IP literals.
 	const CHAR localHostName[] = "localhost";
-	if ((dnstype == DnsRecordType::A || dnstype == DnsRecordType::AAAA) &&
-		StringUtils::Compare<CHAR>(host, Span<const CHAR>(localHostName, sizeof(localHostName) - 1), true))
+	if (StringUtils::Compare<CHAR>(host, Span<const CHAR>(localHostName, sizeof(localHostName) - 1), true))
+	{
+		if (dnstype != DnsRecordType::A && dnstype != DnsRecordType::AAAA)
+			return Result<IPAddress, Error>::Err(Error::Dns_ResolveFailed);
 		return Result<IPAddress, Error>::Ok(IPAddress::LocalHost(dnstype == DnsRecordType::AAAA));
+	}
 
 	auto tlsResult = TlsClient::Create(dnsServerName.Data(), dnsServerIp, 443);
 	if (!tlsResult)
