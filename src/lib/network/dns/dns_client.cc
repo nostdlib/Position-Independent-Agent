@@ -519,13 +519,25 @@ static_assert(sizeof(DNS_REQUEST_QUESTION) == 4, "DNS question must be 4 bytes (
  */
 Result<IPAddress, Error> DnsClient::ResolveOverHttp(Span<const CHAR> host, const IPAddress &dnsServerIp, Span<const CHAR> dnsServerName, DnsRecordType dnstype)
 {
-	// Short-circuit for "localhost" — never forwarded upstream, for any record type
-	// (RFC 6761 Section 6.3: resolvers should not send localhost queries to the wire).
-	// DNS names are case-insensitive (RFC 1035 Section 2.3.3), so match any letter case and
-	// compare by span bounds — host is not guaranteed to be NUL-terminated. A/AAAA return
-	// loopback; other record types fail fast like they do for IP literals.
+	// Short-circuit for "localhost" names — never forwarded upstream, for any record
+	// type (RFC 6761 Section 6.3: the special names are "localhost." itself and anything
+	// ending ".localhost."; resolvers should not send them to the wire). DNS names are
+	// case-insensitive (RFC 1035 Section 2.3.3), so match any letter case and compare by
+	// span bounds — host is not guaranteed to be NUL-terminated. A single trailing root
+	// dot (FQDN form, e.g. "service.localhost.") is ignored for the match. A/AAAA answer
+	// loopback locally (RFC 6761 Section 6.3); other record types fail fast like they do
+	// for IP literals.
 	const CHAR localHostName[] = "localhost";
-	if (StringUtils::Compare<CHAR>(host, Span<const CHAR>(localHostName, sizeof(localHostName) - 1), true))
+	const CHAR localSuffix[] = ".localhost";
+	Span<const CHAR> name = host;
+	if (name.Size() > 0 && name[name.Size() - 1] == '.')
+		name = Span<const CHAR>(name.Data(), name.Size() - 1);
+	BOOL isLocalhostName = false;
+	if (name.Size() == sizeof(localHostName) - 1)
+		isLocalhostName = StringUtils::Compare<CHAR>(name, Span<const CHAR>(localHostName, sizeof(localHostName) - 1), true);
+	else if (name.Size() >= sizeof(localSuffix) - 1)
+		isLocalhostName = StringUtils::Compare<CHAR>(Span<const CHAR>(name.Data() + name.Size() - (sizeof(localSuffix) - 1), sizeof(localSuffix) - 1), Span<const CHAR>(localSuffix, sizeof(localSuffix) - 1), true);
+	if (isLocalhostName)
 	{
 		if (dnstype != DnsRecordType::A && dnstype != DnsRecordType::AAAA)
 			return Result<IPAddress, Error>::Err(Error::Dns_ResolveFailed);

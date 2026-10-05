@@ -313,6 +313,46 @@ private:
 			return false;
 		}
 
+		// --- The whole .localhost family is special (RFC 6761 Section 6.3): the root-dot
+		//     FQDN form, and any subdomain, answer loopback / fail fast without the wire.
+		//     (Dot-boundary negatives like "evillocalhost" cannot be asserted here — a
+		//     non-matching name legitimately performs DoH, which would touch the network.) ---
+		auto rootDot = DnsClient::CloudflareResolve("localhost.", DnsRecordType::A);
+		if (!rootDot || !rootDot.Value().IsIPv4() || rootDot.Value().ToIPv4() != 0x0100007F)
+		{
+			LOG_ERROR("CloudflareResolve did not answer loopback for the 'localhost.' FQDN form");
+			return false;
+		}
+
+		auto subdomain = DnsClient::Resolve("service.localhost", DnsRecordType::A);
+		if (!subdomain || !subdomain.Value().IsIPv4() || subdomain.Value().ToIPv4() != 0x0100007F)
+		{
+			LOG_ERROR("Resolve did not answer loopback for a .localhost subdomain");
+			return false;
+		}
+
+		auto mixedCase = DnsClient::Resolve("Api.LocalHost.", DnsRecordType::AAAA);
+		if (!mixedCase || !mixedCase.Value().IsIPv6())
+		{
+			LOG_ERROR("Resolve did not answer ::1 for a mixed-case .localhost name (AAAA)");
+			return false;
+		}
+
+		UINT8 expectedSub[16]{};
+		expectedSub[15] = 1;
+		if (Memory::Compare(mixedCase.Value().ToIPv6(), expectedSub, 16) != 0)
+		{
+			LOG_ERROR("Resolve returned the wrong address for a .localhost name");
+			return false;
+		}
+
+		auto subTxt = DnsClient::Resolve("db.localhost", DnsRecordType::TXT);
+		if (subTxt)
+		{
+			LOG_ERROR("Resolve returned a result for a non-address .localhost query");
+			return false;
+		}
+
 		LOG_INFO("  PASSED: localhost short-circuit");
 		return true;
 	}
