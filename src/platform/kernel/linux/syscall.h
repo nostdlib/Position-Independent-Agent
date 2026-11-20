@@ -64,6 +64,18 @@ constexpr INT32 O_DIRECTORY = 0x10000;
 constexpr INT32 O_DIRECTORY = 0x4000;
 #endif
 
+// O_LARGEFILE: without it the 32-bit ABIs refuse files larger than 2 GiB
+// (EOVERFLOW on open/access) — the raw-syscall equivalent of glibc's
+// automatic _FILE_OFFSET_BITS=64 flag. 0 on 64-bit ABIs, where the kernel
+// ignores large-file selection entirely. MIPS inherited the IRIX value.
+#if defined(ARCHITECTURE_MIPS64) || defined(ARCHITECTURE_X86_64) || defined(ARCHITECTURE_AARCH64) || defined(ARCHITECTURE_RISCV64)
+constexpr INT32 O_LARGEFILE = 0;
+#elif defined(ARCHITECTURE_MIPS)
+constexpr INT32 O_LARGEFILE = 0x2000;
+#else
+constexpr INT32 O_LARGEFILE = 0x8000;
+#endif
+
 // lseek whence values
 constexpr INT32 SEEK_SET = 0;
 constexpr INT32 SEEK_CUR = 1;

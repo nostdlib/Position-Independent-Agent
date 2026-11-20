@@ -146,7 +146,10 @@ Result<VOID, Error> HttpClient::SendPostRequest(PCCHAR host, PCCHAR path, Span<c
 		auto bodyResult = Write(data);
 		if (!bodyResult)
 			return Result<VOID, Error>::Err(bodyResult, Error::Http_SendPostFailed);
-		if (bodyResult.Value() != (UINT32)data.Size())
+		// Compare in USIZE: a (UINT32) cast would equate a truncated write of
+		// the low word with full success for bodies past 4 GiB — the request
+		// would advertise its true Content-Length yet ship fewer bytes.
+		if (bodyResult.Value() != data.Size())
 			return Result<VOID, Error>::Err(Error::Http_SendPostFailed);
 	}
 
