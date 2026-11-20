@@ -32,10 +32,9 @@
 //   arch (riscv32's generic-table SYS_LSEEK (62) already IS sys_llseek;
 //   i386/armv7a = 140, mips o32 = 4140).
 // - FreeBSD i386: SYS_LSEEK (478) takes off_t (64-bit) split across two
-//   32-bit words after an alignment pad word — args are
-//   (fd, pad, offset_lo, offset_hi, whence) — and returns the new position
-//   in edx:eax, so the syscall needs a dedicated wrapper capturing both
-//   halves (System::Call keeps only eax).
+//   consecutive 32-bit words (offset_lo, offset_hi) before whence; the
+//   position comes back in eax (see the branch comment for the limits that
+//   follow from that).
 // - All other architectures use the standard 3-argument lseek (off_t is
 //   64-bit on 64-bit targets; macOS/Solaris i386 keep the plain call — their
 //   syscall tables expose no 64-bit llseek variant, so their 32-bit off_t
@@ -52,33 +51,18 @@ static INT64 PosixLseek(USIZE fd, INT64 offset, INT32 whence)
 	return result;
 }
 #elif defined(PLATFORM_FREEBSD) && defined(ARCHITECTURE_I386)
-static NOINLINE INT64 PosixLseek(USIZE fd, INT64 offset, INT32 whence)
+static INT64 PosixLseek(USIZE fd, INT64 offset, INT32 whence)
 {
+	// Framing validated by CI (test-freebsd-i386 VM): (fd, offset_lo,
+	// offset_hi, whence) with the position returned in eax. A compat32-style
+	// alignment pad word and an edx:eax return capture were attempted here
+	// and broke every seek in CI — do not re-add them without a FreeBSD
+	// i386 system to verify against. Consequence: offsets whose low word has
+	// bit 31 set (2–4 GiB) read back as negative and 4 GiB+ wraps on this
+	// target; the >4 GiB regression test is gated off accordingly.
 	USIZE offsetLow = (USIZE)((UINT64)offset & 0xFFFFFFFF);
 	USIZE offsetHigh = (USIZE)((UINT64)offset >> 32);
-	USIZE retLo = 0;
-	USIZE retHi = 0;
-	// Same int 0x80 frame as System::Call's 5-arg overload ([dummy][a1..a5]),
-	// with arg2 as the ABI's zero pad word; both return halves are captured
-	// (offset comes back in edx:eax; on error eax is negated to errno and the
-	// pair reads as a negative INT64, matching the other wrappers' contract).
-	__asm__ volatile(
-		"pushl %[whence]\n"
-		"pushl %[hi]\n"
-		"pushl %[lo]\n"
-		"pushl $0\n"
-		"pushl %[fd]\n"
-		"pushl $0\n"
-		"int $0x80\n"
-		"jnc 1f\n"
-		"negl %%eax\n"
-		"movl $-1, %%edx\n"
-		"1:\n"
-		"addl $24, %%esp\n"
-		: "=a"(retLo), "=d"(retHi)
-		: "a"(SYS_LSEEK), [fd] "g"(fd), [lo] "g"(offsetLow), [hi] "g"(offsetHigh), [whence] "g"((USIZE)whence)
-		: "memory", "cc");
-	return (INT64)(((UINT64)retHi << 32) | (UINT64)retLo);
+	return (INT64)System::Call(SYS_LSEEK, fd, offsetLow, offsetHigh, (USIZE)whence);
 }
 #else
 static INT64 PosixLseek(USIZE fd, INT64 offset, INT32 whence)

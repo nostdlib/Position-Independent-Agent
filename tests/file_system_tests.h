@@ -493,9 +493,13 @@ private:
 		// i386/armv7a/mips) a seek past 4 GiB wrapped to a low offset and
 		// large-file downloads never terminated. The single write far past
 		// EOF leaves a sparse hole, so this costs one filesystem block, not
-		// 4 GiB of disk. Skipped on UEFI: FAT cannot hold files that large,
-		// so the far seek legitimately fails there.
-#if !defined(PLATFORM_UEFI)
+		// 4 GiB of disk. Runs only where the platform's seek ABI is verified
+		// 64-bit: every 64-bit target plus the 32-bit Linux/Android arches
+		// (SYS_LSEEK64 — runtime-validated by CI's QEMU riscv32 job). Off on
+		// UEFI (FAT cannot hold >4 GiB files), and on 32-bit FreeBSD/macOS/
+		// Solaris, whose seek ABIs cannot reach past 4 GiB (or are
+		// unverified there) — see the lseek wrapper in platform/fs/posix.
+#if !defined(PLATFORM_UEFI) && ((__POINTER_WIDTH__ == 64) || defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID))
 		{
 			constexpr UINT64 FarOffset = 0x100001000ull; // 4 GiB + 4 KiB
 			// Read+write: the marker is read back through the SAME handle
@@ -1364,13 +1368,13 @@ private:
 			LOG_ERROR("Failed to delete offset_test.dat");
 			return false;
 		}
-#if !defined(PLATFORM_UEFI)
+#if !defined(PLATFORM_UEFI) && ((__POINTER_WIDTH__ == 64) || defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID))
 		if (!RmFile(L"level1_dir2\\sparse_4gb_test.dat"))
 		{
 			LOG_ERROR("Failed to delete sparse_4gb_test.dat");
 			return false;
 		}
-#endif // !PLATFORM_UEFI
+#endif // 64-bit seek gate — must match Test 4 above
 		if (!RmFile(L"level1_dir3\\file3.txt"))
 		{
 			LOG_ERROR("Failed to delete file3.txt");
