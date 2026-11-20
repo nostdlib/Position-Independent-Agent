@@ -1,6 +1,7 @@
 #include "platform/fs/directory_iterator.h"
 #include "core/types/primitives.h"
 #include "core/memory/memory.h"
+#include "core/string/string.h"
 #include "platform/kernel/windows/windows_types.h"
 #include "platform/kernel/windows/ntdll.h"
 #include "platform/fs/windows/wpd.h"
@@ -70,10 +71,11 @@ static VOID FillEntry(DirectoryEntry &entry, const FILE_BOTH_DIR_INFORMATION &da
 	entry.Type = 3; // Default to Fixed
 }
 
-// Queries the volume serial number for a drive root (e.g. L"C:\\") via
-// FileFsVolumeInformation. Best-effort: returns 0 when the volume cannot be
-// opened or queried (no media, BitLocker-locked, ...).
-static UINT64 QueryVolumeSerial(PCWCHAR driveRoot)
+// Queries the volume serial number (and, when label/labelCap are given, the
+// volume label) for a drive root (e.g. L"C:\\") via FileFsVolumeInformation.
+// Best-effort: returns 0 when the volume cannot be opened or queried (no media,
+// BitLocker-locked, ...); the label then comes back empty.
+static UINT64 QueryVolumeInfo(PCWCHAR driveRoot, WCHAR *label = nullptr, USIZE labelCap = 0)
 {
 	// 1. Resolve the drive root to an NT path (\??\X:\) through the DOS device map
 	UNICODE_STRING uniPath;
@@ -102,9 +104,9 @@ static UINT64 QueryVolumeSerial(PCWCHAR driveRoot)
 	if (!openResult)
 		return 0;
 
-	// 3. Query the serial. VolumeLabel is variable length, so over-allocate for it;
-	//    only VolumeSerialNumber (at a fixed offset) is consumed.
-	alignas(alignof(FILE_FS_VOLUME_INFORMATION)) UINT8 buffer[sizeof(FILE_FS_VOLUME_INFORMATION) + 32 * sizeof(WCHAR)];
+	// 3. Query the serial (+ label). VolumeLabel is variable length, so
+	//    over-allocate for it; only the fixed header is needed for the serial.
+	alignas(alignof(FILE_FS_VOLUME_INFORMATION)) UINT8 buffer[sizeof(FILE_FS_VOLUME_INFORMATION) + 64 * sizeof(WCHAR)];
 	Memory::Zero(buffer, sizeof(buffer));
 
 	auto queryResult = NTDLL::ZwQueryVolumeInformationFile(
@@ -123,6 +125,29 @@ static UINT64 QueryVolumeSerial(PCWCHAR driveRoot)
 		return 0;
 
 	const FILE_FS_VOLUME_INFORMATION &info = *(const FILE_FS_VOLUME_INFORMATION *)buffer;
+	if (label != nullptr && labelCap > 0)
+	{
+		label[0] = L'\0';
+		// The label is the variable tail, IN PLACE after the fixed header (no
+		// terminator), VolumeLabelLength bytes. On buffer overflow the label is
+		// partial (the serial header still fit) — clamp to what arrived: a
+		// truncated label simply stops matching the WPD skip set (a duplicate at
+		// worst, never a wrong skip).
+		const UINT8 *labelStart = (const UINT8 *)&info.VolumeLabel;
+		USIZE labelOffset = (USIZE)(labelStart - (const UINT8 *)&info);
+		if ((info.VolumeLabelLength % sizeof(WCHAR)) == 0
+			&& labelOffset + info.VolumeLabelLength <= sizeof(buffer))
+		{
+			USIZE chars = info.VolumeLabelLength / sizeof(WCHAR);
+			if (chars > labelCap - 1)
+				chars = labelCap - 1;
+			if (chars > 0)
+			{
+				Memory::Copy(label, labelStart, chars * sizeof(WCHAR));
+				label[chars] = L'\0';
+			}
+		}
+	}
 	return (UINT64)info.VolumeSerialNumber;
 }
 
@@ -341,7 +366,41 @@ Result<VOID, Error> DirectoryIterator::Next()
 		{
 			if (wpdState == nullptr)
 			{
-				auto rootResult = WPD::BeginRootEnumeration();
+				// WPD-dedupe input first: the labels of mounted REMOVABLE volumes.
+				// A stick Windows ALSO exposes as a portable device would list twice
+				// (its volume row by letter+serial, its WPD persona by friendly
+				// name) — BeginRootEnumeration skips personas matching a label.
+				// Phones never match: they carry no drive letter.
+				WCHAR volumeLabels[WPD_VOLUME_LABEL_MAX][WPD_VOLUME_LABEL_CAP];
+				UINT32 volumeLabelCount = 0;
+				PROCESS_DEVICEMAP_INFORMATION labelMapInfo;
+				Memory::Zero(&labelMapInfo, sizeof(labelMapInfo));
+				auto labelMapResult = NTDLL::ZwQueryInformationProcess(
+					NTDLL::NtCurrentProcess(),
+					ProcessDeviceMap,
+					&labelMapInfo.Query,
+					sizeof(labelMapInfo.Query),
+					nullptr);
+				if (labelMapResult)
+				{
+					for (INT32 i = 0; i < 26 && volumeLabelCount < WPD_VOLUME_LABEL_MAX; i++)
+					{
+						if ((labelMapInfo.Query.DriveMap & (1 << i)) == 0
+							|| labelMapInfo.Query.DriveType[i] != DRIVE_REMOVABLE)
+							continue;
+						WCHAR root[4] = {(WCHAR)(L'A' + i), L':', L'\\', L'\0'};
+						WCHAR label[WPD_VOLUME_LABEL_CAP];
+						(VOID)QueryVolumeInfo(root, label, WPD_VOLUME_LABEL_CAP);
+						if (label[0] != L'\0')
+						{
+							StringUtils::Copy(Span<WCHAR>(volumeLabels[volumeLabelCount]),
+								Span<const WCHAR>(label, StringUtils::Length(label)));
+							volumeLabelCount++;
+						}
+					}
+				}
+
+				auto rootResult = WPD::BeginRootEnumeration(volumeLabels, volumeLabelCount);
 				if (rootResult)
 					wpdState = rootResult.Value();
 				else
@@ -404,7 +463,7 @@ Result<VOID, Error> DirectoryIterator::Next()
 				if (devMapResult && devMapInfo.Query.DriveType[i] == DRIVE_REMOTE)
 					currentEntry.VolumeSerial = 0;
 				else
-					currentEntry.VolumeSerial = QueryVolumeSerial(currentEntry.Name);
+					currentEntry.VolumeSerial = QueryVolumeInfo(currentEntry.Name);
 
 				// Update mask for next time (remove the bit we just processed)
 				mask &= ~(1 << i);

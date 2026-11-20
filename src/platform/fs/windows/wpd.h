@@ -31,6 +31,12 @@
 #include "platform/kernel/windows/windows_types.h"
 #include "platform/fs/directory_entry.h"
 
+/// Volume-label skip-set capacity handed to BeginRootEnumeration: WCHARs per label
+/// (including the terminator; longer labels truncate and simply stop matching).
+constexpr USIZE WPD_VOLUME_LABEL_CAP = 64;
+/// Volume-label skip-set capacity: distinct labeled REMOVABLE volumes tracked at once.
+constexpr USIZE WPD_VOLUME_LABEL_MAX = 8;
+
 #define STGM_READ 0 ///< Open for reading only (COM stream access mode)
 #define VT_FILETIME 64 ///< PROPVARIANT type carrying a FILETIME (WPD date properties)
 #define STREAM_SEEK_SET 0 ///< IStream seek origin: absolute from start
@@ -359,9 +365,20 @@ public:
 	 * `::mtp-<token>[-<friendly>]` with IsDrive=TRUE, Type=removable,
 	 * VolumeSerial=token.
 	 *
+	 * A device whose friendly name equals one of @p volumeLabels (the labels of
+	 * mounted REMOVABLE volumes, case-insensitive) is SKIPPED: a stick Windows
+	 * also exposes as a portable device would otherwise list twice — its volume
+	 * row (letter + volume serial) and its WPD persona (friendly name + hash
+	 * token) are the same physical drive. Phones never match: they carry no
+	 * drive letter, so no removable volume label equals their friendly name.
+	 *
+	 * @param volumeLabels Labels of currently mounted removable volumes (may be
+	 *                     null with a count of 0 — nothing is skipped).
+	 * @param volumeLabelCount Number of valid rows in @p volumeLabels.
 	 * @return Opaque iterator state, or an Error (COM unavailable, no manager).
 	 */
-	[[nodiscard]] static Result<WpdIteratorState *, Error> BeginRootEnumeration();
+	[[nodiscard]] static Result<WpdIteratorState *, Error> BeginRootEnumeration(
+		const WCHAR (*volumeLabels)[WPD_VOLUME_LABEL_CAP], UINT32 volumeLabelCount);
 
 	/**
 	 * @brief Begins enumeration of a device folder addressed by pseudo-path.

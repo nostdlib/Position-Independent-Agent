@@ -192,6 +192,12 @@ struct WpdIteratorState
 	WCHAR **deviceIds;                 ///< Root phase: PnP device ids (CoTaskMem strings)
 	UINT32 deviceCount;                ///< Root phase: number of deviceIds
 	UINT32 deviceIndex;                ///< Root phase: next device to emit
+	/// Root phase: labels of mounted REMOVABLE volumes — a device whose friendly
+	/// name matches one is the WPD persona of that volume (same physical drive
+	/// listed twice) and is skipped. Copied in at Begin time (the caller's stack
+	/// frame does not outlive the enumeration).
+	WCHAR skipLabels[WPD_VOLUME_LABEL_MAX][WPD_VOLUME_LABEL_CAP];
+	UINT32 skipLabelCount;             ///< Root phase: valid rows in skipLabels
 	IPortableDevice *device;           ///< Object phase: Open()'d device session
 	IPortableDeviceContent *content;   ///< Object phase: content interface
 	IPortableDeviceProperties *properties; ///< Object phase: property reader
@@ -674,25 +680,60 @@ static BOOL FetchFriendlyName(IPortableDeviceManager *manager, PCWCHAR deviceId,
 	return true;
 }
 
+/// ASCII-case-insensitive wide-string equality (volume labels and WPD friendly
+/// names are ASCII in practice; non-ASCII code units compare case-sensitively —
+/// a mismatch at worst leaves a duplicate listed, never hides a wrong device).
+static BOOL LabelsEqual(PCWCHAR a, PCWCHAR b)
+{
+	while (*a != L'\0' && *b != L'\0')
+	{
+		WCHAR ca = *a++;
+		WCHAR cb = *b++;
+		if (ca >= L'A' && ca <= L'Z') ca = (WCHAR)(ca + 0x20);
+		if (cb >= L'A' && cb <= L'Z') cb = (WCHAR)(cb + 0x20);
+		if (ca != cb)
+			return false;
+	}
+	return *a == L'\0' && *b == L'\0';
+}
+
+/// TRUE when the friendly name names a mounted removable VOLUME — the device is
+/// that volume's WPD persona (Windows exposes some sticks both ways), and the
+/// volume row already lists the drive under its letter.
+static BOOL MatchesVolumeLabel(WpdIteratorState *state, PCWCHAR friendly)
+{
+	for (UINT32 i = 0; i < state->skipLabelCount; i++)
+		if (LabelsEqual(friendly, state->skipLabels[i]))
+			return true;
+	return false;
+}
+
 /// Emits the next root-listing device entry (manager phase).
 static Result<BOOL, Error> NextRootEntry(WpdIteratorState *state, DirectoryEntry &out)
 {
-	if (state->deviceIndex >= state->deviceCount)
-		return Result<BOOL, Error>::Ok(false);
+	while (state->deviceIndex < state->deviceCount)
+	{
+		PCWCHAR deviceId = state->deviceIds[state->deviceIndex++];
 
-	PCWCHAR deviceId = state->deviceIds[state->deviceIndex++];
-	UINT64 token = Djb2::Hash(deviceId);
+		WCHAR friendly[128];
+		BOOL hasFriendly = FetchFriendlyName(state->manager, deviceId, Span<WCHAR>(friendly));
+		// Same physical drive twice: the volume row (letter + serial) already
+		// covers this device — skip its WPD persona (friendly = the volume label).
+		if (hasFriendly && MatchesVolumeLabel(state, friendly))
+			continue;
 
-	WCHAR friendly[128];
-	const DirectoryEntry empty{};
-	out = empty;
-	FormatDeviceName(token, FetchFriendlyName(state->manager, deviceId, Span<WCHAR>(friendly)) ? friendly : nullptr, Span<WCHAR>(out.Name));
+		UINT64 token = Djb2::Hash(deviceId);
+		const DirectoryEntry empty{};
+		out = empty;
+		FormatDeviceName(token, hasFriendly ? friendly : nullptr, Span<WCHAR>(out.Name));
 
-	out.IsDirectory = true;
-	out.IsDrive = true;
-	out.Type = DRIVE_REMOVABLE;
-	out.VolumeSerial = token;
-	return Result<BOOL, Error>::Ok(true);
+		out.IsDirectory = true;
+		out.IsDrive = true;
+		out.Type = DRIVE_REMOVABLE;
+		out.VolumeSerial = token;
+		return Result<BOOL, Error>::Ok(true);
+	}
+	return Result<BOOL, Error>::Ok(false);
 }
 
 /// Emits the next object entry (object phase).
@@ -817,7 +858,8 @@ BOOL WPD::TryParsePath(PCWCHAR path, UINT64 &token, const WCHAR *&subpath, USIZE
 	return false;
 }
 
-Result<WpdIteratorState *, Error> WPD::BeginRootEnumeration()
+Result<WpdIteratorState *, Error> WPD::BeginRootEnumeration(
+	const WCHAR (*volumeLabels)[WPD_VOLUME_LABEL_CAP], UINT32 volumeLabelCount)
 {
 	auto sessionResult = CreateSession();
 	if (!sessionResult)
@@ -842,6 +884,19 @@ Result<WpdIteratorState *, Error> WPD::BeginRootEnumeration()
 	state->deviceCount = session->deviceCount;
 	session->deviceCount = 0;
 	state->deviceIndex = 0;
+	// Copy the volume-label skip set: the caller's stack frame (one Next() call)
+	// does not outlive the enumeration this state serves.
+	if (volumeLabels != nullptr)
+	{
+		if (volumeLabelCount > WPD_VOLUME_LABEL_MAX)
+			volumeLabelCount = WPD_VOLUME_LABEL_MAX;
+		for (UINT32 i = 0; i < volumeLabelCount; i++)
+		{
+			StringUtils::Copy(Span<WCHAR>(state->skipLabels[i]),
+				Span<const WCHAR>(volumeLabels[i], StringUtils::Length(volumeLabels[i])));
+			state->skipLabelCount++;
+		}
+	}
 	FreeSession(session);
 	return Result<WpdIteratorState *, Error>::Ok(state);
 }
