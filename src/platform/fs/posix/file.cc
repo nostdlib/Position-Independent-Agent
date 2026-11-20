@@ -106,10 +106,13 @@ Result<File, Error> File::Open(PCWCHAR path, INT32 flags)
 	if (flags & File::ModeAppend)
 		openFlags |= O_APPEND;
 
-	// 32-bit ABIs refuse >2 GiB files without this (EOVERFLOW) — the >4 GiB
-	// seek support would be unreachable on real 32-bit hardware otherwise.
-	// O_LARGEFILE is 0 (a no-op) on 64-bit ABIs.
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+	// 32-bit ABIs refuse >2 GiB files without O_LARGEFILE (EOVERFLOW) — the
+	// >4 GiB seek support would be unreachable on real 32-bit hardware
+	// otherwise. It is 0 (a no-op) on 64-bit ABIs, and only the Linux kernel
+	// headers define it (macOS/iOS/Solaris/FreeBSD keep it undefined here).
 	openFlags |= O_LARGEFILE;
+#endif
 
 	SSIZE fd;
 #if (defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID) || defined(PLATFORM_FREEBSD)) && (defined(ARCHITECTURE_AARCH64) || defined(ARCHITECTURE_RISCV64) || defined(ARCHITECTURE_RISCV32)) || defined(PLATFORM_SOLARIS)
