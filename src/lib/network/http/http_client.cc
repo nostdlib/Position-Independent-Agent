@@ -124,7 +124,7 @@ Result<VOID, Error> HttpClient::SendPostRequest(PCCHAR host, PCCHAR path, Span<c
 
 	// Convert data.Size() to string
 	CHAR lenStr[16];
-	StringUtils::UIntToStr((UINT32)data.Size(), Span<CHAR>(lenStr));
+	StringUtils::UIntToStr((UINT64)data.Size(), Span<CHAR>(lenStr));
 	ok = ok && writer.WriteString(lenStr) != nullptr;
 	ok = ok && writer.WriteString("\r\nConnection: close\r\n\r\n") != nullptr;
 	if (!ok)

@@ -24,7 +24,7 @@ static NOINLINE EFI_GUID MakeFileInfoGuid()
 // Helper: Query file size via EFI_FILE_INFO
 // =============================================================================
 
-static NOINLINE USIZE QueryFileSize(EFI_FILE_PROTOCOL &fp)
+static NOINLINE UINT64 QueryFileSize(EFI_FILE_PROTOCOL &fp)
 {
 	EFI_GUID fileInfoId = MakeFileInfoGuid();
 	USIZE infoSize = 0;
@@ -35,7 +35,7 @@ static NOINLINE USIZE QueryFileSize(EFI_FILE_PROTOCOL &fp)
 	EFI_CONTEXT *ctx = GetEfiContext();
 	EFI_BOOT_SERVICES *bs = ctx->SystemTable->BootServices;
 
-	USIZE size = 0;
+	UINT64 size = 0;
 	EFI_FILE_INFO *fileInfo = nullptr;
 	if (!EFI_ERROR_CHECK(bs->AllocatePool(EfiLoaderData, infoSize, (PVOID *)&fileInfo)))
 	{
@@ -82,7 +82,7 @@ static NOINLINE BOOL TruncateFile(EFI_FILE_PROTOCOL &fp)
 // --- Internal Constructor (trivial — never fails) ---
 // The WPD parameters exist only for the Windows build's signature (they are
 // defaulted at the call sites); UEFI has no portable-device stream state.
-File::File(PVOID handle, USIZE size, BOOL isWpd, PVOID wpdState)
+File::File(PVOID handle, UINT64 size, BOOL isWpd, PVOID wpdState)
 	: fileHandle(handle), fileSize(size)
 {
 	(void)isWpd;
@@ -132,7 +132,7 @@ Result<File, Error> File::Open(PCWCHAR path, INT32 flags)
 	}
 
 	// Query file size before constructing the File (keeps the constructor trivial)
-	USIZE size = QueryFileSize(*handle);
+	UINT64 size = QueryFileSize(*handle);
 
 	return Result<File, Error>::Ok(File((PVOID)handle, size));
 }
@@ -226,20 +226,20 @@ Result<UINT32, Error> File::Write(Span<const UINT8> buffer)
 	return Result<UINT32, Error>::Ok((UINT32)writeSize);
 }
 
-Result<USIZE, Error> File::GetOffset() const
+Result<UINT64, Error> File::GetOffset() const
 {
 	if (!IsValid())
-		return Result<USIZE, Error>::Err(Error::Fs_SeekFailed);
+		return Result<UINT64, Error>::Err(Error::Fs_SeekFailed);
 
 	EFI_FILE_PROTOCOL *fp = (EFI_FILE_PROTOCOL *)fileHandle;
 	UINT64 position = 0;
 	EFI_STATUS status = fp->GetPosition(fp, &position);
 	if (!EFI_ERROR_CHECK(status))
-		return Result<USIZE, Error>::Ok((USIZE)position);
-	return Result<USIZE, Error>::Err(Error::Uefi((UINT32)status), Error::Fs_SeekFailed);
+		return Result<UINT64, Error>::Ok(position);
+	return Result<UINT64, Error>::Err(Error::Uefi((UINT32)status), Error::Fs_SeekFailed);
 }
 
-Result<VOID, Error> File::SetOffset(USIZE absoluteOffset)
+Result<VOID, Error> File::SetOffset(UINT64 absoluteOffset)
 {
 	if (!IsValid())
 		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
@@ -251,7 +251,7 @@ Result<VOID, Error> File::SetOffset(USIZE absoluteOffset)
 	return Result<VOID, Error>::Err(Error::Uefi((UINT32)status), Error::Fs_SeekFailed);
 }
 
-Result<VOID, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
+Result<VOID, Error> File::MoveOffset(INT64 relativeAmount, OffsetOrigin origin)
 {
 	if (!IsValid())
 		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
@@ -273,14 +273,14 @@ Result<VOID, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
 		if (relativeAmount >= 0)
 			newPosition = currentPos + relativeAmount;
 		else
-			newPosition = (currentPos > (UINT64)(-relativeAmount)) ? currentPos + relativeAmount : 0;
+			newPosition = (currentPos > 0 - (UINT64)relativeAmount) ? currentPos + relativeAmount : 0;
 	}
 	break;
 	case OffsetOrigin::End:
 		if (relativeAmount >= 0)
 			newPosition = fileSize + relativeAmount;
 		else
-			newPosition = (fileSize > (UINT64)(-relativeAmount)) ? fileSize + relativeAmount : 0;
+			newPosition = (fileSize > 0 - (UINT64)relativeAmount) ? fileSize + relativeAmount : 0;
 		break;
 	default:
 		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);

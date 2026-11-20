@@ -488,6 +488,84 @@ private:
 			file.Close();
 		}
 
+		// Test 4: offsets past 4 GiB (32-bit regression). File offsets are
+		// 64-bit end to end; when they passed through USIZE (32 bits on
+		// i386/armv7a/mips) a seek past 4 GiB wrapped to a low offset and
+		// large-file downloads never terminated. The single write far past
+		// EOF leaves a sparse hole, so this costs one filesystem block, not
+		// 4 GiB of disk. Skipped on UEFI: FAT cannot hold files that large,
+		// so the far seek legitimately fails there.
+#if !defined(PLATFORM_UEFI)
+		{
+			constexpr UINT64 FarOffset = 0x100001000ull; // 4 GiB + 4 KiB
+			// Read+write: the marker is read back through the SAME handle
+			// (write-only mode would make the read-back an EBADF).
+			auto openResult = OpenTestFile(L"level1_dir2\\sparse_4gb_test.dat",
+											File::ModeCreate | File::ModeWrite | File::ModeRead | File::ModeTruncate);
+			if (!openResult)
+			{
+				LOG_ERROR("Failed to open sparse_4gb_test.dat for writing");
+				return false;
+			}
+			File &file = openResult.Value();
+
+			auto setResult = file.SetOffset(FarOffset);
+			if (!setResult)
+			{
+				LOG_ERROR("SetOffset(4 GiB + 4 KiB) failed (error: %e)", setResult.Error());
+				return false;
+			}
+			auto getResult = file.GetOffset();
+			if (!getResult || getResult.Value() != FarOffset)
+			{
+				LOG_ERROR("SetOffset(4 GiB + 4 KiB): GetOffset() returned %llu",
+						  getResult ? getResult.Value() : 0ull);
+				return false;
+			}
+
+			// Write a marker at the far offset and read it back through a
+			// fresh absolute seek — exactly the GetFileContent/GetFileChunkHash
+			// handler pattern the download loop drives.
+			auto data = "PIR64";
+			auto writeResult = file.Write(Span<const UINT8>((const UINT8 *)(const CHAR *)data, 5));
+			if (!writeResult)
+			{
+				LOG_ERROR("Write at 4 GiB + 4 KiB failed (error: %e)", writeResult.Error());
+				return false;
+			}
+			if (writeResult.Value() != 5)
+			{
+				LOG_ERROR("Write at 4 GiB + 4 KiB: wrote %llu bytes", (UINT64)writeResult.Value());
+				return false;
+			}
+
+			auto seekResult = file.SetOffset(FarOffset);
+			if (!seekResult)
+			{
+				LOG_ERROR("Re-SetOffset(4 GiB + 4 KiB) failed (error: %e)", seekResult.Error());
+				return false;
+			}
+			UINT8 farBuffer[5];
+			Memory::Zero(farBuffer, 5);
+			auto farRead = file.Read(Span<UINT8>(farBuffer));
+			if (!farRead || farRead.Value() != 5 || farBuffer[0] != 'P' || farBuffer[4] != '4')
+			{
+				LOG_ERROR("Read-back at 4 GiB + 4 KiB failed (%llu bytes)",
+						  farRead ? (UINT64)farRead.Value() : 0ull);
+				return false;
+			}
+			getResult = file.GetOffset();
+			if (!getResult || getResult.Value() != FarOffset + 5)
+			{
+				LOG_ERROR("GetOffset() after far read returned %llu",
+						  getResult ? getResult.Value() : 0ull);
+				return false;
+			}
+
+			file.Close();
+		}
+#endif // !PLATFORM_UEFI
+
 		return true;
 	}
 
@@ -1286,6 +1364,13 @@ private:
 			LOG_ERROR("Failed to delete offset_test.dat");
 			return false;
 		}
+#if !defined(PLATFORM_UEFI)
+		if (!RmFile(L"level1_dir2\\sparse_4gb_test.dat"))
+		{
+			LOG_ERROR("Failed to delete sparse_4gb_test.dat");
+			return false;
+		}
+#endif // !PLATFORM_UEFI
 		if (!RmFile(L"level1_dir3\\file3.txt"))
 		{
 			LOG_ERROR("Failed to delete file3.txt");
