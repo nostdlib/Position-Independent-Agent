@@ -310,7 +310,7 @@ VOID Handle_GetFileContentCommand(PCHAR command, USIZE commandLength, PPCHAR res
     LOG_INFO("File opened successfully: %ws", filePath);
 
     File &file = openResult.Value();
-    auto setOffsetResult = file.SetOffset((USIZE)offset);
+    auto setOffsetResult = file.SetOffset(offset);
     if (!setOffsetResult)
     {
         LOG_ERROR("Failed to set file offset: %llu, error: %e", offset, setOffsetResult.Error());
@@ -414,7 +414,7 @@ VOID Handle_GetFileChunkHashCommand(PCHAR command, USIZE commandLength, PPCHAR r
     {
         UINT64 bytesToRead = Math::Min(bufferSize, chunkSize - totalRead);
         LOG_INFO("Reading file chunk with offset: %llu and count: %llu.", offset + totalRead, bytesToRead);
-        auto setOffsetResult = file.SetOffset((USIZE)(offset + totalRead));
+        auto setOffsetResult = file.SetOffset(offset + totalRead);
 
         if (!setOffsetResult)
         {

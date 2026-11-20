@@ -7,7 +7,7 @@
 #include "platform/fs/windows/wpd.h"
 
 // --- Internal Constructor (trivial — never fails) ---
-File::File(PVOID handle, USIZE size, BOOL isWpd, PVOID wpdState)
+File::File(PVOID handle, UINT64 size, BOOL isWpd, PVOID wpdState)
 	: fileHandle(handle), fileSize(size), isWpd(isWpd), wpdState(wpdState) {}
 
 // --- Factory & Static Operations ---
@@ -28,7 +28,7 @@ Result<File, Error> File::Open(PCWCHAR path, INT32 flags)
 		auto streamResult = WPD::OpenStream(path, streamSize);
 		if (!streamResult)
 			return Result<File, Error>::Err(streamResult, Error::Fs_OpenFailed);
-		return Result<File, Error>::Ok(File(nullptr, (USIZE)streamSize, true, streamResult.Value()));
+		return Result<File, Error>::Ok(File(nullptr, streamSize, true, streamResult.Value()));
 	}
 
 	UINT32 dwDesiredAccess = 0;
@@ -95,7 +95,7 @@ Result<File, Error> File::Open(PCWCHAR path, INT32 flags)
 		return Result<File, Error>::Err(createResult, Error::Fs_OpenFailed);
 
 	// Query file size before constructing the File (keeps the constructor trivial)
-	USIZE size = 0;
+	UINT64 size = 0;
 	FILE_STANDARD_INFORMATION fileStandardInfo;
 	IO_STATUS_BLOCK sizeIoBlock;
 	Memory::Zero(&fileStandardInfo, sizeof(FILE_STANDARD_INFORMATION));
@@ -268,10 +268,10 @@ Result<UINT32, Error> File::Write(Span<const UINT8> buffer)
 	return Result<UINT32, Error>::Err(writeResult, Error::Fs_WriteFailed);
 }
 
-Result<USIZE, Error> File::GetOffset() const
+Result<UINT64, Error> File::GetOffset() const
 {
 	if (!IsValid())
-		return Result<USIZE, Error>::Err(Error::Fs_SeekFailed);
+		return Result<UINT64, Error>::Err(Error::Fs_SeekFailed);
 
 	// Portable-device stream: the position lives in the WPD stream state.
 	if (isWpd)
@@ -284,11 +284,11 @@ Result<USIZE, Error> File::GetOffset() const
 
 	auto queryResult = NTDLL::ZwQueryInformationFile((PVOID)fileHandle, &ioStatusBlock, &posFile, sizeof(posFile), FilePositionInformation);
 	if (queryResult)
-		return Result<USIZE, Error>::Ok((USIZE)posFile.CurrentByteOffset.QuadPart);
-	return Result<USIZE, Error>::Err(queryResult, Error::Fs_SeekFailed);
+		return Result<UINT64, Error>::Ok((UINT64)posFile.CurrentByteOffset.QuadPart);
+	return Result<UINT64, Error>::Err(queryResult, Error::Fs_SeekFailed);
 }
 
-Result<VOID, Error> File::SetOffset(USIZE absoluteOffset)
+Result<VOID, Error> File::SetOffset(UINT64 absoluteOffset)
 {
 	if (!IsValid())
 		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
@@ -309,7 +309,7 @@ Result<VOID, Error> File::SetOffset(USIZE absoluteOffset)
 	return Result<VOID, Error>::Err(setResult, Error::Fs_SeekFailed);
 }
 
-Result<VOID, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
+Result<VOID, Error> File::MoveOffset(INT64 relativeAmount, OffsetOrigin origin)
 {
 	if (!IsValid())
 		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
@@ -338,7 +338,7 @@ Result<VOID, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
 		INT64 target = base + relativeAmount;
 		if (target < 0)
 			return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
-		return WPD::StreamSeek((WpdStreamState *)wpdState, (USIZE)target);
+		return WPD::StreamSeek((WpdStreamState *)wpdState, (UINT64)target);
 	}
 
 	IO_STATUS_BLOCK ioStatusBlock;
