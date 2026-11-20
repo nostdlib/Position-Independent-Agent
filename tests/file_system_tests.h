@@ -567,6 +567,26 @@ private:
 			}
 
 			file.Close();
+
+			// Reopen and verify the OPEN-TIME size query: the cached size is
+			// FarOffset + 5, which wraps to 5 if any step of the probe chain
+			// (SEEK_END through the seek wrapper into the UINT64 member) still
+			// narrows through a 32-bit type.
+			auto reopenResult = OpenTestFile(L"level1_dir2\\sparse_4gb_test.dat", File::ModeRead);
+			if (!reopenResult)
+			{
+				LOG_ERROR("Failed to reopen sparse_4gb_test.dat for size check");
+				return false;
+			}
+			File &reopened = reopenResult.Value();
+			if (reopened.GetSize() != FarOffset + 5)
+			{
+				LOG_ERROR("Reopened >4 GiB file reports size %llu (expected %llu)",
+						  reopened.GetSize(), FarOffset + 5);
+				reopened.Close();
+				return false;
+			}
+			reopened.Close();
 		}
 #endif // !PLATFORM_UEFI
 
