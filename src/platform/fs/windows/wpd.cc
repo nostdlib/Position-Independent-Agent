@@ -211,6 +211,8 @@ struct WpdIteratorState
 	/// Begin time from the process device map, so it cannot dangle.
 	WpdSkipKey skipKeys[WPD_SKIP_KEY_MAX];
 	UINT32 skipKeyCount;               ///< Root phase: valid rows in skipKeys
+	UINT32 usbVolumeCount;             ///< Root phase: lettered volumes whose storage descriptor reports a USB bus
+	UINT32 volumePersonaCount;         ///< Root phase: personas whose id is a WPDBusEnum volume wrapper (swd#wpdbusenum#…)
 	IPortableDevice *device;           ///< Object phase: Open()'d device session
 	IPortableDeviceContent *content;   ///< Object phase: content interface
 	IPortableDeviceProperties *properties; ///< Object phase: property reader
@@ -799,6 +801,42 @@ static SSIZE MatchingSkipKey(WpdIteratorState *state, PCWCHAR deviceId)
 	return -1;
 }
 
+/// TRUE when the device id is a WPDBusEnum volume wrapper (swd#wpdbusenum#…)
+/// — the Portable Device Enumerator creates those ONLY as alternate faces of
+/// mounted mass-storage volumes. Real portable devices (MTP phones, cameras)
+/// enumerate on their own buses (usb#vid_…), never under swd#wpdbusenum.
+static BOOL IsVolumePersonaId(PCWCHAR deviceId)
+{
+	if (deviceId == nullptr)
+		return false;
+	// GetDevices ids carry the \\?\ device-interface prefix before the first #.
+	if (deviceId[0] == L'\\' && deviceId[1] == L'\\' && deviceId[2] == L'?' && deviceId[3] == L'\\')
+		deviceId += 4;
+	WCHAR segment[PORTABLE_IDENTITY_TEXT_CAP];
+	USIZE segmentCount = 0;
+	USIZE offset = 0;
+	while (deviceId[offset] != L'\0' && segmentCount < 2)
+	{
+		USIZE start = offset;
+		while (deviceId[offset] != L'\0' && deviceId[offset] != L'#')
+			offset++;
+		USIZE length = offset - start;
+		if (length >= PORTABLE_IDENTITY_TEXT_CAP)
+			length = PORTABLE_IDENTITY_TEXT_CAP - 1;
+		for (USIZE c = 0; c < length; c++)
+			segment[c] = deviceId[start + c];
+		segment[length] = L'\0';
+		if ((segmentCount == 0 && StringUtils::Compare(segment, L"swd", true))
+			|| (segmentCount == 1 && StringUtils::Compare(segment, L"wpdbusenum", true)))
+			segmentCount++;
+		else
+			return false;
+		if (deviceId[offset] == L'#')
+			offset++;
+	}
+	return segmentCount == 2;
+}
+
 /// Last-resort diagnostics: query the first physical drives directly (bus +
 /// inquiry strings) so the stick is identifiable even when every
 /// volume-to-disk mapping path failed.
@@ -1159,6 +1197,7 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 			LOG_DEBUG("WPD skip: %ws: bus %u not USB", root, descriptor.BusType);
 			continue;
 		}
+		state->usbVolumeCount++;
 
 		// Serial key: ASCII, NUL-terminated within the returned data; the
 		// returned length is the hard stop. Serials shorter than the identity
@@ -1237,12 +1276,18 @@ static VOID GuardAmbiguousKeys(WpdIteratorState *state)
 {
 	for (UINT32 device = 0; device < state->deviceCount; device++)
 	{
+		if (IsVolumePersonaId(state->deviceIds[device]))
+			state->volumePersonaCount++;
 		for (UINT32 i = 0; i < state->skipKeyCount; i++)
 		{
 			if (KeyInDeviceId(state->deviceIds[device], state->skipKeys[i].text, StringUtils::Length(state->skipKeys[i].text)))
 				state->skipKeys[i].personaCount++;
 		}
 	}
+	LOG_DEBUG("WPD skip: %u volume persona(s), %u usb lettered volume(s) -> wpdbusenum prefix skip %ws",
+		state->volumePersonaCount,
+		state->usbVolumeCount,
+		state->usbVolumeCount >= state->volumePersonaCount ? L"on" : L"off");
 	for (UINT32 i = 0; i < state->skipKeyCount; i++)
 	{
 		state->skipKeys[i].blocked = state->skipKeys[i].personaCount > state->skipKeys[i].volumeCount;
@@ -1262,11 +1307,14 @@ static Result<BOOL, Error> NextRootEntry(WpdIteratorState *state, DirectoryEntry
 		PCWCHAR deviceId = state->deviceIds[state->deviceIndex++];
 
 		// Same physical stick twice: its volume row (letter + serial) already
-		// covers it — skip the persona. An ambiguous key (more personas than
-		// lettered volumes of that identity) keeps the persona: some of those
-		// personas are letterless devices' only listing.
+		// covers it — skip the persona. Two routes: a carried identity key, or
+		// the WPDBusEnum wrapper prefix when enough USB lettered volumes exist
+		// to account for every wrapper persona. An ambiguous key (more
+		// personas than lettered volumes of that identity) keeps the persona:
+		// some of those personas are letterless devices' only listing.
 		SSIZE key = MatchingSkipKey(state, deviceId);
-		if (key >= 0 && !state->skipKeys[key].blocked)
+		if ((key >= 0 && !state->skipKeys[key].blocked)
+			|| (IsVolumePersonaId(deviceId) && state->usbVolumeCount >= state->volumePersonaCount))
 		{
 			LOG_DEBUG("WPD skip: persona %ws covered by its volume row", deviceId);
 			continue;
