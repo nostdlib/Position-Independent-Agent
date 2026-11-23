@@ -863,6 +863,68 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 			continue;
 		}
 
+		// Mount-manager unique id: the volume's persistent \??\Volume{guid}
+		// name. A WPD persona device id carries a {guid} segment — when it is
+		// this volume's guid, the persona IS this volume, exactly.
+		alignas(alignof(MOUNTDEV_UNIQUE_ID)) UINT8 uniqueIdBuffer[sizeof(MOUNTDEV_UNIQUE_ID) + 64 * sizeof(WCHAR)];
+		Memory::Zero(uniqueIdBuffer, sizeof(uniqueIdBuffer));
+		auto uniqueResult = NTDLL::ZwDeviceIoControlFile(
+			volumeHandle,
+			nullptr,
+			nullptr,
+			nullptr,
+			&ioStatusBlock,
+			IOCTL_MOUNTDEV_QUERY_UNIQUE_ID_NT,
+			nullptr,
+			0,
+			uniqueIdBuffer,
+			sizeof(uniqueIdBuffer) - sizeof(WCHAR));
+		if (uniqueResult)
+		{
+			const MOUNTDEV_UNIQUE_ID &unique = *(const MOUNTDEV_UNIQUE_ID *)uniqueIdBuffer;
+			USIZE uniqueChars = unique.UniqueIdLength / sizeof(WCHAR);
+			if (uniqueChars > 64)
+				uniqueChars = 64;
+			WCHAR uniqueText[65];
+			for (USIZE c = 0; c < uniqueChars; c++)
+				uniqueText[c] = unique.UniqueId[c];
+			uniqueText[uniqueChars] = L'\0';
+			LOG_DEBUG("WPD skip: %ws: mount unique id \"%ws\"", root, uniqueText);
+			const WCHAR *guidStart = uniqueText;
+			while (*guidStart != L'\0' && *guidStart != L'{')
+				guidStart++;
+			WCHAR guidKey[WPD_SKIP_KEY_CAP];
+			USIZE guidLength = NormalizeIdentity(
+				Span<const WCHAR>(guidStart, uniqueChars - (USIZE)(guidStart - uniqueText)),
+				Span<WCHAR>(guidKey));
+			if (guidLength >= PORTABLE_IDENTITY_MIN_SERIAL)
+				for (UINT32 device = 0; device < state->deviceCount; device++)
+					if (KeyInDeviceId(state->deviceIds[device], guidKey, guidLength))
+					{
+						LOG_DEBUG("WPD skip: %ws: persona %ws carries this volume's guid", root, state->deviceIds[device]);
+						// Keyed only on demonstrated carry — internal volumes
+						// whose guid names no persona never enter the table.
+						if (AddSkipKey(state, guidKey, guidLength))
+							LOG_DEBUG("WPD skip: %ws: guid key %ws", root, guidKey);
+					}
+		}
+		else
+			LOG_DEBUG("WPD skip: %ws: unique id query failed (0x%x)", root, (UINT32)uniqueResult.Error().Code);
+
+		// Volume serial of the lettered volume — the exact value the listing's
+		// drive row carries, so logs and rows can be paired up.
+		alignas(alignof(FILE_FS_VOLUME_INFORMATION)) UINT8 volumeInfoBuffer[sizeof(FILE_FS_VOLUME_INFORMATION) + 32 * sizeof(WCHAR)];
+		auto volumeResult = NTDLL::ZwQueryVolumeInformationFile(
+			volumeHandle,
+			&ioStatusBlock,
+			volumeInfoBuffer,
+			sizeof(volumeInfoBuffer),
+			FileFsVolumeInformation);
+		if (volumeResult || (UINT32)volumeResult.Error().Code == 0x80000005u)
+			LOG_DEBUG("WPD skip: %ws: volume serial 0x%x (%u)", root,
+				((const FILE_FS_VOLUME_INFORMATION *)volumeInfoBuffer)->VolumeSerialNumber,
+				((const FILE_FS_VOLUME_INFORMATION *)volumeInfoBuffer)->VolumeSerialNumber);
+
 		// Zeroed query = StorageDeviceProperty / PropertyStandardQuery; the
 		// descriptor's ASCII strings follow the fixed header in the same buffer.
 		STORAGE_PROPERTY_QUERY propertyQuery;
@@ -880,26 +942,92 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 			sizeof(propertyQuery),
 			descriptorBuffer,
 			sizeof(descriptorBuffer));
-
-		// Volume serial of the lettered volume — the exact value the listing's
-		// drive row carries, so logs and rows can be paired up.
-		alignas(alignof(FILE_FS_VOLUME_INFORMATION)) UINT8 volumeInfoBuffer[sizeof(FILE_FS_VOLUME_INFORMATION) + 32 * sizeof(WCHAR)];
-		auto volumeResult = NTDLL::ZwQueryVolumeInformationFile(
-			volumeHandle,
-			&ioStatusBlock,
-			volumeInfoBuffer,
-			sizeof(volumeInfoBuffer),
-			FileFsVolumeInformation);
-		if (volumeResult || (UINT32)volumeResult.Error().Code == 0x80000005u)
-			LOG_DEBUG("WPD skip: %ws: volume serial 0x%x (%u)", root,
-				((const FILE_FS_VOLUME_INFORMATION *)volumeInfoBuffer)->VolumeSerialNumber,
-				((const FILE_FS_VOLUME_INFORMATION *)volumeInfoBuffer)->VolumeSerialNumber);
-		(VOID)NTDLL::ZwClose(volumeHandle);
-
-		if (!queryResult)
+		if (queryResult)
 		{
-			LOG_DEBUG("WPD skip: %ws: storage descriptor query failed", root);
-			continue;
+			(VOID)NTDLL::ZwClose(volumeHandle);
+		}
+		else
+		{
+			// Volume stacks do not all forward descriptor queries; the disk
+			// handle answers them. Map the volume to its physical drive and
+			// ask there.
+			LOG_DEBUG("WPD skip: %ws: volume descriptor query failed (0x%x), trying PhysicalDrive",
+				root, (UINT32)queryResult.Error().Code);
+			STORAGE_DEVICE_NUMBER deviceNumber;
+			Memory::Zero(&deviceNumber, sizeof(deviceNumber));
+			auto numberResult = NTDLL::ZwDeviceIoControlFile(
+				volumeHandle,
+				nullptr,
+				nullptr,
+				nullptr,
+				&ioStatusBlock,
+				IOCTL_STORAGE_GET_DEVICE_NUMBER_NT,
+				nullptr,
+				0,
+				&deviceNumber,
+				sizeof(deviceNumber));
+			(VOID)NTDLL::ZwClose(volumeHandle);
+			if (!numberResult)
+			{
+				LOG_DEBUG("WPD skip: %ws: device number query failed (0x%x)", root, (UINT32)numberResult.Error().Code);
+				continue;
+			}
+			LOG_DEBUG("WPD skip: %ws: physical drive %u partition %u (device type %u)",
+				root, deviceNumber.DeviceNumber, deviceNumber.PartitionNumber, deviceNumber.DeviceType);
+			WCHAR dosPath[32] = L"\\\\.\\PhysicalDrive";
+			USIZE dosPathLength = 17;
+			WCHAR digits[8];
+			USIZE digitCount = 0;
+			UINT32 driveNumber = deviceNumber.DeviceNumber;
+			do
+			{
+				digits[digitCount++] = (WCHAR)(L'0' + driveNumber % 10);
+				driveNumber /= 10;
+			} while (driveNumber != 0 && digitCount < 8);
+			while (digitCount > 0)
+				dosPath[dosPathLength++] = digits[--digitCount];
+			dosPath[dosPathLength] = L'\0';
+			UNICODE_STRING diskPath;
+			if (!NTDLL::RtlDosPathNameToNtPathName_U(dosPath, &diskPath, nullptr, nullptr))
+			{
+				LOG_DEBUG("WPD skip: %ws: disk path conversion failed", root);
+				continue;
+			}
+			OBJECT_ATTRIBUTES diskAttr;
+			InitializeObjectAttributes(&diskAttr, &diskPath, OBJ_CASE_INSENSITIVE, nullptr, nullptr);
+			IO_STATUS_BLOCK diskIoStatusBlock;
+			PVOID diskHandle = nullptr;
+			auto diskOpen = NTDLL::ZwOpenFile(
+				&diskHandle,
+				FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+				&diskAttr,
+				&diskIoStatusBlock,
+				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+				FILE_SYNCHRONOUS_IO_NONALERT);
+			NTDLL::RtlFreeUnicodeString(&diskPath);
+			if (!diskOpen)
+			{
+				LOG_DEBUG("WPD skip: %ws: PhysicalDrive%u open failed (0x%x)",
+					root, deviceNumber.DeviceNumber, (UINT32)diskOpen.Error().Code);
+				continue;
+			}
+			queryResult = NTDLL::ZwDeviceIoControlFile(
+				diskHandle,
+				nullptr,
+				nullptr,
+				nullptr,
+				&diskIoStatusBlock,
+				IOCTL_STORAGE_QUERY_PROPERTY_NT,
+				&propertyQuery,
+				sizeof(propertyQuery),
+				descriptorBuffer,
+				sizeof(descriptorBuffer));
+			(VOID)NTDLL::ZwClose(diskHandle);
+			if (!queryResult)
+			{
+				LOG_DEBUG("WPD skip: %ws: disk descriptor query failed (0x%x)", root, (UINT32)queryResult.Error().Code);
+				continue;
+			}
 		}
 		const STORAGE_DEVICE_DESCRIPTOR &descriptor = *(const STORAGE_DEVICE_DESCRIPTOR *)descriptorBuffer;
 		USIZE returned = (USIZE)ioStatusBlock.Information;

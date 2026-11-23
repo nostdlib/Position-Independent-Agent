@@ -206,10 +206,42 @@ typedef struct _FILE_BOTH_DIR_INFORMATION
 } FILE_BOTH_DIR_INFORMATION, *PFILE_BOTH_DIR_INFORMATION;
 
 /// IOCTL_STORAGE_QUERY_PROPERTY — CTL_CODE(IOCTL_STORAGE_BASE 0x2D, 0x0500,
-/// METHOD_BUFFERED, FILE_ANY_ACCESS). Accepted on volume handles; returns the
-/// storage device descriptor of the disk backing the volume.
+/// METHOD_BUFFERED, FILE_ANY_ACCESS). Not forwarded by every volume stack;
+/// the PhysicalDrive handle (via IOCTL_STORAGE_GET_DEVICE_NUMBER) answers it
+/// where the volume handle does not.
 /// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddstor/ni-ntddstor-ioctl_storage_query_property
 constexpr UINT32 IOCTL_STORAGE_QUERY_PROPERTY_NT = 0x002D1400u;
+
+/// IOCTL_STORAGE_GET_DEVICE_NUMBER — CTL_CODE(IOCTL_STORAGE_BASE 0x2D, 0x0420,
+/// METHOD_BUFFERED, FILE_ANY_ACCESS). Accepted on volume handles; returns the
+/// number of the physical drive backing the volume (open
+/// \??\PhysicalDrive<Number> for queries the volume stack does not forward).
+/// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddstor/ni-ntddstor-ioctl_storage_get_device_number
+constexpr UINT32 IOCTL_STORAGE_GET_DEVICE_NUMBER_NT = 0x002D1080u;
+
+/// Output of IOCTL_STORAGE_GET_DEVICE_NUMBER.
+/// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddstor/ns-ntddstor-storage_device_number
+typedef struct _STORAGE_DEVICE_NUMBER
+{
+	UINT32 DeviceType;      ///< FILE_DEVICE_* of the device object (disk = 7)
+	UINT32 DeviceNumber;    ///< Physical drive number
+	UINT32 PartitionNumber; ///< Partition; (UINT32)-1 when not a partition
+} STORAGE_DEVICE_NUMBER, *PSTORAGE_DEVICE_NUMBER;
+
+/// IOCTL_MOUNTDEV_QUERY_UNIQUE_ID — CTL_CODE(MOUNTDEVCONTROLTYPE 0x4D, 1,
+/// METHOD_BUFFERED, FILE_ANY_ACCESS). Accepted on volume handles; returns the
+/// mount manager's persistent unique id — the \??\Volume{guid} name.
+/// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/mountdev/ni-mountdev-ioctl_mountdev_query_unique_id
+constexpr UINT32 IOCTL_MOUNTDEV_QUERY_UNIQUE_ID_NT = 0x004D0004u;
+
+/// Output of IOCTL_MOUNTDEV_QUERY_UNIQUE_ID: a counted wide string (not
+/// NUL-terminated) naming the volume's persistent identity.
+/// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/mountdev/ns-mountdev-mountdev_unique_id
+typedef struct _MOUNTDEV_UNIQUE_ID
+{
+	UINT16 UniqueIdLength; ///< Length of UniqueId in bytes
+	WCHAR UniqueId[1];     ///< Variable-length id ("\??\Volume{guid}")
+} MOUNTDEV_UNIQUE_ID, *PMOUNTDEV_UNIQUE_ID;
 
 /// Input for IOCTL_STORAGE_QUERY_PROPERTY. Zeroed fields select
 /// StorageDeviceProperty (0) with PropertyStandardQuery (0).
