@@ -205,6 +205,46 @@ typedef struct _FILE_BOTH_DIR_INFORMATION
 	WCHAR FileName[1];              ///< Variable-length long file name
 } FILE_BOTH_DIR_INFORMATION, *PFILE_BOTH_DIR_INFORMATION;
 
+/// IOCTL_STORAGE_QUERY_PROPERTY — CTL_CODE(IOCTL_STORAGE_BASE 0x2D, 0x0500,
+/// METHOD_BUFFERED, FILE_ANY_ACCESS). Accepted on volume handles; returns the
+/// storage device descriptor of the disk backing the volume.
+/// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddstor/ni-ntddstor-ioctl_storage_query_property
+constexpr UINT32 IOCTL_STORAGE_QUERY_PROPERTY_NT = 0x002D1400u;
+
+/// Input for IOCTL_STORAGE_QUERY_PROPERTY. Zeroed fields select
+/// StorageDeviceProperty (0) with PropertyStandardQuery (0).
+/// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddstor/ns-ntddstor-_storage_property_query
+typedef struct _STORAGE_PROPERTY_QUERY
+{
+	UINT32 PropertyId;               ///< STORAGE_PROPERTY_ID: 0 = StorageDeviceProperty
+	UINT32 QueryType;                ///< STORAGE_QUERY_TYPE: 0 = PropertyStandardQuery
+	UINT8 AdditionalParameters[1];   ///< Space for property-specific input (unused here)
+} STORAGE_PROPERTY_QUERY, *PSTORAGE_PROPERTY_QUERY;
+
+/// Storage device descriptor returned by IOCTL_STORAGE_QUERY_PROPERTY.
+/// Variable length: the vendor/product/serial strings are ASCII,
+/// NUL-terminated, addressed by byte offsets from the start of this structure
+/// (0 = field not reported). Only SerialNumberOffset is consumed — the
+/// hardware serial also appears in the PnP device id of the same device,
+/// which keys the root listing's portable-device dedupe.
+/// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddstor/ns-ntddstor-_storage_device_descriptor
+typedef struct _STORAGE_DEVICE_DESCRIPTOR
+{
+	UINT32 Version;              ///< Structure version (sizeof of this version)
+	UINT32 Size;                 ///< Total size the descriptor requires
+	UINT8 DeviceType;            ///< SCSI device type (0 = disk)
+	UINT8 DeviceTypeModifier;    ///< SCSI device-type modifier (0 when none)
+	UINT8 RemovableMedia;        ///< TRUE when the media is removable
+	UINT8 CommandQueueing;       ///< TRUE when the device supports tagged command queueing
+	UINT32 VendorIdOffset;       ///< Byte offset of the ASCII vendor string (0 = absent)
+	UINT32 ProductIdOffset;      ///< Byte offset of the ASCII product string (0 = absent)
+	UINT32 ProductRevisionOffset; ///< Byte offset of the ASCII revision string (0 = absent)
+	UINT32 SerialNumberOffset;   ///< Byte offset of the ASCII serial string (0 = absent)
+	UINT32 BusType;              ///< STORAGE_BUS_TYPE (7 = USB)
+	UINT32 RawPropertiesLength;  ///< Length of the trailing raw device properties
+	UINT8 RawDeviceProperties[1]; ///< Variable-length trailing data; the ASCII strings sit in here
+} STORAGE_DEVICE_DESCRIPTOR, *PSTORAGE_DEVICE_DESCRIPTOR;
+
 /**
  * @brief Identifies the type of file information to query or set.
  *

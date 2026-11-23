@@ -1,6 +1,7 @@
 #include "platform/fs/windows/wpd.h"
 #include "platform/kernel/windows/com.h"
 #include "platform/kernel/windows/peb.h"
+#include "platform/kernel/windows/ntdll.h"
 #include "core/algorithms/djb2.h"
 #include "core/string/string.h"
 #include "core/memory/memory.h"
@@ -192,6 +193,12 @@ struct WpdIteratorState
 	WCHAR **deviceIds;                 ///< Root phase: PnP device ids (CoTaskMem strings)
 	UINT32 deviceCount;                ///< Root phase: number of deviceIds
 	UINT32 deviceIndex;                ///< Root phase: next device to emit
+	/// Root phase: normalized hardware serials of mounted REMOVABLE volumes —
+	/// a device whose PnP id carries one is that volume's WPD persona (the
+	/// same stick listed twice) and is skipped. Built at Begin time from the
+	/// process device map, so it cannot dangle.
+	WCHAR skipSerials[WPD_SKIP_SERIAL_MAX][WPD_SKIP_SERIAL_CAP];
+	UINT32 skipSerialCount;            ///< Root phase: valid rows in skipSerials
 	IPortableDevice *device;           ///< Object phase: Open()'d device session
 	IPortableDeviceContent *content;   ///< Object phase: content interface
 	IPortableDeviceProperties *properties; ///< Object phase: property reader
@@ -674,6 +681,155 @@ static BOOL FetchFriendlyName(IPortableDeviceManager *manager, PCWCHAR deviceId,
 	return true;
 }
 
+/// Folds an identity string into its canonical matching form: uppercases and
+/// keeps only [0-9A-Z]. Descriptor serials arrive space-padded ASCII, PnP ids
+/// arrive mixed-case WCHAR with separators, while the underlying hardware
+/// serial is the same alphanumeric run in both — the same fold on both sides
+/// makes the match symmetric. Output is always NUL-terminated.
+template <TCHAR TSource>
+static USIZE NormalizeIdentity(Span<const TSource> text, Span<WCHAR> out)
+{
+	if (!out.Data() || out.Size() == 0)
+		return 0;
+	USIZE length = 0;
+	for (USIZE i = 0; i < text.Size() && length + 1 < out.Size(); i++)
+	{
+		WCHAR c = StringUtils::ToUpperCase((WCHAR)text[i]);
+		if ((c >= L'0' && c <= L'9') || (c >= L'A' && c <= L'Z'))
+			out[length++] = c;
+	}
+	out[length] = L'\0';
+	return length;
+}
+
+/// TRUE when a normalized volume serial sits inside ONE #-delimited segment
+/// of a PnP device id (usb#vid_x&pid_y#SERIAL#{guid}). Segment boundaries are
+/// hard stops, so a serial's characters spanning a boundary — or hiding
+/// inside the interface-GUID segment — never match; that is what keeps an
+/// unrelated volume's serial from hiding someone else's device.
+static BOOL SerialInDeviceId(PCWCHAR deviceId, const WCHAR *serial, USIZE serialLength)
+{
+	if (deviceId == nullptr || serial == nullptr || serialLength == 0)
+		return false;
+	USIZE offset = 0;
+	while (deviceId[offset] != L'\0')
+	{
+		USIZE start = offset;
+		while (deviceId[offset] != L'\0' && deviceId[offset] != L'#')
+			offset++;
+		WCHAR segment[PORTABLE_IDENTITY_TEXT_CAP];
+		USIZE segmentLength = NormalizeIdentity(Span<const WCHAR>(deviceId + start, offset - start), Span<WCHAR>(segment));
+		if (segmentLength >= serialLength
+			&& StringUtils::IndexOf(Span<const WCHAR>(segment, segmentLength), Span<const WCHAR>(serial, serialLength)) >= 0)
+			return true;
+		if (deviceId[offset] == L'#')
+			offset++;
+	}
+	return false;
+}
+
+/// TRUE when the device is the WPD persona of a mounted REMOVABLE volume —
+/// Windows exposes some sticks both as a volume (drive letter) and as a
+/// portable device, and the volume row already lists those.
+static BOOL MatchesVolumePersona(WpdIteratorState *state, PCWCHAR deviceId)
+{
+	for (UINT32 i = 0; i < state->skipSerialCount; i++)
+		if (SerialInDeviceId(deviceId, state->skipSerials[i], StringUtils::Length(state->skipSerials[i])))
+			return true;
+	return false;
+}
+
+/// Fills the skip set with the normalized hardware serials of mounted
+/// REMOVABLE volumes (IOCTL_STORAGE_QUERY_PROPERTY on each volume root).
+/// Best-effort per drive: a failed or serial-less query contributes nothing,
+/// so the worst outcome is a duplicate listed, never a device hidden. Phones
+/// never match — MTP storage gets no drive letter, so no row carries theirs.
+static VOID CollectVolumeSerials(WpdIteratorState *state)
+{
+	PROCESS_DEVICEMAP_INFORMATION devMapInfo;
+	Memory::Zero(&devMapInfo, sizeof(devMapInfo));
+	auto mapResult = NTDLL::ZwQueryInformationProcess(
+		NTDLL::NtCurrentProcess(),
+		ProcessDeviceMap,
+		&devMapInfo.Query,
+		sizeof(devMapInfo.Query),
+		nullptr);
+	if (!mapResult)
+		return;
+
+	for (INT32 i = 0; i < 26 && state->skipSerialCount < WPD_SKIP_SERIAL_MAX; i++)
+	{
+		if ((devMapInfo.Query.DriveMap & (1 << i)) == 0
+			|| devMapInfo.Query.DriveType[i] != DRIVE_REMOVABLE)
+			continue;
+
+		// Open "X:\" for the storage property query (FILE_READ_ATTRIBUTES is
+		// sufficient; the share flags mirror the volume-serial query).
+		const WCHAR root[] = {(WCHAR)(L'A' + i), L':', L'\\', L'\0'};
+		UNICODE_STRING ntPath;
+		if (!NTDLL::RtlDosPathNameToNtPathName_U(root, &ntPath, nullptr, nullptr))
+			continue;
+		OBJECT_ATTRIBUTES objAttr;
+		InitializeObjectAttributes(&objAttr, &ntPath, OBJ_CASE_INSENSITIVE, nullptr, nullptr);
+		PVOID volumeHandle = nullptr;
+		IO_STATUS_BLOCK ioStatusBlock;
+		auto openResult = NTDLL::ZwOpenFile(
+			&volumeHandle,
+			FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+			&objAttr,
+			&ioStatusBlock,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+			FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
+		NTDLL::RtlFreeUnicodeString(&ntPath);
+		if (!openResult)
+			continue;
+
+		// Zeroed query = StorageDeviceProperty / PropertyStandardQuery; the
+		// descriptor's ASCII strings follow the fixed header in the same buffer.
+		STORAGE_PROPERTY_QUERY propertyQuery;
+		Memory::Zero(&propertyQuery, sizeof(propertyQuery));
+		alignas(alignof(STORAGE_DEVICE_DESCRIPTOR)) UINT8 descriptorBuffer[2048];
+		Memory::Zero(descriptorBuffer, sizeof(descriptorBuffer));
+		auto queryResult = NTDLL::ZwDeviceIoControlFile(
+			volumeHandle,
+			nullptr,
+			nullptr,
+			nullptr,
+			&ioStatusBlock,
+			IOCTL_STORAGE_QUERY_PROPERTY_NT,
+			&propertyQuery,
+			sizeof(propertyQuery),
+			descriptorBuffer,
+			sizeof(descriptorBuffer));
+		(VOID)NTDLL::ZwClose(volumeHandle);
+
+		if (!queryResult)
+			continue;
+		const STORAGE_DEVICE_DESCRIPTOR &descriptor = *(const STORAGE_DEVICE_DESCRIPTOR *)descriptorBuffer;
+		USIZE returned = (USIZE)ioStatusBlock.Information;
+		if (returned < sizeof(STORAGE_DEVICE_DESCRIPTOR)
+			|| descriptor.SerialNumberOffset < sizeof(STORAGE_DEVICE_DESCRIPTOR)
+			|| descriptor.SerialNumberOffset >= returned)
+			continue;
+
+		// ASCII, NUL-terminated within the returned data; the returned length
+		// is the hard stop. Serials shorter than the identity minimum are
+		// noise (SCSI inquiry padding) and never key a skip.
+		const CHAR *serial = (const CHAR *)(descriptorBuffer + descriptor.SerialNumberOffset);
+		USIZE limit = returned - descriptor.SerialNumberOffset;
+		USIZE serialLength = 0;
+		while (serialLength < limit && serial[serialLength] != '\0')
+			serialLength++;
+		WCHAR normalized[WPD_SKIP_SERIAL_CAP];
+		if (NormalizeIdentity(Span<const CHAR>(serial, serialLength), Span<WCHAR>(normalized)) >= PORTABLE_IDENTITY_MIN_SERIAL)
+		{
+			StringUtils::Copy(Span<WCHAR>(state->skipSerials[state->skipSerialCount]),
+				Span<const WCHAR>(normalized, StringUtils::Length(normalized)));
+			state->skipSerialCount++;
+		}
+	}
+}
+
 /// Emits the next root-listing device entry (manager phase).
 static Result<BOOL, Error> NextRootEntry(WpdIteratorState *state, DirectoryEntry &out)
 {
@@ -681,6 +837,12 @@ static Result<BOOL, Error> NextRootEntry(WpdIteratorState *state, DirectoryEntry
 		return Result<BOOL, Error>::Ok(false);
 
 	PCWCHAR deviceId = state->deviceIds[state->deviceIndex++];
+
+	// Same physical stick twice: its volume row (letter + serial) already
+	// covers it — skip the persona.
+	if (MatchesVolumePersona(state, deviceId))
+		return NextRootEntry(state, out);
+
 	UINT64 token = Djb2::Hash(deviceId);
 
 	WCHAR friendly[128];
@@ -842,6 +1004,7 @@ Result<WpdIteratorState *, Error> WPD::BeginRootEnumeration()
 	state->deviceCount = session->deviceCount;
 	session->deviceCount = 0;
 	state->deviceIndex = 0;
+	CollectVolumeSerials(state);
 	FreeSession(session);
 	return Result<WpdIteratorState *, Error>::Ok(state);
 }
