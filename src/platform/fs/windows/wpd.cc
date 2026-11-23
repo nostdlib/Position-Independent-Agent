@@ -6,6 +6,7 @@
 #include "core/string/string.h"
 #include "core/memory/memory.h"
 #include "platform/console/logger.h"
+#include "platform/fs/portable_device_id.h"
 
 // =============================================================================
 // GUID/PROPERTYKEY factories — one NOINLINE stack-build factory per constant
@@ -729,33 +730,6 @@ typedef struct _STORAGE_DEVICE_DESCRIPTOR
 
 static_assert(sizeof(STORAGE_PROPERTY_QUERY) == 12, "packed input is rejected by volume stacks — see the comment above");
 static_assert(sizeof(STORAGE_DEVICE_DESCRIPTOR) == 40, "BusType reads at offset 28 in this layout");
-
-/// TRUE when the device id is a WPDBusEnum volume wrapper: that enumerator
-/// (swd\wpdbusenum) creates devices as alternate faces of mounted
-/// mass-storage volumes (hardware-validated for volume wrappers on Win11
-/// 26300; whether any other device class ever appears there is unvalidated).
-/// The wrapper id carries an opaque {guid} — no serial, no inquiry identity —
-/// so the enumerator prefix is the discriminator. Portable devices are
-/// expected on their own buses (usb#vid_…); one appearing under wpdbusenum
-/// too would merely inflate the persona count, which safely turns the skip
-/// OFF (a duplicate listed, never a device hidden).
-static BOOL IsVolumePersonaId(PCWCHAR deviceId)
-{
-	if (deviceId == nullptr)
-		return false;
-	// GetDevices ids carry the \\?\ device-interface prefix; strip it so the
-	// check is exactly "the first two #-segments name swd and wpdbusenum".
-	if (deviceId[0] == L'\\' && deviceId[1] == L'\\' && deviceId[2] == L'?' && deviceId[3] == L'\\')
-		deviceId += 4;
-	const WCHAR prefix[] = L"swd#wpdbusenum";
-	USIZE i = 0;
-	for (; prefix[i] != L'\0'; i++)
-		if (deviceId[i] == L'\0' || StringUtils::ToLowerCase(deviceId[i]) != prefix[i])
-			return false;
-	// The next character must end the wpdbusenum segment — a longer segment
-	// ("wpdbusenumfoo") is a different enumerator.
-	return deviceId[i] == L'#' || deviceId[i] == L'\0';
-}
 
 /// Counts the personas that are WPDBusEnum volume wrappers — pure string
 /// compares over the GetDevices id list, no syscalls. Runs FIRST: when no
