@@ -909,6 +909,7 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 		else
 		{
 			const CHAR *serial = (const CHAR *)(descriptorBuffer + descriptor.SerialNumberOffset);
+			LOG_DEBUG("WPD skip: %ws: raw serial \"%s\" (%llu chars)", root, serial, (UINT64)serialLength);
 			WCHAR normalized[WPD_SKIP_KEY_CAP];
 			if (NormalizeIdentity(Span<const CHAR>(serial, serialLength), Span<WCHAR>(normalized)) >= PORTABLE_IDENTITY_MIN_SERIAL)
 			{
@@ -927,6 +928,15 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 		// optional — a key without it still nests inside the id's segment.
 		USIZE vendorLength = DescriptorTextLength(descriptorBuffer, returned, descriptor.VendorIdOffset);
 		USIZE productLength = DescriptorTextLength(descriptorBuffer, returned, descriptor.ProductIdOffset);
+		USIZE revisionLength = DescriptorTextLength(descriptorBuffer, returned, descriptor.ProductRevisionOffset);
+		LOG_DEBUG("WPD skip: %ws: inquiry ven=\"%s\" (%llu) prod=\"%s\" (%llu) rev=\"%s\" (%llu)",
+			root,
+			vendorLength != 0 ? (const CHAR *)(descriptorBuffer + descriptor.VendorIdOffset) : "",
+			(UINT64)vendorLength,
+			productLength != 0 ? (const CHAR *)(descriptorBuffer + descriptor.ProductIdOffset) : "",
+			(UINT64)productLength,
+			revisionLength != 0 ? (const CHAR *)(descriptorBuffer + descriptor.ProductRevisionOffset) : "",
+			(UINT64)revisionLength);
 		if (vendorLength == 0 || productLength == 0)
 		{
 			LOG_DEBUG("WPD skip: %ws: no inquiry identity", root);
@@ -938,7 +948,6 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 		rawLength = AppendAscii(Span<CHAR>(raw), rawLength, (const CHAR *)(descriptorBuffer + descriptor.VendorIdOffset), vendorLength);
 		rawLength = AppendAscii(Span<CHAR>(raw), rawLength, "PROD", 4);
 		rawLength = AppendAscii(Span<CHAR>(raw), rawLength, (const CHAR *)(descriptorBuffer + descriptor.ProductIdOffset), productLength);
-		USIZE revisionLength = DescriptorTextLength(descriptorBuffer, returned, descriptor.ProductRevisionOffset);
 		if (revisionLength != 0)
 		{
 			rawLength = AppendAscii(Span<CHAR>(raw), rawLength, "REV", 3);
