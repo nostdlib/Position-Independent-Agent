@@ -799,6 +799,84 @@ static SSIZE MatchingSkipKey(WpdIteratorState *state, PCWCHAR deviceId)
 	return -1;
 }
 
+/// Last-resort diagnostics: query the first physical drives directly (bus +
+/// inquiry strings) so the stick is identifiable even when every
+/// volume-to-disk mapping path failed.
+static VOID SweepPhysicalDrives()
+{
+	for (UINT32 drive = 0; drive < 4; drive++)
+	{
+		WCHAR dosPath[32] = L"\\\\.\\PhysicalDrive";
+		USIZE dosPathLength = 17;
+		WCHAR digits[8];
+		USIZE digitCount = 0;
+		UINT32 value = drive;
+		do
+		{
+			digits[digitCount++] = (WCHAR)(L'0' + value % 10);
+			value /= 10;
+		} while (value != 0 && digitCount < 8);
+		while (digitCount > 0)
+			dosPath[dosPathLength++] = digits[--digitCount];
+		dosPath[dosPathLength] = L'\0';
+		UNICODE_STRING diskPath;
+		if (!NTDLL::RtlDosPathNameToNtPathName_U(dosPath, &diskPath, nullptr, nullptr))
+			continue;
+		OBJECT_ATTRIBUTES diskAttr;
+		InitializeObjectAttributes(&diskAttr, &diskPath, OBJ_CASE_INSENSITIVE, nullptr, nullptr);
+		IO_STATUS_BLOCK diskIoStatusBlock;
+		PVOID diskHandle = nullptr;
+		auto diskOpen = NTDLL::ZwOpenFile(
+			&diskHandle,
+			FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+			&diskAttr,
+			&diskIoStatusBlock,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+			FILE_SYNCHRONOUS_IO_NONALERT);
+		NTDLL::RtlFreeUnicodeString(&diskPath);
+		if (!diskOpen)
+		{
+			LOG_DEBUG("WPD sweep: PhysicalDrive%u open failed (0x%x)", drive, (UINT32)diskOpen.Error().Code);
+			continue;
+		}
+		STORAGE_PROPERTY_QUERY propertyQuery;
+		Memory::Zero(&propertyQuery, sizeof(propertyQuery));
+		alignas(alignof(STORAGE_DEVICE_DESCRIPTOR)) UINT8 descriptorBuffer[2048];
+		Memory::Zero(descriptorBuffer, sizeof(descriptorBuffer));
+		auto queryResult = NTDLL::ZwDeviceIoControlFile(
+			diskHandle,
+			nullptr,
+			nullptr,
+			nullptr,
+			&diskIoStatusBlock,
+			IOCTL_STORAGE_QUERY_PROPERTY_NT,
+			&propertyQuery,
+			sizeof(propertyQuery),
+			descriptorBuffer,
+			sizeof(descriptorBuffer));
+		(VOID)NTDLL::ZwClose(diskHandle);
+		if (!queryResult)
+		{
+			LOG_DEBUG("WPD sweep: PhysicalDrive%u descriptor query failed (0x%x)", drive, (UINT32)queryResult.Error().Code);
+			continue;
+		}
+		const STORAGE_DEVICE_DESCRIPTOR &descriptor = *(const STORAGE_DEVICE_DESCRIPTOR *)descriptorBuffer;
+		USIZE returned = (USIZE)diskIoStatusBlock.Information;
+		if (returned < sizeof(STORAGE_DEVICE_DESCRIPTOR))
+			continue;
+		USIZE vendorLength = DescriptorTextLength(descriptorBuffer, returned, descriptor.VendorIdOffset);
+		USIZE productLength = DescriptorTextLength(descriptorBuffer, returned, descriptor.ProductIdOffset);
+		USIZE serialLength = DescriptorTextLength(descriptorBuffer, returned, descriptor.SerialNumberOffset);
+		LOG_DEBUG("WPD sweep: PhysicalDrive%u: bus=%u removable=%u ven=\"%s\" prod=\"%s\" serial=\"%s\"",
+			drive,
+			descriptor.BusType,
+			(UINT32)descriptor.RemovableMedia,
+			vendorLength != 0 ? (const CHAR *)(descriptorBuffer + descriptor.VendorIdOffset) : "",
+			productLength != 0 ? (const CHAR *)(descriptorBuffer + descriptor.ProductIdOffset) : "",
+			serialLength != 0 ? (const CHAR *)(descriptorBuffer + descriptor.SerialNumberOffset) : "");
+	}
+}
+
 /// Fills the skip table with the dedupe keys of mounted volumes
 /// (IOCTL_STORAGE_QUERY_PROPERTY on each lettered volume root): the
 /// normalized hardware serial when the descriptor reports one, and always
@@ -863,13 +941,56 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 			continue;
 		}
 
+		// Volume serial of the lettered volume — the exact value the listing's
+		// drive row carries, so logs and rows can be paired up. FS queries want
+		// the root-directory handle "X:\"; the IOCTLs below want the volume
+		// DEVICE handle "X:" — mixing them is STATUS_INVALID_PARAMETER.
+		alignas(alignof(FILE_FS_VOLUME_INFORMATION)) UINT8 volumeInfoBuffer[sizeof(FILE_FS_VOLUME_INFORMATION) + 32 * sizeof(WCHAR)];
+		auto volumeResult = NTDLL::ZwQueryVolumeInformationFile(
+			volumeHandle,
+			&ioStatusBlock,
+			volumeInfoBuffer,
+			sizeof(volumeInfoBuffer),
+			FileFsVolumeInformation);
+		if (volumeResult || (UINT32)volumeResult.Error().Code == 0x80000005u)
+			LOG_DEBUG("WPD skip: %ws: volume serial 0x%x (%u)", root,
+				((const FILE_FS_VOLUME_INFORMATION *)volumeInfoBuffer)->VolumeSerialNumber,
+				((const FILE_FS_VOLUME_INFORMATION *)volumeInfoBuffer)->VolumeSerialNumber);
+		(VOID)NTDLL::ZwClose(volumeHandle);
+
+		// Open the volume device object: the bare "X:" link, no trailing
+		// backslash and no FILE_DIRECTORY_FILE — storage/mountdev IOCTLs
+		// reject root-directory handles with STATUS_INVALID_PARAMETER.
+		WCHAR bare[8] = L"\\??\\A:";
+		bare[4] = (WCHAR)(L'A' + i);
+		UNICODE_STRING barePath;
+		barePath.Buffer = bare;
+		barePath.Length = 6 * sizeof(WCHAR);
+		barePath.MaximumLength = sizeof(bare);
+		OBJECT_ATTRIBUTES bareAttr;
+		InitializeObjectAttributes(&bareAttr, &barePath, OBJ_CASE_INSENSITIVE, nullptr, nullptr);
+		PVOID deviceHandle = nullptr;
+		auto bareOpen = NTDLL::ZwOpenFile(
+			&deviceHandle,
+			FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+			&bareAttr,
+			&ioStatusBlock,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+			FILE_SYNCHRONOUS_IO_NONALERT);
+		if (!bareOpen)
+		{
+			LOG_DEBUG("WPD skip: %ws: volume device open failed (0x%x)", root, (UINT32)bareOpen.Error().Code);
+			SweepPhysicalDrives();
+			continue;
+		}
+
 		// Mount-manager unique id: the volume's persistent \??\Volume{guid}
 		// name. A WPD persona device id carries a {guid} segment — when it is
 		// this volume's guid, the persona IS this volume, exactly.
 		alignas(alignof(MOUNTDEV_UNIQUE_ID)) UINT8 uniqueIdBuffer[sizeof(MOUNTDEV_UNIQUE_ID) + 64 * sizeof(WCHAR)];
 		Memory::Zero(uniqueIdBuffer, sizeof(uniqueIdBuffer));
 		auto uniqueResult = NTDLL::ZwDeviceIoControlFile(
-			volumeHandle,
+			deviceHandle,
 			nullptr,
 			nullptr,
 			nullptr,
@@ -911,20 +1032,6 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 		else
 			LOG_DEBUG("WPD skip: %ws: unique id query failed (0x%x)", root, (UINT32)uniqueResult.Error().Code);
 
-		// Volume serial of the lettered volume — the exact value the listing's
-		// drive row carries, so logs and rows can be paired up.
-		alignas(alignof(FILE_FS_VOLUME_INFORMATION)) UINT8 volumeInfoBuffer[sizeof(FILE_FS_VOLUME_INFORMATION) + 32 * sizeof(WCHAR)];
-		auto volumeResult = NTDLL::ZwQueryVolumeInformationFile(
-			volumeHandle,
-			&ioStatusBlock,
-			volumeInfoBuffer,
-			sizeof(volumeInfoBuffer),
-			FileFsVolumeInformation);
-		if (volumeResult || (UINT32)volumeResult.Error().Code == 0x80000005u)
-			LOG_DEBUG("WPD skip: %ws: volume serial 0x%x (%u)", root,
-				((const FILE_FS_VOLUME_INFORMATION *)volumeInfoBuffer)->VolumeSerialNumber,
-				((const FILE_FS_VOLUME_INFORMATION *)volumeInfoBuffer)->VolumeSerialNumber);
-
 		// Zeroed query = StorageDeviceProperty / PropertyStandardQuery; the
 		// descriptor's ASCII strings follow the fixed header in the same buffer.
 		STORAGE_PROPERTY_QUERY propertyQuery;
@@ -932,7 +1039,7 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 		alignas(alignof(STORAGE_DEVICE_DESCRIPTOR)) UINT8 descriptorBuffer[2048];
 		Memory::Zero(descriptorBuffer, sizeof(descriptorBuffer));
 		auto queryResult = NTDLL::ZwDeviceIoControlFile(
-			volumeHandle,
+			deviceHandle,
 			nullptr,
 			nullptr,
 			nullptr,
@@ -944,7 +1051,7 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 			sizeof(descriptorBuffer));
 		if (queryResult)
 		{
-			(VOID)NTDLL::ZwClose(volumeHandle);
+			(VOID)NTDLL::ZwClose(deviceHandle);
 		}
 		else
 		{
@@ -956,7 +1063,7 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 			STORAGE_DEVICE_NUMBER deviceNumber;
 			Memory::Zero(&deviceNumber, sizeof(deviceNumber));
 			auto numberResult = NTDLL::ZwDeviceIoControlFile(
-				volumeHandle,
+				deviceHandle,
 				nullptr,
 				nullptr,
 				nullptr,
@@ -966,10 +1073,11 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 				0,
 				&deviceNumber,
 				sizeof(deviceNumber));
-			(VOID)NTDLL::ZwClose(volumeHandle);
+			(VOID)NTDLL::ZwClose(deviceHandle);
 			if (!numberResult)
 			{
 				LOG_DEBUG("WPD skip: %ws: device number query failed (0x%x)", root, (UINT32)numberResult.Error().Code);
+				SweepPhysicalDrives();
 				continue;
 			}
 			LOG_DEBUG("WPD skip: %ws: physical drive %u partition %u (device type %u)",
@@ -1016,7 +1124,7 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 				nullptr,
 				nullptr,
 				nullptr,
-				&diskIoStatusBlock,
+				&ioStatusBlock,
 				IOCTL_STORAGE_QUERY_PROPERTY_NT,
 				&propertyQuery,
 				sizeof(propertyQuery),
