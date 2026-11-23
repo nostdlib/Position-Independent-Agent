@@ -763,8 +763,11 @@ static UINT32 CountVolumePersonas(WCHAR **deviceIds, UINT32 deviceCount)
 {
 	UINT32 count = 0;
 	for (UINT32 device = 0; device < deviceCount; device++)
+	{
+		LOG_DEBUG("WPD device[%u]: %ws", device, deviceIds[device]);
 		if (IsVolumePersonaId(deviceIds[device]))
 			count++;
+	}
 	return count;
 }
 
@@ -869,6 +872,7 @@ static UINT32 CountUsbLetteredVolumes(UINT32 volumePersonaCount)
 		if ((USIZE)ioStatusBlock.Information < sizeof(STORAGE_DEVICE_DESCRIPTOR))
 			continue;
 		const STORAGE_DEVICE_DESCRIPTOR &descriptor = *(const STORAGE_DEVICE_DESCRIPTOR *)descriptorBuffer;
+		LOG_DEBUG("WPD skip: %ws: bus %u removable %u", bare, descriptor.BusType, (UINT32)descriptor.RemovableMedia);
 		if (descriptor.BusType == BusTypeUsb && descriptor.RemovableMedia)
 			usbVolumeCount++;
 		if (usbVolumeCount >= volumePersonaCount)
