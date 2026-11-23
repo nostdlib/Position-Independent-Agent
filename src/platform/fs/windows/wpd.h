@@ -361,18 +361,21 @@ public:
 	 *
 	 * A stick Windows ALSO exposes as a mounted volume would list twice (its
 	 * volume row by letter and its WPD persona by pseudo-path), so volume
-	 * wrapper personas are SKIPPED when the lettered volumes on a USB bus
-	 * (V) at least match the wrapper-persona count (P): the Portable Device
-	 * Enumerator (swd\wpdbusenum in the PnP id) creates its devices as
-	 * alternate faces of mounted mass-storage volumes, so the volume rows
-	 * are ASSUMED to already list every persona. V >= P is a count
-	 * inference, not a per-device match — the wrapper id is an opaque
-	 * {guid}, so a persona cannot be keyed to its volume. When the
-	 * assumption fails in the surplus direction (a lettered USB volume
-	 * without a persona, e.g. an external USB HDD) while a letterless
-	 * persona exists (e.g. a BitLocker-locked stick), the skip can suppress
-	 * that persona's only listing; in the deficit direction (a persona whose
-	 * volume rides a non-USB bus) V stays below P and the duplicate is
+	 * wrapper personas are SKIPPED when the lettered volumes on removable
+	 * USB media (V) at least match the wrapper-persona count (P): the
+	 * Portable Device Enumerator (swd\wpdbusenum in the PnP id) creates its
+	 * devices as alternate faces of mounted removable mass-storage volumes,
+	 * so the volume rows are ASSUMED to already list every persona — and V
+	 * counts removable media only, because a lettered fixed-type volume
+	 * (e.g. an external HDD bridge reporting non-removable) draws no persona
+	 * and would only inflate the count. V >= P is a count inference, not a
+	 * per-device match — the wrapper id is an opaque {guid}, so a persona
+	 * cannot be keyed to its volume. When the assumption fails in the
+	 * surplus direction (a lettered removable volume without a persona,
+	 * e.g. the WPD service disabled) while a letterless persona exists
+	 * (e.g. a BitLocker-locked stick), the skip can suppress that persona's
+	 * only listing; in the deficit direction (a persona whose volume rides
+	 * non-removable or non-USB media) V stays below P and the duplicate is
 	 * kept. When V < P all personas are kept — a duplicate beats a hidden
 	 * device. Phones are expected on their own buses (usb#vid_…), never
 	 * under wpdbusenum (unvalidated on hardware); one appearing there merely

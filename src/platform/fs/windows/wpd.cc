@@ -768,16 +768,20 @@ static UINT32 CountVolumePersonas(WCHAR **deviceIds, UINT32 deviceCount)
 	return count;
 }
 
-/// Counts the lettered volumes on a USB bus — the pool a WPDBusEnum wrapper
-/// persona is ASSUMED to draw from (a count inference, not a per-device
-/// match: the wrapper id cannot be keyed to its volume). Storage IOCTLs want
-/// the volume DEVICE handle: the bare "X:" link, no trailing backslash and
-/// no FILE_DIRECTORY_FILE — root-directory handles reject them with
-/// STATUS_INVALID_PARAMETER. Best-effort per drive: every failure merely
-/// undercounts, which can only turn the skip OFF (a duplicate listed, never
-/// a device hidden). The scan stops once the count reaches volumePersonaCount
-/// — the skip decision (count >= personas) is monotone, so no later drive
-/// can change it.
+/// Counts the lettered volumes on removable media riding a USB bus — the
+/// pool a WPDBusEnum wrapper persona is ASSUMED to draw from (a count
+/// inference, not a per-device match: the wrapper id cannot be keyed to its
+/// volume). Removable-only because the Portable Device Enumerator's mandate
+/// is removable mass storage: a lettered fixed-type volume (external HDD
+/// bridge reporting non-removable) gets no persona, so counting it could
+/// push the count past the personas and hide a letterless stick's only
+/// listing. Storage IOCTLs want the volume DEVICE handle: the bare "X:"
+/// link, no trailing backslash and no FILE_DIRECTORY_FILE — root-directory
+/// handles reject them with STATUS_INVALID_PARAMETER. Best-effort per drive:
+/// every failure merely undercounts, which can only turn the skip OFF (a
+/// duplicate listed, never a device hidden). The scan stops once the count
+/// reaches volumePersonaCount — the skip decision (count >= personas) is
+/// monotone, so no later drive can change it.
 static UINT32 CountUsbLetteredVolumes(UINT32 volumePersonaCount)
 {
 	UINT32 usbVolumeCount = 0;
@@ -865,12 +869,12 @@ static UINT32 CountUsbLetteredVolumes(UINT32 volumePersonaCount)
 		if ((USIZE)ioStatusBlock.Information < sizeof(STORAGE_DEVICE_DESCRIPTOR))
 			continue;
 		const STORAGE_DEVICE_DESCRIPTOR &descriptor = *(const STORAGE_DEVICE_DESCRIPTOR *)descriptorBuffer;
-		if (descriptor.BusType == BusTypeUsb)
+		if (descriptor.BusType == BusTypeUsb && descriptor.RemovableMedia)
 			usbVolumeCount++;
 		if (usbVolumeCount >= volumePersonaCount)
 			break; // decision locked: count >= personas cannot flip back
 	}
-	LOG_DEBUG("WPD skip: %u usb lettered volume(s)", usbVolumeCount);
+	LOG_DEBUG("WPD skip: %u removable usb lettered volume(s)", usbVolumeCount);
 	return usbVolumeCount;
 }
 
@@ -1057,14 +1061,15 @@ Result<WpdIteratorState *, Error> WPD::BeginRootEnumeration()
 	session->deviceCount = 0;
 	state->deviceIndex = 0;
 	// Count inference: the skip assumes every wrapper persona draws from the
-	// lettered USB volumes — a persona-less USB volume can inflate the count
-	// and (with a letterless persona present) suppress its only listing; a
-	// persona on a non-USB bus instead keeps the duplicate. See the README
-	// and the BeginRootEnumeration doc for the residual risk.
+	// lettered volumes on removable USB media — a persona-less removable
+	// volume can inflate the count and (with a letterless persona present)
+	// suppress its only listing; a persona on a non-removable or non-USB
+	// volume instead keeps the duplicate. See the README and the
+	// BeginRootEnumeration doc for the residual risk.
 	UINT32 volumePersonaCount = CountVolumePersonas(state->deviceIds, state->deviceCount);
 	UINT32 usbVolumeCount = CountUsbLetteredVolumes(volumePersonaCount);
 	state->skipVolumePersonas = usbVolumeCount >= volumePersonaCount;
-	LOG_DEBUG("WPD skip: %u volume persona(s), %u usb lettered volume(s) -> wpdbusenum skip %ws",
+	LOG_DEBUG("WPD skip: %u volume persona(s), %u removable usb lettered volume(s) -> wpdbusenum skip %ws",
 		volumePersonaCount,
 		usbVolumeCount,
 		state->skipVolumePersonas ? L"on" : L"off");
