@@ -194,9 +194,7 @@ struct WpdIteratorState
 	WCHAR **deviceIds;                 ///< Root phase: PnP device ids (CoTaskMem strings)
 	UINT32 deviceCount;                ///< Root phase: number of deviceIds
 	UINT32 deviceIndex;                ///< Root phase: next device to emit
-	UINT32 usbVolumeCount;             ///< Root phase: lettered volumes on a USB bus (bare device-handle descriptor query)
-	UINT32 volumePersonaCount;         ///< Root phase: personas under the WPDBusEnum volume-wrapper enumerator
-	BOOL skipVolumePersonas;           ///< Root phase: usbVolumeCount >= volumePersonaCount — every wrapper persona is covered by a volume row
+	BOOL skipVolumePersonas;           ///< Root phase: USB lettered volumes covered the wrapper-persona count at Begin — skip the wrappers (count inference, see BeginRootEnumeration)
 	IPortableDevice *device;           ///< Object phase: Open()'d device session
 	IPortableDeviceContent *content;   ///< Object phase: content interface
 	IPortableDeviceProperties *properties; ///< Object phase: property reader
@@ -686,6 +684,17 @@ static BOOL FetchFriendlyName(IPortableDeviceManager *manager, PCWCHAR deviceId,
 /// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddstor/ni-ntddstor-ioctl_storage_query_property
 constexpr UINT32 IOCTL_STORAGE_QUERY_PROPERTY_NT = 0x002D1400u;
 
+/// STORAGE_BUS_TYPE BusTypeUsb — the bus type the persona skip counts
+/// lettered volumes of (WPDBusEnum wraps mass-storage volumes, which are
+/// assumed to ride the USB bus).
+constexpr UINT32 BusTypeUsb = 7;
+
+// ntddstor.h declares both structs under pshpack1 (1-byte packing); the
+// asserts below freeze that ABI so tail padding can never silently shift a
+// field. All consumed offsets coincide with the natural layout — only
+// sizeof differs (9/37 vs 12/40 unpacked).
+#pragma pack(push, 1)
+
 /// Input for IOCTL_STORAGE_QUERY_PROPERTY. Zeroed fields select
 /// StorageDeviceProperty (0) with PropertyStandardQuery (0).
 typedef struct _STORAGE_PROPERTY_QUERY
@@ -693,7 +702,7 @@ typedef struct _STORAGE_PROPERTY_QUERY
 	UINT32 PropertyId;               ///< STORAGE_PROPERTY_ID: 0 = StorageDeviceProperty
 	UINT32 QueryType;                ///< STORAGE_QUERY_TYPE: 0 = PropertyStandardQuery
 	UINT8 AdditionalParameters[1];   ///< Space for property-specific input (unused here)
-} STORAGE_PROPERTY_QUERY, *PSTORAGE_PROPERTY_QUERY;
+} STORAGE_PROPERTY_QUERY;
 
 /// Storage device descriptor returned by IOCTL_STORAGE_QUERY_PROPERTY.
 /// Only BusType is consumed (the volume-bus gate of the persona skip).
@@ -713,16 +722,22 @@ typedef struct _STORAGE_DEVICE_DESCRIPTOR
 	UINT32 BusType;              ///< STORAGE_BUS_TYPE (7 = USB)
 	UINT32 RawPropertiesLength;  ///< Length of the trailing raw device properties
 	UINT8 RawDeviceProperties[1]; ///< Variable-length trailing data; the ASCII strings sit in here
-} STORAGE_DEVICE_DESCRIPTOR, *PSTORAGE_DEVICE_DESCRIPTOR;
+} STORAGE_DEVICE_DESCRIPTOR;
+
+#pragma pack(pop)
+
+static_assert(sizeof(STORAGE_PROPERTY_QUERY) == 9, "must match ntddstor.h 1-byte-packed ABI");
+static_assert(sizeof(STORAGE_DEVICE_DESCRIPTOR) == 37, "must match ntddstor.h 1-byte-packed ABI (BusType at offset 28)");
 
 /// TRUE when the device id is a WPDBusEnum volume wrapper: that enumerator
-/// (swd\wpdbusenum) creates devices only as alternate faces of mounted
-/// mass-storage volumes. Hardware-validated on Win11 26300: the wrapper id
-/// carries an opaque {guid} — no serial, no inquiry identity — so the
-/// enumerator prefix is the discriminator. Portable devices normally
-/// enumerate on their own buses (usb#vid_…); if one ever appears under
-/// wpdbusenum too it merely inflates the persona count, which safely turns
-/// the skip OFF (a duplicate listed, never a device hidden).
+/// (swd\wpdbusenum) creates devices as alternate faces of mounted
+/// mass-storage volumes (hardware-validated for volume wrappers on Win11
+/// 26300; whether any other device class ever appears there is unvalidated).
+/// The wrapper id carries an opaque {guid} — no serial, no inquiry identity —
+/// so the enumerator prefix is the discriminator. Portable devices are
+/// expected on their own buses (usb#vid_…); one appearing under wpdbusenum
+/// too would merely inflate the persona count, which safely turns the skip
+/// OFF (a duplicate listed, never a device hidden).
 static BOOL IsVolumePersonaId(PCWCHAR deviceId)
 {
 	if (deviceId == nullptr)
@@ -731,37 +746,45 @@ static BOOL IsVolumePersonaId(PCWCHAR deviceId)
 	// check is exactly "the first two #-segments name swd and wpdbusenum".
 	if (deviceId[0] == L'\\' && deviceId[1] == L'\\' && deviceId[2] == L'?' && deviceId[3] == L'\\')
 		deviceId += 4;
-	if (StringUtils::Length(deviceId) < 14)
-		return false;
 	const WCHAR prefix[] = L"swd#wpdbusenum";
-	if (!StringUtils::Compare(Span<const WCHAR>(deviceId, 14), Span<const WCHAR>(prefix, 14), true))
-		return false;
+	USIZE i = 0;
+	for (; prefix[i] != L'\0'; i++)
+		if (deviceId[i] == L'\0' || StringUtils::ToLowerCase(deviceId[i]) != prefix[i])
+			return false;
 	// The next character must end the wpdbusenum segment — a longer segment
 	// ("wpdbusenumfoo") is a different enumerator.
-	return deviceId[14] == L'#' || deviceId[14] == L'\0';
+	return deviceId[i] == L'#' || deviceId[i] == L'\0';
 }
 
 /// Counts the personas that are WPDBusEnum volume wrappers — pure string
 /// compares over the GetDevices id list, no syscalls. Runs FIRST: when no
 /// wrapper exists, the letter scan below cannot change any decision.
-static VOID CountVolumePersonas(WpdIteratorState *state)
+static UINT32 CountVolumePersonas(WCHAR **deviceIds, UINT32 deviceCount)
 {
-	for (UINT32 device = 0; device < state->deviceCount; device++)
-		if (IsVolumePersonaId(state->deviceIds[device]))
-			state->volumePersonaCount++;
+	UINT32 count = 0;
+	for (UINT32 device = 0; device < deviceCount; device++)
+		if (IsVolumePersonaId(deviceIds[device]))
+			count++;
+	return count;
 }
 
 /// Counts the lettered volumes on a USB bus — the pool a WPDBusEnum wrapper
-/// persona draws from. Storage IOCTLs want the volume DEVICE handle: the
-/// bare "X:" link, no trailing backslash and no FILE_DIRECTORY_FILE —
-/// root-directory handles reject them with STATUS_INVALID_PARAMETER.
-/// Best-effort per drive: every failure merely undercounts, which can only
-/// turn the skip OFF (a duplicate listed, never a device hidden).
-static VOID CountUsbLetteredVolumes(WpdIteratorState *state)
+/// persona is ASSUMED to draw from (a count inference, not a per-device
+/// match: the wrapper id cannot be keyed to its volume). Storage IOCTLs want
+/// the volume DEVICE handle: the bare "X:" link, no trailing backslash and
+/// no FILE_DIRECTORY_FILE — root-directory handles reject them with
+/// STATUS_INVALID_PARAMETER. Best-effort per drive: every failure merely
+/// undercounts, which can only turn the skip OFF (a duplicate listed, never
+/// a device hidden). The scan stops once the count reaches volumePersonaCount
+/// — the skip decision (count >= personas) is monotone, so no later drive
+/// can change it.
+static UINT32 CountUsbLetteredVolumes(UINT32 volumePersonaCount)
 {
+	UINT32 usbVolumeCount = 0;
+
 	// No wrapper persona exists, so the volume count cannot matter.
-	if (state->volumePersonaCount == 0)
-		return;
+	if (volumePersonaCount == 0)
+		return 0;
 
 	PROCESS_DEVICEMAP_INFORMATION devMapInfo;
 	Memory::Zero(&devMapInfo, sizeof(devMapInfo));
@@ -774,8 +797,13 @@ static VOID CountUsbLetteredVolumes(WpdIteratorState *state)
 	if (!mapResult)
 	{
 		LOG_DEBUG("WPD skip: device map query failed");
-		return;
+		return 0;
 	}
+
+	// Zeroed query = StorageDeviceProperty / PropertyStandardQuery for every
+	// drive — loop-invariant, so it is built once outside the loop.
+	STORAGE_PROPERTY_QUERY propertyQuery;
+	Memory::Zero(&propertyQuery, sizeof(propertyQuery));
 
 	for (INT32 i = 0; i < 26; i++)
 	{
@@ -812,12 +840,11 @@ static VOID CountUsbLetteredVolumes(WpdIteratorState *state)
 			continue;
 		}
 
-		// Zeroed query = StorageDeviceProperty / PropertyStandardQuery; only
-		// the fixed header (BusType) is consumed, and the returned-length
-		// check proves the kernel wrote it — no pre-zeroing needed.
-		STORAGE_PROPERTY_QUERY propertyQuery;
-		Memory::Zero(&propertyQuery, sizeof(propertyQuery));
-		alignas(alignof(STORAGE_DEVICE_DESCRIPTOR)) UINT8 descriptorBuffer[2048];
+		// Only the fixed header (BusType) is consumed, and the
+		// returned-length check proves the kernel wrote it — no pre-zeroing
+		// needed. BusType is a UINT32 at offset 28, so the buffer stays
+		// word-aligned for the cast read.
+		alignas(4) UINT8 descriptorBuffer[2048];
 		auto queryResult = NTDLL::ZwDeviceIoControlFile(
 			deviceHandle,
 			nullptr,
@@ -838,10 +865,13 @@ static VOID CountUsbLetteredVolumes(WpdIteratorState *state)
 		if ((USIZE)ioStatusBlock.Information < sizeof(STORAGE_DEVICE_DESCRIPTOR))
 			continue;
 		const STORAGE_DEVICE_DESCRIPTOR &descriptor = *(const STORAGE_DEVICE_DESCRIPTOR *)descriptorBuffer;
-		if (descriptor.BusType == PORTABLE_IDENTITY_BUS_USB)
-			state->usbVolumeCount++;
+		if (descriptor.BusType == BusTypeUsb)
+			usbVolumeCount++;
+		if (usbVolumeCount >= volumePersonaCount)
+			break; // decision locked: count >= personas cannot flip back
 	}
-	LOG_DEBUG("WPD skip: %u usb lettered volume(s)", state->usbVolumeCount);
+	LOG_DEBUG("WPD skip: %u usb lettered volume(s)", usbVolumeCount);
+	return usbVolumeCount;
 }
 
 /// Emits the next root-listing device entry (manager phase).
@@ -852,11 +882,12 @@ static Result<BOOL, Error> NextRootEntry(WpdIteratorState *state, DirectoryEntry
 		PCWCHAR deviceId = state->deviceIds[state->deviceIndex++];
 
 		// Same physical stick twice: its volume row (letter + serial) already
-		// covers it — skip the persona. Only when every wrapper persona is
-		// accounted for by a USB lettered volume (skipVolumePersonas, decided
-		// once at Begin); otherwise some wrapper may be a letterless device's
+		// covers it — skip the persona. Only when the USB lettered volumes at
+		// least matched the persona count (skipVolumePersonas, decided once
+		// at Begin — a count inference that assumes every wrapper persona has
+		// such a row); otherwise some wrapper may be a letterless device's
 		// only listing, and a duplicate beats a hidden device.
-		if (IsVolumePersonaId(deviceId) && state->skipVolumePersonas)
+		if (state->skipVolumePersonas && IsVolumePersonaId(deviceId))
 		{
 			LOG_DEBUG("WPD skip: persona %ws covered by its volume row", deviceId);
 			continue;
@@ -1025,12 +1056,17 @@ Result<WpdIteratorState *, Error> WPD::BeginRootEnumeration()
 	state->deviceCount = session->deviceCount;
 	session->deviceCount = 0;
 	state->deviceIndex = 0;
-	CountVolumePersonas(state);
-	CountUsbLetteredVolumes(state);
-	state->skipVolumePersonas = state->usbVolumeCount >= state->volumePersonaCount;
+	// Count inference: the skip assumes every wrapper persona draws from the
+	// lettered USB volumes — a persona-less USB volume can inflate the count
+	// and (with a letterless persona present) suppress its only listing; a
+	// persona on a non-USB bus instead keeps the duplicate. See the README
+	// and the BeginRootEnumeration doc for the residual risk.
+	UINT32 volumePersonaCount = CountVolumePersonas(state->deviceIds, state->deviceCount);
+	UINT32 usbVolumeCount = CountUsbLetteredVolumes(volumePersonaCount);
+	state->skipVolumePersonas = usbVolumeCount >= volumePersonaCount;
 	LOG_DEBUG("WPD skip: %u volume persona(s), %u usb lettered volume(s) -> wpdbusenum skip %ws",
-		state->volumePersonaCount,
-		state->usbVolumeCount,
+		volumePersonaCount,
+		usbVolumeCount,
 		state->skipVolumePersonas ? L"on" : L"off");
 	FreeSession(session);
 	return Result<WpdIteratorState *, Error>::Ok(state);

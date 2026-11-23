@@ -31,11 +31,6 @@
 #include "platform/kernel/windows/windows_types.h"
 #include "platform/fs/directory_entry.h"
 
-/// STORAGE_BUS_TYPE BusTypeUsb — the bus type the persona skip counts
-/// lettered volumes of (WPDBusEnum wraps mass-storage volumes, which ride
-/// the USB bus).
-constexpr UINT32 PORTABLE_IDENTITY_BUS_USB = 7;
-
 #define STGM_READ 0 ///< Open for reading only (COM stream access mode)
 #define VT_FILETIME 64 ///< PROPVARIANT type carrying a FILETIME (WPD date properties)
 #define STREAM_SEEK_SET 0 ///< IStream seek origin: absolute from start
@@ -366,13 +361,22 @@ public:
 	 *
 	 * A stick Windows ALSO exposes as a mounted volume would list twice (its
 	 * volume row by letter and its WPD persona by pseudo-path), so volume
-	 * wrapper personas are SKIPPED: the Portable Device Enumerator
-	 * (swd\wpdbusenum in the PnP id) creates devices only as alternate faces
-	 * of mounted mass-storage volumes, and when the USB lettered volumes
-	 * cover every such persona the volume rows already list them. When they
-	 * do not (a letterless stick), all personas are kept — a duplicate beats
-	 * a hidden device. Phones never match: they enumerate on their own
-	 * buses (usb#vid_…).
+	 * wrapper personas are SKIPPED when the lettered volumes on a USB bus
+	 * (V) at least match the wrapper-persona count (P): the Portable Device
+	 * Enumerator (swd\wpdbusenum in the PnP id) creates its devices as
+	 * alternate faces of mounted mass-storage volumes, so the volume rows
+	 * are ASSUMED to already list every persona. V >= P is a count
+	 * inference, not a per-device match — the wrapper id is an opaque
+	 * {guid}, so a persona cannot be keyed to its volume. When the
+	 * assumption fails in the surplus direction (a lettered USB volume
+	 * without a persona, e.g. an external USB HDD) while a letterless
+	 * persona exists (e.g. a BitLocker-locked stick), the skip can suppress
+	 * that persona's only listing; in the deficit direction (a persona whose
+	 * volume rides a non-USB bus) V stays below P and the duplicate is
+	 * kept. When V < P all personas are kept — a duplicate beats a hidden
+	 * device. Phones are expected on their own buses (usb#vid_…), never
+	 * under wpdbusenum (unvalidated on hardware); one appearing there merely
+	 * inflates P and turns the skip off (duplicate, nothing hidden).
 	 *
 	 * @return Opaque iterator state, or an Error (COM unavailable, no manager).
 	 */
