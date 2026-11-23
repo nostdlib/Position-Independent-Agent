@@ -451,10 +451,11 @@ public:
 	 * from offset 0 and discard forward, failing with 0x80070026
 	 * (ERROR_HANDLE_EOF) when the offset is beyond the end of the object.
 	 * @param state State from OpenStream.
-	 * @param absoluteOffset Byte offset from the start of the object.
+	 * @param absoluteOffset Byte offset from the start of the object (UINT64:
+	 *        offsets past 4 GiB must not wrap on 32-bit targets).
 	 * @return Ok on success, or an Error.
 	 */
-	[[nodiscard]] static Result<VOID, Error> StreamSeek(WpdStreamState *state, USIZE absoluteOffset);
+	[[nodiscard]] static Result<VOID, Error> StreamSeek(WpdStreamState *state, UINT64 absoluteOffset);
 
 	/**
 	 * @brief Returns the current absolute stream position.
@@ -462,7 +463,7 @@ public:
 	 * @param state State from OpenStream.
 	 * @return Position in bytes, or an Error.
 	 */
-	[[nodiscard]] static Result<USIZE, Error> StreamTell(WpdStreamState *state);
+	[[nodiscard]] static Result<UINT64, Error> StreamTell(WpdStreamState *state);
 
 	/**
 	 * @brief Releases all WPD/COM resources of a stream state.

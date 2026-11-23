@@ -17,6 +17,7 @@ constexpr USIZE SYS_WRITE = 4;
 constexpr USIZE SYS_OPEN = 5;
 constexpr USIZE SYS_CLOSE = 6;
 constexpr USIZE SYS_LSEEK = 19;
+constexpr USIZE SYS_LSEEK64 = 140;
 constexpr USIZE SYS_OPENAT = 295;
 
 // Device I/O

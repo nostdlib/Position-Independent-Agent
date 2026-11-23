@@ -19,14 +19,14 @@ class File
 {
 private:
 	PVOID fileHandle; ///< Platform-specific file handle (HANDLE on Windows, fd cast to PVOID on POSIX)
-	USIZE fileSize;   ///< Cached file size in bytes, set at open time
+	UINT64 fileSize;  ///< Cached file size in bytes, set at open time (UINT64: sizes exceed USIZE on 32-bit targets)
 #ifdef PLATFORM_WINDOWS
 	BOOL isWpd = false;      ///< TRUE when this File wraps a portable-device stream (::mtp- path)
 	PVOID wpdState = nullptr; ///< WpdStreamState* owning the WPD session and stream
 #endif
 
 	/// Private constructor (trivial -- never fails)
-	File(PVOID handle, USIZE size, BOOL isWpd = false, PVOID wpdState = nullptr);
+	File(PVOID handle, UINT64 size, BOOL isWpd = false, PVOID wpdState = nullptr);
 
 public:
 	static constexpr INT32 ModeRead = 0x0001;     ///< Open for reading
@@ -132,28 +132,31 @@ public:
 
 	/**
 	 * @brief Returns the cached file size in bytes.
-	 * @return File size as set when the file was opened.
+	 * @return File size as set when the file was opened (UINT64: a file larger
+	 *         than 4 GiB must not wrap on 32-bit targets where USIZE is 32 bits).
 	 */
-	constexpr USIZE GetSize() const { return fileSize; }
+	constexpr UINT64 GetSize() const { return fileSize; }
 
 	/**
 	 * @brief Gets the current file pointer position.
 	 * @return Absolute byte offset from the beginning of the file, or an Error on failure.
 	 */
-	[[nodiscard]] Result<USIZE, Error> GetOffset() const;
+	[[nodiscard]] Result<UINT64, Error> GetOffset() const;
 
 	/**
 	 * @brief Sets the file pointer to an absolute byte offset from the beginning.
-	 * @param absoluteOffset Byte offset from the start of the file.
+	 * @param absoluteOffset Byte offset from the start of the file (UINT64: offsets
+	 *        past 4 GiB must not wrap on 32-bit targets where USIZE is 32 bits).
 	 * @return Void on success, or an Error on failure.
 	 */
-	[[nodiscard]] Result<VOID, Error> SetOffset(USIZE absoluteOffset);
+	[[nodiscard]] Result<VOID, Error> SetOffset(UINT64 absoluteOffset);
 
 	/**
 	 * @brief Moves the file pointer by a relative amount from the specified origin.
 	 * @param relativeAmount Signed byte offset to move (positive = forward, negative = backward).
+	 *        INT64 rather than SSIZE so ±4 GiB moves stay representable on 32-bit targets.
 	 * @param origin Reference point for the seek (Start, Current, or End).
 	 * @return Void on success, or an Error on failure.
 	 */
-	[[nodiscard]] Result<VOID, Error> MoveOffset(SSIZE relativeAmount, OffsetOrigin origin = OffsetOrigin::Current);
+	[[nodiscard]] Result<VOID, Error> MoveOffset(INT64 relativeAmount, OffsetOrigin origin = OffsetOrigin::Current);
 };

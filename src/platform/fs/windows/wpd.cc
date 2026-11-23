@@ -1277,11 +1277,11 @@ static Result<VOID, Error> DiscardToOffset(WpdStreamState *state, UINT64 target)
 	return Result<VOID, Error>::Ok();
 }
 
-Result<VOID, Error> WPD::StreamSeek(WpdStreamState *state, USIZE absoluteOffset)
+Result<VOID, Error> WPD::StreamSeek(WpdStreamState *state, UINT64 absoluteOffset)
 {
 	if (state == nullptr || state->stream == nullptr)
 		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
-	if ((UINT64)absoluteOffset == state->position)
+	if (absoluteOffset == state->position)
 		return Result<VOID, Error>::Ok(); // SetOffset(0)-then-read makes no COM call
 	if (state->seekable)
 	{
@@ -1295,14 +1295,14 @@ Result<VOID, Error> WPD::StreamSeek(WpdStreamState *state, USIZE absoluteOffset)
 		state->position = newPosition.QuadPart;
 		return Result<VOID, Error>::Ok();
 	}
-	return DiscardToOffset(state, (UINT64)absoluteOffset);
+	return DiscardToOffset(state, absoluteOffset);
 }
 
-Result<USIZE, Error> WPD::StreamTell(WpdStreamState *state)
+Result<UINT64, Error> WPD::StreamTell(WpdStreamState *state)
 {
 	if (state == nullptr)
-		return Result<USIZE, Error>::Err(Error::Fs_SeekFailed);
-	return Result<USIZE, Error>::Ok((USIZE)state->position);
+		return Result<UINT64, Error>::Err(Error::Fs_SeekFailed);
+	return Result<UINT64, Error>::Ok(state->position);
 }
 
 VOID WPD::CloseStream(WpdStreamState *state)

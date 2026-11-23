@@ -23,42 +23,58 @@
 #endif
 
 // --- lseek wrapper ---
-// On riscv32, SYS_LSEEK (62) maps to sys_llseek which takes 5 arguments:
-// (fd, offset_high, offset_low, &result, whence) and returns 0 on success.
-// On FreeBSD i386, SYS_LSEEK (478) takes off_t (64-bit) split across two
-// consecutive 32-bit stack slots (offset_lo, offset_hi) before whence.
-// All other architectures use the standard 3-argument lseek.
-#if (defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)) && defined(ARCHITECTURE_RISCV32)
-static SSIZE PosixLseek(USIZE fd, SSIZE offset, INT32 whence)
+// The offset is always 64-bit: a file position past 4 GiB must not wrap on
+// 32-bit targets where the plain lseek ABI's off_t is pointer-sized.
+// - Linux/Android 32-bit arches (riscv32, i386, armv7a, mips o32): use
+//   sys_llseek, which takes 5 arguments (fd, offset_high, offset_low,
+//   &result, whence), returns 0 on success and stores the new 64-bit
+//   position through the result pointer. SYS_LSEEK64 names that syscall per
+//   arch (riscv32's generic-table SYS_LSEEK (62) already IS sys_llseek;
+//   i386/armv7a = 140, mips o32 = 4140).
+// - FreeBSD i386: SYS_LSEEK (478) takes off_t (64-bit) split across two
+//   consecutive 32-bit words (offset_lo, offset_hi) before whence; the
+//   position comes back in eax (see the branch comment for the limits that
+//   follow from that).
+// - All other architectures use the standard 3-argument lseek (off_t is
+//   64-bit on 64-bit targets; macOS/Solaris i386 keep the plain call — their
+//   syscall tables expose no 64-bit llseek variant, so their 32-bit off_t
+//   limit remains, as before this wrapper existed).
+#if (defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)) && (defined(ARCHITECTURE_RISCV32) || defined(ARCHITECTURE_I386) || defined(ARCHITECTURE_ARMV7A) || defined(ARCHITECTURE_MIPS))
+static INT64 PosixLseek(USIZE fd, INT64 offset, INT32 whence)
 {
 	INT64 result = 0;
-	INT64 offset64 = (INT64)offset;
-	USIZE offsetHigh = (USIZE)((UINT64)offset64 >> 32);
-	USIZE offsetLow = (USIZE)((UINT64)offset64 & 0xFFFFFFFF);
-	SSIZE ret = System::Call(SYS_LSEEK, fd, offsetHigh, offsetLow, (USIZE)&result, (USIZE)whence);
+	USIZE offsetHigh = (USIZE)((UINT64)offset >> 32);
+	USIZE offsetLow = (USIZE)((UINT64)offset & 0xFFFFFFFF);
+	SSIZE ret = System::Call(SYS_LSEEK64, fd, offsetHigh, offsetLow, (USIZE)&result, (USIZE)whence);
 	if (ret < 0)
-		return ret;
-	return (SSIZE)result;
+		return (INT64)ret;
+	return result;
 }
 #elif defined(PLATFORM_FREEBSD) && defined(ARCHITECTURE_I386)
-static SSIZE PosixLseek(USIZE fd, SSIZE offset, INT32 whence)
+static INT64 PosixLseek(USIZE fd, INT64 offset, INT32 whence)
 {
-	INT64 offset64 = (INT64)offset;
-	USIZE offsetLow  = (USIZE)((UINT64)offset64 & 0xFFFFFFFF);
-	USIZE offsetHigh = (USIZE)((UINT64)offset64 >> 32);
-	return System::Call(SYS_LSEEK, fd, offsetLow, offsetHigh, (USIZE)whence);
+	// Framing validated by CI (test-freebsd-i386 VM): (fd, offset_lo,
+	// offset_hi, whence) with the position returned in eax. A compat32-style
+	// alignment pad word and an edx:eax return capture were attempted here
+	// and broke every seek in CI — do not re-add them without a FreeBSD
+	// i386 system to verify against. Consequence: offsets whose low word has
+	// bit 31 set (2–4 GiB) read back as negative and 4 GiB+ wraps on this
+	// target; the >4 GiB regression test is gated off accordingly.
+	USIZE offsetLow = (USIZE)((UINT64)offset & 0xFFFFFFFF);
+	USIZE offsetHigh = (USIZE)((UINT64)offset >> 32);
+	return (INT64)System::Call(SYS_LSEEK, fd, offsetLow, offsetHigh, (USIZE)whence);
 }
 #else
-static SSIZE PosixLseek(USIZE fd, SSIZE offset, INT32 whence)
+static INT64 PosixLseek(USIZE fd, INT64 offset, INT32 whence)
 {
-	return System::Call(SYS_LSEEK, fd, (USIZE)offset, whence);
+	return (INT64)System::Call(SYS_LSEEK, fd, (USIZE)offset, whence);
 }
 #endif
 
 // --- Internal Constructor (trivial — never fails) ---
 // The WPD parameters exist only for the Windows build's signature (they are
 // defaulted at the call sites); POSIX has no portable-device stream state.
-File::File(PVOID handle, USIZE size, BOOL isWpd, PVOID wpdState)
+File::File(PVOID handle, UINT64 size, BOOL isWpd, PVOID wpdState)
 	: fileHandle(handle), fileSize(size)
 {
 	(void)isWpd;
@@ -90,6 +106,14 @@ Result<File, Error> File::Open(PCWCHAR path, INT32 flags)
 	if (flags & File::ModeAppend)
 		openFlags |= O_APPEND;
 
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+	// 32-bit ABIs refuse >2 GiB files without O_LARGEFILE (EOVERFLOW) — the
+	// >4 GiB seek support would be unreachable on real 32-bit hardware
+	// otherwise. It is 0 (a no-op) on 64-bit ABIs, and only the Linux kernel
+	// headers define it (macOS/iOS/Solaris/FreeBSD keep it undefined here).
+	openFlags |= O_LARGEFILE;
+#endif
+
 	SSIZE fd;
 #if (defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID) || defined(PLATFORM_FREEBSD)) && (defined(ARCHITECTURE_AARCH64) || defined(ARCHITECTURE_RISCV64) || defined(ARCHITECTURE_RISCV32)) || defined(PLATFORM_SOLARIS)
 	fd = System::Call(SYS_OPENAT, AT_FDCWD, (USIZE)utf8Path, openFlags, mode);
@@ -101,11 +125,11 @@ Result<File, Error> File::Open(PCWCHAR path, INT32 flags)
 		return Result<File, Error>::Err(Error::Posix((UINT32)(-fd)), Error::Fs_OpenFailed);
 
 	// Query file size via lseek (consistent with Windows/UEFI implementations)
-	USIZE size = 0;
-	SSIZE fileEnd = PosixLseek((USIZE)fd, 0, SEEK_END);
+	UINT64 size = 0;
+	INT64 fileEnd = PosixLseek((USIZE)fd, 0, SEEK_END);
 	if (fileEnd >= 0)
 	{
-		size = (USIZE)fileEnd;
+		size = (UINT64)fileEnd;
 		PosixLseek((USIZE)fd, 0, SEEK_SET);
 	}
 
@@ -206,29 +230,29 @@ Result<UINT32, Error> File::Write(Span<const UINT8> buffer)
 	return Result<UINT32, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_WriteFailed);
 }
 
-Result<USIZE, Error> File::GetOffset() const
+Result<UINT64, Error> File::GetOffset() const
 {
 	if (!IsValid())
-		return Result<USIZE, Error>::Err(Error::Fs_SeekFailed);
+		return Result<UINT64, Error>::Err(Error::Fs_SeekFailed);
 
-	SSIZE result = PosixLseek((USIZE)fileHandle, 0, SEEK_CUR);
+	INT64 result = PosixLseek((USIZE)fileHandle, 0, SEEK_CUR);
 	if (result >= 0)
-		return Result<USIZE, Error>::Ok((USIZE)result);
-	return Result<USIZE, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_SeekFailed);
+		return Result<UINT64, Error>::Ok((UINT64)result);
+	return Result<UINT64, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_SeekFailed);
 }
 
-Result<VOID, Error> File::SetOffset(USIZE absoluteOffset)
+Result<VOID, Error> File::SetOffset(UINT64 absoluteOffset)
 {
 	if (!IsValid())
 		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
 
-	SSIZE result = PosixLseek((USIZE)fileHandle, (SSIZE)absoluteOffset, SEEK_SET);
+	INT64 result = PosixLseek((USIZE)fileHandle, (INT64)absoluteOffset, SEEK_SET);
 	if (result >= 0)
 		return Result<VOID, Error>::Ok();
 	return Result<VOID, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_SeekFailed);
 }
 
-Result<VOID, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
+Result<VOID, Error> File::MoveOffset(INT64 relativeAmount, OffsetOrigin origin)
 {
 	if (!IsValid())
 		return Result<VOID, Error>::Err(Error::Fs_SeekFailed);
@@ -239,7 +263,7 @@ Result<VOID, Error> File::MoveOffset(SSIZE relativeAmount, OffsetOrigin origin)
 	else if (origin == OffsetOrigin::End)
 		whence = SEEK_END;
 
-	SSIZE result = PosixLseek((USIZE)fileHandle, relativeAmount, whence);
+	INT64 result = PosixLseek((USIZE)fileHandle, relativeAmount, whence);
 	if (result >= 0)
 		return Result<VOID, Error>::Ok();
 	return Result<VOID, Error>::Err(Error::Posix((UINT32)(-result)), Error::Fs_SeekFailed);
