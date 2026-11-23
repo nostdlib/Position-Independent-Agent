@@ -31,21 +31,26 @@
 #include "platform/kernel/windows/windows_types.h"
 #include "platform/fs/directory_entry.h"
 
-/// Hardware-serial skip-set row capacity: normalized WCHARs per device serial
-/// (including the terminator; longer serials truncate to a still-unique
-/// prefix and keep matching).
-constexpr USIZE WPD_SKIP_SERIAL_CAP = 64;
-/// Hardware-serial skip-set capacity: distinct REMOVABLE volumes tracked at
-/// once (more volumes than this degrade to duplicates listed, never wrong skips).
-constexpr USIZE WPD_SKIP_SERIAL_MAX = 8;
-/// Minimum normalized characters a device serial needs before it may key a
-/// skip decision. Shorter strings ("0", SCSI inquiry padding) match by
-/// accident inside unrelated PnP ids; below this length the serial is simply
-/// not identity and the volume contributes no skip entry.
+/// Skip-key row capacity: normalized WCHARs per dedupe key (including the
+/// terminator; longer keys truncate to a still-unique matching prefix and
+/// keep matching).
+constexpr USIZE WPD_SKIP_KEY_CAP = 96;
+/// Skip-key table capacity: distinct dedupe keys tracked at once (a volume
+/// can contribute two — serial AND identity — so 16 covers 8 volumes; more
+/// degrade to duplicates listed, never wrong skips).
+constexpr USIZE WPD_SKIP_KEY_MAX = 16;
+/// Minimum normalized characters a hardware serial or inquiry identity needs
+/// before it may key a skip decision. Shorter strings ("0", SCSI inquiry
+/// padding) match by accident inside unrelated PnP ids; below this length
+/// the string is simply not identity and the volume contributes no skip entry.
 constexpr USIZE PORTABLE_IDENTITY_MIN_SERIAL = 8;
 /// PnP instance paths cap at 200 chars (MAX_DEVICE_ID_LEN), so 256 never
-/// truncates a normalized id segment in SerialInDeviceId.
+/// truncates a normalized id segment in KeyInDeviceId.
 constexpr USIZE PORTABLE_IDENTITY_TEXT_CAP = 256;
+/// STORAGE_BUS_TYPE BusTypeUsb — the only storage-descriptor bus type whose
+/// volumes may key a persona skip (WPDBusEnum wraps USBSTOR devices, so only
+/// USB-bus volumes have a mass-storage persona to skip).
+constexpr UINT32 PORTABLE_IDENTITY_BUS_USB = 7;
 
 #define STGM_READ 0 ///< Open for reading only (COM stream access mode)
 #define VT_FILETIME 64 ///< PROPVARIANT type carrying a FILETIME (WPD date properties)
@@ -375,12 +380,18 @@ public:
 	 * `::mtp-<token>[-<friendly>]` with IsDrive=TRUE, Type=removable,
 	 * VolumeSerial=token.
 	 *
-	 * A stick Windows ALSO exposes as a mounted REMOVABLE volume would list
-	 * twice (its volume row by letter and its WPD persona by pseudo-path), so
-	 * devices whose PnP id carries a mounted volume's hardware serial as a
-	 * #-delimited identity segment are SKIPPED — the volume row already
-	 * covers them. Phones never match: MTP storage gets no drive letter, so
-	 * no removable volume's serial is theirs.
+	 * A stick Windows ALSO exposes as a mounted volume would list twice (its
+	 * volume row by letter and its WPD persona by pseudo-path), so devices
+	 * whose PnP id carries a mounted volume's dedupe key as a #-delimited
+	 * identity segment are SKIPPED — the volume row already covers them. A
+	 * key is the volume's normalized hardware serial (when the storage
+	 * descriptor reports one) or its normalized INQUIRY identity
+	 * (VEN<vendor>PROD<product>[REV<rev>]); USB-bus volumes only, and both
+	 * forms appear inside the same stick's WPDBusEnum PnP id, serial-free
+	 * sticks included. Keys whose personas outnumber their lettered volumes
+	 * (two identical sticks, one letterless) are blocked — a duplicate beats
+	 * a hidden device. Phones never match: MTP storage gets no drive letter,
+	 * so no volume's key is theirs.
 	 *
 	 * @return Opaque iterator state, or an Error (COM unavailable, no manager).
 	 */

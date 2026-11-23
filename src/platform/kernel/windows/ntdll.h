@@ -224,9 +224,10 @@ typedef struct _STORAGE_PROPERTY_QUERY
 /// Storage device descriptor returned by IOCTL_STORAGE_QUERY_PROPERTY.
 /// Variable length: the vendor/product/serial strings are ASCII,
 /// NUL-terminated, addressed by byte offsets from the start of this structure
-/// (0 = field not reported). Only SerialNumberOffset is consumed — the
-/// hardware serial also appears in the PnP device id of the same device,
-/// which keys the root listing's portable-device dedupe.
+/// (0 = field not reported). SerialNumberOffset, the vendor/product/revision
+/// string offsets, and BusType are consumed by the WPD persona dedupe — the
+/// serial and the INQUIRY identity both reappear in the PnP device id of the
+/// same device, which keys the root listing's portable-device skip.
 /// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddstor/ns-ntddstor-_storage_device_descriptor
 typedef struct _STORAGE_DEVICE_DESCRIPTOR
 {

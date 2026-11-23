@@ -5,6 +5,7 @@
 #include "core/algorithms/djb2.h"
 #include "core/string/string.h"
 #include "core/memory/memory.h"
+#include "platform/console/logger.h"
 
 // =============================================================================
 // GUID/PROPERTYKEY factories — one NOINLINE stack-build factory per constant
@@ -186,6 +187,17 @@ static NOINLINE PROPERTYKEY MakeKeyClientRevision()
 // State structs (opaque in wpd.h)
 // =============================================================================
 
+/// One lettered-volume dedupe key: the normalized hardware serial, or the
+/// normalized INQUIRY identity ("VEN<v>PROD<p>[REV<r>]") — either appears as
+/// a run inside the same stick's WPD PnP id segments.
+struct WpdSkipKey
+{
+	WCHAR text[WPD_SKIP_KEY_CAP]; ///< Normalized key (uppercase [0-9A-Z], NUL-terminated)
+	UINT32 volumeCount;           ///< Lettered volumes that produced this key
+	UINT32 personaCount;          ///< WPD personas whose id carries this key (tallied at Begin time)
+	BOOL blocked;                 ///< TRUE when personaCount > volumeCount: the key skips nothing
+};
+
 struct WpdIteratorState
 {
 	BOOL comInitialized;               ///< TRUE when this state owns a Com::Initialize balance
@@ -193,12 +205,12 @@ struct WpdIteratorState
 	WCHAR **deviceIds;                 ///< Root phase: PnP device ids (CoTaskMem strings)
 	UINT32 deviceCount;                ///< Root phase: number of deviceIds
 	UINT32 deviceIndex;                ///< Root phase: next device to emit
-	/// Root phase: normalized hardware serials of mounted REMOVABLE volumes —
-	/// a device whose PnP id carries one is that volume's WPD persona (the
-	/// same stick listed twice) and is skipped. Built at Begin time from the
-	/// process device map, so it cannot dangle.
-	WCHAR skipSerials[WPD_SKIP_SERIAL_MAX][WPD_SKIP_SERIAL_CAP];
-	UINT32 skipSerialCount;            ///< Root phase: valid rows in skipSerials
+	/// Root phase: dedupe keys of mounted volumes (hardware serial and/or
+	/// inquiry identity) — a device whose PnP id carries one is that volume's
+	/// WPD persona (the same stick listed twice) and is skipped. Built at
+	/// Begin time from the process device map, so it cannot dangle.
+	WpdSkipKey skipKeys[WPD_SKIP_KEY_MAX];
+	UINT32 skipKeyCount;               ///< Root phase: valid rows in skipKeys
 	IPortableDevice *device;           ///< Object phase: Open()'d device session
 	IPortableDeviceContent *content;   ///< Object phase: content interface
 	IPortableDeviceProperties *properties; ///< Object phase: property reader
@@ -702,14 +714,63 @@ static USIZE NormalizeIdentity(Span<const TSource> text, Span<WCHAR> out)
 	return length;
 }
 
-/// TRUE when a normalized volume serial sits inside ONE #-delimited segment
-/// of a PnP device id (usb#vid_x&pid_y#SERIAL#{guid}). Segment boundaries are
-/// hard stops, so a serial's characters spanning a boundary — or hiding
-/// inside the interface-GUID segment — never match; that is what keeps an
-/// unrelated volume's serial from hiding someone else's device.
-static BOOL SerialInDeviceId(PCWCHAR deviceId, const WCHAR *serial, USIZE serialLength)
+/// Length of the NUL-terminated ASCII string at buffer[offset] within the
+/// returned data; 0 when the offset is absent (0), inside the fixed header,
+/// or out of range.
+static USIZE DescriptorTextLength(const UINT8 *buffer, USIZE returned, UINT32 offset)
 {
-	if (deviceId == nullptr || serial == nullptr || serialLength == 0)
+	if (offset < sizeof(STORAGE_DEVICE_DESCRIPTOR) || offset >= returned)
+		return 0;
+	const CHAR *text = (const CHAR *)(buffer + offset);
+	USIZE limit = returned - offset;
+	USIZE length = 0;
+	while (length < limit && text[length] != '\0')
+		length++;
+	return length;
+}
+
+/// Appends ASCII text (no NUL) to out at length, stopping at the span end;
+/// returns the new length.
+static USIZE AppendAscii(Span<CHAR> out, USIZE length, const CHAR *text, USIZE textLength)
+{
+	for (USIZE i = 0; i < textLength && length < out.Size(); i++)
+		out.Data()[length++] = text[i];
+	return length;
+}
+
+/// Adds a normalized dedupe key to the skip table — the first occurrence
+/// inserts with volumeCount=1, a duplicate row increments it. FALSE when the
+/// table is full (that volume then degrades to a duplicate listed, never a
+/// wrong skip).
+static BOOL AddSkipKey(WpdIteratorState *state, const WCHAR *normalized, USIZE length)
+{
+	for (UINT32 i = 0; i < state->skipKeyCount; i++)
+	{
+		if (StringUtils::Length(state->skipKeys[i].text) == length
+			&& StringUtils::Compare(Span<const WCHAR>(state->skipKeys[i].text, length), Span<const WCHAR>(normalized, length)))
+		{
+			state->skipKeys[i].volumeCount++;
+			return true;
+		}
+	}
+	if (state->skipKeyCount >= WPD_SKIP_KEY_MAX)
+		return false;
+	StringUtils::Copy(Span<WCHAR>(state->skipKeys[state->skipKeyCount].text), Span<const WCHAR>(normalized, length));
+	state->skipKeys[state->skipKeyCount].volumeCount = 1;
+	state->skipKeyCount++;
+	return true;
+}
+
+/// TRUE when a normalized dedupe key sits inside ONE #-delimited segment of
+/// a PnP device id (a hardware serial in its instance segment, the inquiry
+/// identity inside the disk&ven_...&prod_...&rev_... segment of the
+/// WPDBusEnum wrapper). Segment boundaries are hard stops, so a key's
+/// characters spanning a boundary — or hiding inside the interface-GUID
+/// segment — never match; that is what keeps an unrelated volume's key from
+/// hiding someone else's device.
+static BOOL KeyInDeviceId(PCWCHAR deviceId, const WCHAR *key, USIZE keyLength)
+{
+	if (deviceId == nullptr || key == nullptr || keyLength == 0)
 		return false;
 	USIZE offset = 0;
 	while (deviceId[offset] != L'\0')
@@ -719,8 +780,8 @@ static BOOL SerialInDeviceId(PCWCHAR deviceId, const WCHAR *serial, USIZE serial
 			offset++;
 		WCHAR segment[PORTABLE_IDENTITY_TEXT_CAP];
 		USIZE segmentLength = NormalizeIdentity(Span<const WCHAR>(deviceId + start, offset - start), Span<WCHAR>(segment));
-		if (segmentLength >= serialLength
-			&& StringUtils::IndexOf(Span<const WCHAR>(segment, segmentLength), Span<const WCHAR>(serial, serialLength)) >= 0)
+		if (segmentLength >= keyLength
+			&& StringUtils::IndexOf(Span<const WCHAR>(segment, segmentLength), Span<const WCHAR>(key, keyLength)) >= 0)
 			return true;
 		if (deviceId[offset] == L'#')
 			offset++;
@@ -728,23 +789,26 @@ static BOOL SerialInDeviceId(PCWCHAR deviceId, const WCHAR *serial, USIZE serial
 	return false;
 }
 
-/// TRUE when the device is the WPD persona of a mounted REMOVABLE volume —
-/// Windows exposes some sticks both as a volume (drive letter) and as a
-/// portable device, and the volume row already lists those.
-static BOOL MatchesVolumePersona(WpdIteratorState *state, PCWCHAR deviceId)
+/// Index of the first skip key carried by the device id, or -1 when the
+/// device is no mounted volume's WPD persona.
+static SSIZE MatchingSkipKey(WpdIteratorState *state, PCWCHAR deviceId)
 {
-	for (UINT32 i = 0; i < state->skipSerialCount; i++)
-		if (SerialInDeviceId(deviceId, state->skipSerials[i], StringUtils::Length(state->skipSerials[i])))
-			return true;
-	return false;
+	for (UINT32 i = 0; i < state->skipKeyCount; i++)
+		if (KeyInDeviceId(deviceId, state->skipKeys[i].text, StringUtils::Length(state->skipKeys[i].text)))
+			return (SSIZE)i;
+	return -1;
 }
 
-/// Fills the skip set with the normalized hardware serials of mounted
-/// REMOVABLE volumes (IOCTL_STORAGE_QUERY_PROPERTY on each volume root).
-/// Best-effort per drive: a failed or serial-less query contributes nothing,
-/// so the worst outcome is a duplicate listed, never a device hidden. Phones
-/// never match — MTP storage gets no drive letter, so no row carries theirs.
-static VOID CollectVolumeSerials(WpdIteratorState *state)
+/// Fills the skip table with the dedupe keys of mounted volumes
+/// (IOCTL_STORAGE_QUERY_PROPERTY on each lettered volume root): the
+/// normalized hardware serial when the descriptor reports one, and always
+/// the normalized INQUIRY identity ("VEN<vendor>PROD<product>[REV<rev>]") —
+/// the identity is what serial-free sticks still carry into their WPDBusEnum
+/// PnP id. USB-bus volumes only. Best-effort per drive: a failed or key-less
+/// query contributes nothing, so the worst outcome is a duplicate listed,
+/// never a device hidden. Phones never match — MTP storage gets no drive
+/// letter, so no row carries theirs.
+static VOID CollectVolumeIdentities(WpdIteratorState *state)
 {
 	PROCESS_DEVICEMAP_INFORMATION devMapInfo;
 	Memory::Zero(&devMapInfo, sizeof(devMapInfo));
@@ -755,12 +819,20 @@ static VOID CollectVolumeSerials(WpdIteratorState *state)
 		sizeof(devMapInfo.Query),
 		nullptr);
 	if (!mapResult)
-		return;
-
-	for (INT32 i = 0; i < 26 && state->skipSerialCount < WPD_SKIP_SERIAL_MAX; i++)
 	{
-		if ((devMapInfo.Query.DriveMap & (1 << i)) == 0
-			|| devMapInfo.Query.DriveType[i] != DRIVE_REMOVABLE)
+		LOG_DEBUG("WPD skip: device map query failed");
+		return;
+	}
+
+	for (INT32 i = 0; i < 26 && state->skipKeyCount < WPD_SKIP_KEY_MAX; i++)
+	{
+		if ((devMapInfo.Query.DriveMap & (1 << i)) == 0)
+			continue;
+		// Remote letters would stall the volume open (the same hazard the
+		// volume-serial query documents) and CD-ROMs never carry a WPD
+		// persona; every other type may — large sticks report DRIVE_FIXED.
+		if (devMapInfo.Query.DriveType[i] == DRIVE_REMOTE
+			|| devMapInfo.Query.DriveType[i] == DRIVE_CDROM)
 			continue;
 
 		// Open "X:\" for the storage property query (FILE_READ_ATTRIBUTES is
@@ -768,7 +840,10 @@ static VOID CollectVolumeSerials(WpdIteratorState *state)
 		const WCHAR root[] = {(WCHAR)(L'A' + i), L':', L'\\', L'\0'};
 		UNICODE_STRING ntPath;
 		if (!NTDLL::RtlDosPathNameToNtPathName_U(root, &ntPath, nullptr, nullptr))
+		{
+			LOG_DEBUG("WPD skip: %ws: nt path conversion failed", root);
 			continue;
+		}
 		OBJECT_ATTRIBUTES objAttr;
 		InitializeObjectAttributes(&objAttr, &ntPath, OBJ_CASE_INSENSITIVE, nullptr, nullptr);
 		PVOID volumeHandle = nullptr;
@@ -782,7 +857,10 @@ static VOID CollectVolumeSerials(WpdIteratorState *state)
 			FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
 		NTDLL::RtlFreeUnicodeString(&ntPath);
 		if (!openResult)
+		{
+			LOG_DEBUG("WPD skip: %ws: volume open failed", root);
 			continue;
+		}
 
 		// Zeroed query = StorageDeviceProperty / PropertyStandardQuery; the
 		// descriptor's ASCII strings follow the fixed header in the same buffer.
@@ -804,57 +882,128 @@ static VOID CollectVolumeSerials(WpdIteratorState *state)
 		(VOID)NTDLL::ZwClose(volumeHandle);
 
 		if (!queryResult)
+		{
+			LOG_DEBUG("WPD skip: %ws: storage descriptor query failed", root);
 			continue;
+		}
 		const STORAGE_DEVICE_DESCRIPTOR &descriptor = *(const STORAGE_DEVICE_DESCRIPTOR *)descriptorBuffer;
 		USIZE returned = (USIZE)ioStatusBlock.Information;
-		if (returned < sizeof(STORAGE_DEVICE_DESCRIPTOR)
-			|| descriptor.SerialNumberOffset < sizeof(STORAGE_DEVICE_DESCRIPTOR)
-			|| descriptor.SerialNumberOffset >= returned)
-			continue;
-
-		// ASCII, NUL-terminated within the returned data; the returned length
-		// is the hard stop. Serials shorter than the identity minimum are
-		// noise (SCSI inquiry padding) and never key a skip.
-		const CHAR *serial = (const CHAR *)(descriptorBuffer + descriptor.SerialNumberOffset);
-		USIZE limit = returned - descriptor.SerialNumberOffset;
-		USIZE serialLength = 0;
-		while (serialLength < limit && serial[serialLength] != '\0')
-			serialLength++;
-		WCHAR normalized[WPD_SKIP_SERIAL_CAP];
-		if (NormalizeIdentity(Span<const CHAR>(serial, serialLength), Span<WCHAR>(normalized)) >= PORTABLE_IDENTITY_MIN_SERIAL)
+		if (returned < sizeof(STORAGE_DEVICE_DESCRIPTOR))
 		{
-			StringUtils::Copy(Span<WCHAR>(state->skipSerials[state->skipSerialCount]),
-				Span<const WCHAR>(normalized, StringUtils::Length(normalized)));
-			state->skipSerialCount++;
+			LOG_DEBUG("WPD skip: %ws: short descriptor (%llu bytes)", root, (UINT64)returned);
+			continue;
 		}
+		if (descriptor.BusType != PORTABLE_IDENTITY_BUS_USB)
+		{
+			LOG_DEBUG("WPD skip: %ws: bus %u not USB", root, descriptor.BusType);
+			continue;
+		}
+
+		// Serial key: ASCII, NUL-terminated within the returned data; the
+		// returned length is the hard stop. Serials shorter than the identity
+		// minimum are noise (SCSI inquiry padding) and never key a skip.
+		USIZE serialLength = DescriptorTextLength(descriptorBuffer, returned, descriptor.SerialNumberOffset);
+		if (serialLength != 0)
+		{
+			const CHAR *serial = (const CHAR *)(descriptorBuffer + descriptor.SerialNumberOffset);
+			WCHAR normalized[WPD_SKIP_KEY_CAP];
+			if (NormalizeIdentity(Span<const CHAR>(serial, serialLength), Span<WCHAR>(normalized)) >= PORTABLE_IDENTITY_MIN_SERIAL)
+				AddSkipKey(state, normalized, StringUtils::Length(normalized));
+			else
+				LOG_DEBUG("WPD skip: %ws: serial too short to be identity", root);
+		}
+
+		// Identity key: vendor and product are INQUIRY-fixed and survive into
+		// the stick's WPD PnP id (disk&ven_...&prod_...&rev_...), unlike the
+		// serial, which many sticks do not report at all. The revision is
+		// optional — a key without it still nests inside the id's segment.
+		USIZE vendorLength = DescriptorTextLength(descriptorBuffer, returned, descriptor.VendorIdOffset);
+		USIZE productLength = DescriptorTextLength(descriptorBuffer, returned, descriptor.ProductIdOffset);
+		if (vendorLength == 0 || productLength == 0)
+		{
+			LOG_DEBUG("WPD skip: %ws: no inquiry identity", root);
+			continue;
+		}
+		CHAR raw[128];
+		USIZE rawLength = 0;
+		rawLength = AppendAscii(Span<CHAR>(raw), rawLength, "VEN", 3);
+		rawLength = AppendAscii(Span<CHAR>(raw), rawLength, (const CHAR *)(descriptorBuffer + descriptor.VendorIdOffset), vendorLength);
+		rawLength = AppendAscii(Span<CHAR>(raw), rawLength, "PROD", 4);
+		rawLength = AppendAscii(Span<CHAR>(raw), rawLength, (const CHAR *)(descriptorBuffer + descriptor.ProductIdOffset), productLength);
+		USIZE revisionLength = DescriptorTextLength(descriptorBuffer, returned, descriptor.ProductRevisionOffset);
+		if (revisionLength != 0)
+		{
+			rawLength = AppendAscii(Span<CHAR>(raw), rawLength, "REV", 3);
+			rawLength = AppendAscii(Span<CHAR>(raw), rawLength, (const CHAR *)(descriptorBuffer + descriptor.ProductRevisionOffset), revisionLength);
+		}
+		WCHAR identity[WPD_SKIP_KEY_CAP];
+		if (NormalizeIdentity(Span<const CHAR>(raw, rawLength), Span<WCHAR>(identity)) >= PORTABLE_IDENTITY_MIN_SERIAL)
+			AddSkipKey(state, identity, StringUtils::Length(identity));
+	}
+}
+
+/// Tallies personas per key and blocks keys whose persona count exceeds
+/// their lettered-volume count (two identical sticks, one with no letter):
+/// the letterless persona is that device's only listing, so skipping by this
+/// key would hide it. Blocked keys skip nothing — a duplicate beats a hidden
+/// device. Every key a persona carries is tallied: a serial-reporting stick's
+/// persona holds both its serial and its identity, and the identity row is
+/// exactly where a letterless same-model twin surfaces.
+static VOID GuardAmbiguousKeys(WpdIteratorState *state)
+{
+	for (UINT32 device = 0; device < state->deviceCount; device++)
+	{
+		for (UINT32 i = 0; i < state->skipKeyCount; i++)
+		{
+			if (KeyInDeviceId(state->deviceIds[device], state->skipKeys[i].text, StringUtils::Length(state->skipKeys[i].text)))
+				state->skipKeys[i].personaCount++;
+		}
+	}
+	for (UINT32 i = 0; i < state->skipKeyCount; i++)
+	{
+		state->skipKeys[i].blocked = state->skipKeys[i].personaCount > state->skipKeys[i].volumeCount;
+		LOG_DEBUG("WPD skip: key %ws volumes=%u personas=%u -> %ws",
+			state->skipKeys[i].text,
+			state->skipKeys[i].volumeCount,
+			state->skipKeys[i].personaCount,
+			state->skipKeys[i].blocked ? L"blocked" : L"safe");
 	}
 }
 
 /// Emits the next root-listing device entry (manager phase).
 static Result<BOOL, Error> NextRootEntry(WpdIteratorState *state, DirectoryEntry &out)
 {
-	if (state->deviceIndex >= state->deviceCount)
-		return Result<BOOL, Error>::Ok(false);
+	while (state->deviceIndex < state->deviceCount)
+	{
+		PCWCHAR deviceId = state->deviceIds[state->deviceIndex++];
 
-	PCWCHAR deviceId = state->deviceIds[state->deviceIndex++];
+		// Same physical stick twice: its volume row (letter + serial) already
+		// covers it — skip the persona. An ambiguous key (more personas than
+		// lettered volumes of that identity) keeps the persona: some of those
+		// personas are letterless devices' only listing.
+		SSIZE key = MatchingSkipKey(state, deviceId);
+		if (key >= 0 && !state->skipKeys[key].blocked)
+		{
+			LOG_DEBUG("WPD skip: persona %ws covered by its volume row", deviceId);
+			continue;
+		}
+		if (key >= 0)
+			LOG_DEBUG("WPD skip: persona %ws kept (ambiguous identity)", deviceId);
 
-	// Same physical stick twice: its volume row (letter + serial) already
-	// covers it — skip the persona.
-	if (MatchesVolumePersona(state, deviceId))
-		return NextRootEntry(state, out);
+		UINT64 token = Djb2::Hash(deviceId);
 
-	UINT64 token = Djb2::Hash(deviceId);
+		WCHAR friendly[128];
+		const DirectoryEntry empty{};
+		out = empty;
+		FormatDeviceName(token, FetchFriendlyName(state->manager, deviceId, Span<WCHAR>(friendly)) ? friendly : nullptr, Span<WCHAR>(out.Name));
 
-	WCHAR friendly[128];
-	const DirectoryEntry empty{};
-	out = empty;
-	FormatDeviceName(token, FetchFriendlyName(state->manager, deviceId, Span<WCHAR>(friendly)) ? friendly : nullptr, Span<WCHAR>(out.Name));
-
-	out.IsDirectory = true;
-	out.IsDrive = true;
-	out.Type = DRIVE_REMOVABLE;
-	out.VolumeSerial = token;
-	return Result<BOOL, Error>::Ok(true);
+		out.IsDirectory = true;
+		out.IsDrive = true;
+		out.Type = DRIVE_REMOVABLE;
+		out.VolumeSerial = token;
+		return Result<BOOL, Error>::Ok(true);
+	}
+	return Result<BOOL, Error>::Ok(false);
 }
 
 /// Emits the next object entry (object phase).
@@ -1004,7 +1153,8 @@ Result<WpdIteratorState *, Error> WPD::BeginRootEnumeration()
 	state->deviceCount = session->deviceCount;
 	session->deviceCount = 0;
 	state->deviceIndex = 0;
-	CollectVolumeSerials(state);
+	CollectVolumeIdentities(state);
+	GuardAmbiguousKeys(state);
 	FreeSession(session);
 	return Result<WpdIteratorState *, Error>::Ok(state);
 }
