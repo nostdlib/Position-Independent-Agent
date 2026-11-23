@@ -124,7 +124,7 @@ Result<VOID, Error> HttpClient::SendPostRequest(PCCHAR host, PCCHAR path, Span<c
 
 	// Convert data.Size() to string
 	CHAR lenStr[16];
-	StringUtils::UIntToStr((UINT32)data.Size(), Span<CHAR>(lenStr));
+	StringUtils::UIntToStr((UINT64)data.Size(), Span<CHAR>(lenStr));
 	ok = ok && writer.WriteString(lenStr) != nullptr;
 	ok = ok && writer.WriteString("\r\nConnection: close\r\n\r\n") != nullptr;
 	if (!ok)
@@ -146,7 +146,10 @@ Result<VOID, Error> HttpClient::SendPostRequest(PCCHAR host, PCCHAR path, Span<c
 		auto bodyResult = Write(data);
 		if (!bodyResult)
 			return Result<VOID, Error>::Err(bodyResult, Error::Http_SendPostFailed);
-		if (bodyResult.Value() != (UINT32)data.Size())
+		// Compare in USIZE: a (UINT32) cast would equate a truncated write of
+		// the low word with full success for bodies past 4 GiB — the request
+		// would advertise its true Content-Length yet ship fewer bytes.
+		if (bodyResult.Value() != data.Size())
 			return Result<VOID, Error>::Err(Error::Http_SendPostFailed);
 	}
 

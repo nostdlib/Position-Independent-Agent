@@ -17,16 +17,23 @@ Every platform uses a different path format internally:
 
 The `NormalizePath` utility converts the runtime's wide-string paths to the platform-native format before passing to syscalls.
 
-### RISC-V 32-bit lseek Workaround
+### 32-bit lseek Workaround
 
-32-bit `lseek` can only handle offsets up to 2GB. RISC-V 32-bit Linux uses `sys_llseek` with **5 arguments** — the 64-bit offset is split into high/low 32-bit halves, and the result is written to a pointer:
+On 32-bit targets the plain `lseek` syscall takes a pointer-sized `off_t`, so file positions past 4 GiB wrap (and downloads of larger files never terminate). Linux 32-bit architectures therefore use `sys_llseek` with **5 arguments** — the 64-bit offset is split into high/low 32-bit halves, and the result is written to a pointer:
 
 ```c
 // sys_llseek(fd, offset_high, offset_low, &result, whence)
-System::Call(SYS_LLSEEK, fd, 0, offset, (USIZE)&result64, whence);
+System::Call(SYS_LSEEK64, fd, offsetHigh, offsetLow, (USIZE)&result64, whence);
 ```
 
-This is only needed on RISC-V 32 — other 32-bit architectures (i386, ARMv7-A) have `lseek` that's sufficient for the file sizes this runtime handles.
+- **riscv32**: `SYS_LSEEK64` = 62 — the generic syscall table's `lseek` already *is* `sys_llseek`
+- **i386 / armv7a**: `SYS_LSEEK64` = 140 (`SYS_LSEEK` 19 takes a 32-bit `off_t`)
+- **mips (o32)**: `SYS_LSEEK64` = 4140 (`SYS_LSEEK` 4019 takes a 32-bit `off_t`)
+- **FreeBSD i386**: `SYS_LSEEK` (478) takes the 64-bit `off_t` split across two consecutive words — `(fd, offset_lo, offset_hi, whence)` — a framing validated by CI's FreeBSD VM; the position comes back in `eax`, so offsets in 2–4 GiB read back as negative and 4 GiB+ wraps on this target (a `edx:eax`-capturing variant was attempted and broke every seek in CI — needs a real FreeBSD i386 system to develop against)
+- **64-bit targets**: plain 3-argument `lseek` (`off_t` is already 64-bit)
+- **macOS / Solaris i386**: no 64-bit `llseek` variant exists in their syscall tables, so the plain call (and its 32-bit `off_t` limit) remains
+
+The `File` API is 64-bit throughout (`SetOffset(UINT64)`, `GetOffset() → UINT64`, `GetSize() → UINT64`) precisely so >4 GiB transfers behave identically on 32- and 64-bit agents — on every platform except macOS/Solaris i386 and FreeBSD i386, whose kernel ABIs cannot carry a full 64-bit seek/position (FreeBSD i386 framing is CI-validated only to main's coverage).
 
 ## Directory Enumeration Internals
 

@@ -227,6 +227,7 @@ INT32 start()
             LOG_ERROR("Connection attempt #%u failed: unable to open WebSocket to %s", connectionAttempt, (PCCHAR)urlBuffer);
             return 0;
         }
+        
         WebSocketClient &wsClient = createResult.Value();
         LOG_INFO("WebSocket connection established (attempt #%u)", connectionAttempt);
 
