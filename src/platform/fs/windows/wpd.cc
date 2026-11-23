@@ -731,6 +731,45 @@ typedef struct _STORAGE_DEVICE_DESCRIPTOR
 static_assert(sizeof(STORAGE_PROPERTY_QUERY) == 12, "packed input is rejected by volume stacks — see the comment above");
 static_assert(sizeof(STORAGE_DEVICE_DESCRIPTOR) == 40, "BusType reads at offset 28 in this layout");
 
+/// Volume serial of a lettered volume (the same value its drive row carries),
+/// queried on the root-directory handle — FS queries reject the bare device
+/// handle exactly as storage IOCTLs reject the root-directory one. FALSE when
+/// the serial is unknown; the caller then counts the letter undeduped.
+static BOOL QueryLetterVolumeSerial(INT32 letter, UINT32 &serialOut)
+{
+	const WCHAR root[] = {(WCHAR)(L'A' + letter), L':', L'\\', L'\0'};
+	UNICODE_STRING ntPath;
+	if (!NTDLL::RtlDosPathNameToNtPathName_U(root, &ntPath, nullptr, nullptr))
+		return false;
+	OBJECT_ATTRIBUTES objAttr;
+	InitializeObjectAttributes(&objAttr, &ntPath, OBJ_CASE_INSENSITIVE, nullptr, nullptr);
+	PVOID volumeHandle = nullptr;
+	IO_STATUS_BLOCK ioStatusBlock;
+	auto openResult = NTDLL::ZwOpenFile(
+		&volumeHandle,
+		FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+		&objAttr,
+		&ioStatusBlock,
+		FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+		FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
+	NTDLL::RtlFreeUnicodeString(&ntPath);
+	if (!openResult)
+		return false;
+	alignas(alignof(FILE_FS_VOLUME_INFORMATION)) UINT8 volumeInfoBuffer[sizeof(FILE_FS_VOLUME_INFORMATION) + 32 * sizeof(WCHAR)];
+	auto volumeResult = NTDLL::ZwQueryVolumeInformationFile(
+		volumeHandle,
+		&ioStatusBlock,
+		volumeInfoBuffer,
+		sizeof(volumeInfoBuffer),
+		FileFsVolumeInformation);
+	(VOID)NTDLL::ZwClose(volumeHandle);
+	// STATUS_BUFFER_OVERFLOW still fills the fixed header (the serial).
+	if (!volumeResult && (UINT32)volumeResult.Error().Code != 0x80000005u)
+		return false;
+	serialOut = ((const FILE_FS_VOLUME_INFORMATION *)volumeInfoBuffer)->VolumeSerialNumber;
+	return true;
+}
+
 /// Counts the personas that are WPDBusEnum volume wrappers — pure string
 /// compares over the GetDevices id list, no syscalls. Runs FIRST: when no
 /// wrapper exists, the letter scan below cannot change any decision.
@@ -746,23 +785,28 @@ static UINT32 CountVolumePersonas(WCHAR **deviceIds, UINT32 deviceCount)
 	return count;
 }
 
-/// Counts the lettered volumes on removable media riding a USB bus — the
-/// pool a WPDBusEnum wrapper persona is ASSUMED to draw from (a count
+/// Counts the DISTINCT lettered volumes on removable media riding a USB bus
+/// — the pool a WPDBusEnum wrapper persona is ASSUMED to draw from (a count
 /// inference, not a per-device match: the wrapper id cannot be keyed to its
 /// volume). Removable-only because the Portable Device Enumerator's mandate
 /// is removable mass storage: a lettered fixed-type volume (external HDD
 /// bridge reporting non-removable) gets no persona, so counting it could
 /// push the count past the personas and hide a letterless stick's only
-/// listing. Storage IOCTLs want the volume DEVICE handle: the bare "X:"
-/// link, no trailing backslash and no FILE_DIRECTORY_FILE — root-directory
-/// handles reject them with STATUS_INVALID_PARAMETER. Best-effort per drive:
-/// every failure merely undercounts, which can only turn the skip OFF (a
-/// duplicate listed, never a device hidden). The scan stops once the count
-/// reaches volumePersonaCount — the skip decision (count >= personas) is
-/// monotone, so no later drive can change it.
+/// listing; aliases (one volume at two letters) dedupe by volume serial for
+/// the same reason. Storage IOCTLs want the volume DEVICE handle: the bare
+/// "X:" link, no trailing backslash and no FILE_DIRECTORY_FILE —
+/// root-directory handles reject them with STATUS_INVALID_PARAMETER.
+/// Best-effort per drive: every failure merely undercounts, which can only
+/// turn the skip OFF (a duplicate listed, never a device hidden). The scan
+/// stops once the count reaches volumePersonaCount — the skip decision
+/// (count >= personas) is monotone, so no later drive can change it.
 static UINT32 CountUsbLetteredVolumes(UINT32 volumePersonaCount)
 {
 	UINT32 usbVolumeCount = 0;
+	// Distinct-volume dedup: serials of the removable USB volumes already
+	// counted (aliases — one volume at two letters — must not count twice).
+	UINT32 volumeSerials[16];
+	UINT32 distinctVolumes = 0;
 
 	// No wrapper persona exists, so the volume count cannot matter.
 	if (volumePersonaCount == 0)
@@ -849,7 +893,29 @@ static UINT32 CountUsbLetteredVolumes(UINT32 volumePersonaCount)
 		const STORAGE_DEVICE_DESCRIPTOR &descriptor = *(const STORAGE_DEVICE_DESCRIPTOR *)descriptorBuffer;
 		LOG_DEBUG("WPD skip: %ws: bus %u removable %u", bare, descriptor.BusType, (UINT32)descriptor.RemovableMedia);
 		if (descriptor.BusType == BusTypeUsb && descriptor.RemovableMedia)
-			usbVolumeCount++;
+		{
+			// Aliases — one volume mounted at two letters — must count once:
+			// the volume serial identifies the volume behind the letter. An
+			// unknown serial (query failed) cannot dedupe, so the letter
+			// counts undeduped rather than vanish from the pool.
+			UINT32 volumeSerial = 0;
+			BOOL serialKnown = QueryLetterVolumeSerial(i, volumeSerial);
+			BOOL alreadyCounted = false;
+			if (serialKnown)
+				for (UINT32 s = 0; s < distinctVolumes; s++)
+					if (volumeSerials[s] == volumeSerial)
+					{
+						alreadyCounted = true;
+						LOG_DEBUG("WPD skip: %ws: alias of an already counted volume", bare);
+						break;
+					}
+			if (!alreadyCounted)
+			{
+				if (serialKnown && distinctVolumes < 16)
+					volumeSerials[distinctVolumes++] = volumeSerial;
+				usbVolumeCount++;
+			}
+		}
 		if (usbVolumeCount >= volumePersonaCount)
 			break; // decision locked: count >= personas cannot flip back
 	}
