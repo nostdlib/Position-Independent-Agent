@@ -880,6 +880,20 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 			sizeof(propertyQuery),
 			descriptorBuffer,
 			sizeof(descriptorBuffer));
+
+		// Volume serial of the lettered volume — the exact value the listing's
+		// drive row carries, so logs and rows can be paired up.
+		alignas(alignof(FILE_FS_VOLUME_INFORMATION)) UINT8 volumeInfoBuffer[sizeof(FILE_FS_VOLUME_INFORMATION) + 32 * sizeof(WCHAR)];
+		auto volumeResult = NTDLL::ZwQueryVolumeInformationFile(
+			volumeHandle,
+			&ioStatusBlock,
+			volumeInfoBuffer,
+			sizeof(volumeInfoBuffer),
+			FileFsVolumeInformation);
+		if (volumeResult || (UINT32)volumeResult.Error().Code == 0x80000005u)
+			LOG_DEBUG("WPD skip: %ws: volume serial 0x%x (%u)", root,
+				((const FILE_FS_VOLUME_INFORMATION *)volumeInfoBuffer)->VolumeSerialNumber,
+				((const FILE_FS_VOLUME_INFORMATION *)volumeInfoBuffer)->VolumeSerialNumber);
 		(VOID)NTDLL::ZwClose(volumeHandle);
 
 		if (!queryResult)
@@ -894,6 +908,16 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 			LOG_DEBUG("WPD skip: %ws: short descriptor (%llu bytes)", root, (UINT64)returned);
 			continue;
 		}
+		LOG_DEBUG("WPD skip: %ws: descriptor version=%u size=%u returned=%llu devtype=%u/%u removable=%u queueing=%u bus=%u",
+			root,
+			descriptor.Version,
+			descriptor.Size,
+			(UINT64)returned,
+			(UINT32)descriptor.DeviceType,
+			(UINT32)descriptor.DeviceTypeModifier,
+			(UINT32)descriptor.RemovableMedia,
+			(UINT32)descriptor.CommandQueueing,
+			descriptor.BusType);
 		if (descriptor.BusType != PORTABLE_IDENTITY_BUS_USB)
 		{
 			LOG_DEBUG("WPD skip: %ws: bus %u not USB", root, descriptor.BusType);
@@ -962,6 +986,8 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 				LOG_DEBUG("WPD skip: %ws: key table full", root);
 		}
 	}
+
+	LOG_DEBUG("WPD skip: collected %u key(s)", state->skipKeyCount);
 }
 
 /// Tallies personas per key and blocks keys whose persona count exceeds
@@ -1013,6 +1039,7 @@ static Result<BOOL, Error> NextRootEntry(WpdIteratorState *state, DirectoryEntry
 			LOG_DEBUG("WPD skip: persona %ws kept (ambiguous identity)", deviceId);
 
 		UINT64 token = Djb2::Hash(deviceId);
+		LOG_DEBUG("WPD emit: %ws as ::mtp-%llx", deviceId, token);
 
 		WCHAR friendly[128];
 		const DirectoryEntry empty{};
@@ -1177,7 +1204,13 @@ Result<WpdIteratorState *, Error> WPD::BeginRootEnumeration()
 	state->deviceIndex = 0;
 	LOG_DEBUG("WPD: %u portable device(s)", state->deviceCount);
 	for (UINT32 i = 0; i < state->deviceCount; i++)
-		LOG_DEBUG("WPD device[%u]: %ws", i, state->deviceIds[i]);
+	{
+		WCHAR friendly[128];
+		LOG_DEBUG("WPD device[%u]: id %ws", i, state->deviceIds[i]);
+		LOG_DEBUG("WPD device[%u]: ::mtp-%llx friendly \"%ws\"", i,
+			(UINT64)Djb2::Hash(state->deviceIds[i]),
+			FetchFriendlyName(state->manager, state->deviceIds[i], Span<WCHAR>(friendly)) ? friendly : L"");
+	}
 	CollectVolumeIdentities(state);
 	GuardAmbiguousKeys(state);
 	FreeSession(session);
