@@ -828,6 +828,8 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 	{
 		if ((devMapInfo.Query.DriveMap & (1 << i)) == 0)
 			continue;
+		const WCHAR root[] = {(WCHAR)(L'A' + i), L':', L'\\', L'\0'};
+		LOG_DEBUG("WPD skip: %ws: lettered, type %u", root, (UINT32)devMapInfo.Query.DriveType[i]);
 		// Remote letters would stall the volume open (the same hazard the
 		// volume-serial query documents) and CD-ROMs never carry a WPD
 		// persona; every other type may — large sticks report DRIVE_FIXED.
@@ -837,7 +839,6 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 
 		// Open "X:\" for the storage property query (FILE_READ_ATTRIBUTES is
 		// sufficient; the share flags mirror the volume-serial query).
-		const WCHAR root[] = {(WCHAR)(L'A' + i), L':', L'\\', L'\0'};
 		UNICODE_STRING ntPath;
 		if (!NTDLL::RtlDosPathNameToNtPathName_U(root, &ntPath, nullptr, nullptr))
 		{
@@ -903,12 +904,19 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 		// returned length is the hard stop. Serials shorter than the identity
 		// minimum are noise (SCSI inquiry padding) and never key a skip.
 		USIZE serialLength = DescriptorTextLength(descriptorBuffer, returned, descriptor.SerialNumberOffset);
-		if (serialLength != 0)
+		if (serialLength == 0)
+			LOG_DEBUG("WPD skip: %ws: no descriptor serial", root);
+		else
 		{
 			const CHAR *serial = (const CHAR *)(descriptorBuffer + descriptor.SerialNumberOffset);
 			WCHAR normalized[WPD_SKIP_KEY_CAP];
 			if (NormalizeIdentity(Span<const CHAR>(serial, serialLength), Span<WCHAR>(normalized)) >= PORTABLE_IDENTITY_MIN_SERIAL)
-				AddSkipKey(state, normalized, StringUtils::Length(normalized));
+			{
+				if (AddSkipKey(state, normalized, StringUtils::Length(normalized)))
+					LOG_DEBUG("WPD skip: %ws: serial key %ws", root, normalized);
+				else
+					LOG_DEBUG("WPD skip: %ws: key table full", root);
+			}
 			else
 				LOG_DEBUG("WPD skip: %ws: serial too short to be identity", root);
 		}
@@ -938,7 +946,12 @@ static VOID CollectVolumeIdentities(WpdIteratorState *state)
 		}
 		WCHAR identity[WPD_SKIP_KEY_CAP];
 		if (NormalizeIdentity(Span<const CHAR>(raw, rawLength), Span<WCHAR>(identity)) >= PORTABLE_IDENTITY_MIN_SERIAL)
-			AddSkipKey(state, identity, StringUtils::Length(identity));
+		{
+			if (AddSkipKey(state, identity, StringUtils::Length(identity)))
+				LOG_DEBUG("WPD skip: %ws: identity key %ws", root, identity);
+			else
+				LOG_DEBUG("WPD skip: %ws: key table full", root);
+		}
 	}
 }
 
@@ -1153,6 +1166,9 @@ Result<WpdIteratorState *, Error> WPD::BeginRootEnumeration()
 	state->deviceCount = session->deviceCount;
 	session->deviceCount = 0;
 	state->deviceIndex = 0;
+	LOG_DEBUG("WPD: %u portable device(s)", state->deviceCount);
+	for (UINT32 i = 0; i < state->deviceCount; i++)
+		LOG_DEBUG("WPD device[%u]: %ws", i, state->deviceIds[i]);
 	CollectVolumeIdentities(state);
 	GuardAmbiguousKeys(state);
 	FreeSession(session);

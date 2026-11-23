@@ -77,7 +77,11 @@
       "name": "windows-x86_64-release",
       "displayName": "Windows x86_64 (Release)",
       "inherits": ["base","platform-windows", "arch-x86_64", "type-release"],
-      "binaryDir": "${sourceDir}/build/release/windows/x86_64/cmake"
+      "binaryDir": "${sourceDir}/build/release/windows/x86_64/cmake",
+      "cacheVariables": {
+        "ENABLE_LOGGING": "ON",
+        "PIR_LOG_LEVEL": "DEBUG"
+      }
     },
     {
       "name": "windows-armv7a-debug",
