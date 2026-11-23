@@ -689,11 +689,14 @@ constexpr UINT32 IOCTL_STORAGE_QUERY_PROPERTY_NT = 0x002D1400u;
 /// assumed to ride the USB bus).
 constexpr UINT32 BusTypeUsb = 7;
 
-// ntddstor.h declares both structs under pshpack1 (1-byte packing); the
-// asserts below freeze that ABI so tail padding can never silently shift a
-// field. All consumed offsets coincide with the natural layout — only
-// sizeof differs (9/37 vs 12/40 unpacked).
-#pragma pack(push, 1)
+// Both structs stay at NATURAL layout (12/40), not ntddstor.h's pshpack1
+// declarations (9/37): the volume storage stack rejects a 9-byte
+// IOCTL_STORAGE_QUERY_PROPERTY input with STATUS_INFO_LENGTH_MISMATCH
+// (hardware-verified on Win11 26300), while the 12-byte natural input
+// answers. All consumed field offsets (RemovableMedia at 10, BusType at 28)
+// coincide with the packed layout either way. The asserts below the
+// definitions freeze these sizes so a future repack cannot silently break
+// the query again.
 
 /// Input for IOCTL_STORAGE_QUERY_PROPERTY. Zeroed fields select
 /// StorageDeviceProperty (0) with PropertyStandardQuery (0).
@@ -724,10 +727,8 @@ typedef struct _STORAGE_DEVICE_DESCRIPTOR
 	UINT8 RawDeviceProperties[1]; ///< Variable-length trailing data; the ASCII strings sit in here
 } STORAGE_DEVICE_DESCRIPTOR;
 
-#pragma pack(pop)
-
-static_assert(sizeof(STORAGE_PROPERTY_QUERY) == 9, "must match ntddstor.h 1-byte-packed ABI");
-static_assert(sizeof(STORAGE_DEVICE_DESCRIPTOR) == 37, "must match ntddstor.h 1-byte-packed ABI (BusType at offset 28)");
+static_assert(sizeof(STORAGE_PROPERTY_QUERY) == 12, "packed input is rejected by volume stacks — see the comment above");
+static_assert(sizeof(STORAGE_DEVICE_DESCRIPTOR) == 40, "BusType reads at offset 28 in this layout");
 
 /// TRUE when the device id is a WPDBusEnum volume wrapper: that enumerator
 /// (swd\wpdbusenum) creates devices as alternate faces of mounted
