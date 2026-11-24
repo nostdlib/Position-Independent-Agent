@@ -11,6 +11,7 @@
 #include "lib/runtime.h"
 #include "tests.h"
 #include "platform/fs/posix/portable_roots.h"
+#include "platform/fs/portable_device_id.h"
 
 class PortableDeviceTests
 {
@@ -21,6 +22,7 @@ public:
 
 		LOG_INFO("Running Portable Device Tests...");
 
+		RunTest(allPassed, &TestVolumePersonaIdShapes, "Volume-persona id classification");
 		RunTest(allPassed, &TestRootListingShapes, "Root listing portable-device shapes");
 		RunTest(allPassed, &TestPseudoRootNavigation, "Portable-device pseudo-root navigation");
 		RunTest(allPassed, &TestPseudoRootRead, "Portable-device pseudo-root read");
@@ -80,6 +82,38 @@ private:
 		}
 		rootIter.Close();
 		return found;
+	}
+
+	/// Volume-persona id classification: golden vectors for the WPDBusEnum
+	/// wrapper prefix — including the rig id from the Win11 26300 hardware
+	/// validation and the shapes that must NOT classify (phones on their own
+	/// buses, longer enumerators, truncations). Pure string predicate, runs
+	/// on every host.
+	static BOOL TestVolumePersonaIdShapes()
+	{
+		struct Vector
+		{
+			PCWCHAR id;
+			BOOL expected;
+		};
+		const Vector vectors[] = {
+			{L"\\\\?\\swd#wpdbusenum#{314f0760-df69-11f1-bf1c-a8595fb4fc16}#0000000000100000#{6ac27878-a6fa-4155-ba85-f98f491d4f33}", true},
+			{L"swd#wpdbusenum#{guid}#tail", true},                  // no \\?\ prefix
+			{L"\\\\?\\SWD#WPDBUSENUM#{guid}#tail", true},           // case-insensitive
+			{L"\\\\?\\swd#wpdbusenum", true},                        // ends after the enumerator
+			{L"\\\\?\\usb#vid_04e8&pid_6860#serial#{guid}", false}, // phone on its own bus
+			{L"\\\\?\\swd#wpdbusenumfoo#{guid}#tail", false},       // different enumerator
+			{L"\\\\?\\swd#other#{guid}#tail", false},
+			{L"\\\\?\\swd#wpdbusenu", false},                       // truncated
+			{L"", false},
+		};
+		for (const Vector &vector : vectors)
+			if (IsVolumePersonaId(vector.id) != vector.expected)
+			{
+				LOG_ERROR("IsVolumePersonaId(\"%ws\"): expected %u", vector.id, (UINT32)vector.expected);
+				return false;
+			}
+		return !IsVolumePersonaId(nullptr);
 	}
 
 #if defined(PLATFORM_WINDOWS)
